@@ -24,8 +24,17 @@ class Lead(BaseModel):
     status: LeadStatus
     address: str
     form_data: dict[str, Any]
+    contact_name: str = ""
+    contact_phone: str = ""
+    contact_email: str = ""
+    priority: str = "MEDIUM"
+    urgency_level: str = ""
+    customer_responded: bool = False
+    customer_response_text: str = ""
+    tags: list[str] = []
+    va_notes: str = ""
     created_at: datetime
 
 
 class LeadDetail(Lead):
-    estimate: Optional[Any] = None  # EstimateDetail, avoid circular import
+    estimate: Optional[Any] = None

@@ -3,6 +3,8 @@ from functools import lru_cache
 
 
 class Settings(BaseSettings):
+    database_url: str = "postgresql://localhost/atsystem"
+
     supabase_url: str = ""
     supabase_service_key: str = ""
 

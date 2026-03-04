@@ -8,8 +8,8 @@ import uuid
 import logging
 from datetime import datetime, timezone
 from fastapi import APIRouter, Request, BackgroundTasks, HTTPException
-from supabase import create_client
 
+from db import get_db
 from config import get_settings
 from services.ghl import parse_webhook_payload
 from services.estimator import calculate_estimate
@@ -19,23 +19,31 @@ router = APIRouter()
 logger = logging.getLogger(__name__)
 
 
-def get_supabase():
-    s = get_settings()
-    return create_client(s.supabase_url, s.supabase_service_key)
-
-
 def get_pricing_config(service_type: str) -> dict | None:
     try:
-        sb = get_supabase()
-        res = sb.table("pricing_config").select("config").eq("service_type", service_type).single().execute()
+        db = get_db()
+        res = db.table("pricing_config").select("config").eq("service_type", service_type).single().execute()
         return res.data["config"] if res.data else None
     except Exception:
         return None
 
 
+def get_field_map() -> dict[str, str]:
+    """Load GHL field ID -> our field name mapping from DB."""
+    db = get_db()
+    res = db.table("ghl_field_mapping").select("ghl_field_id,ghl_field_key,our_field_name").not_.is_("our_field_name", "null").execute()
+    mapping = {}
+    for row in (res.data or []):
+        if row.get("our_field_name"):
+            mapping[row["ghl_field_id"]] = row["our_field_name"]
+            if row.get("ghl_field_key"):
+                mapping[row["ghl_field_key"]] = row["our_field_name"]
+    return mapping
+
+
 async def process_lead(lead_id: str, lead_data: dict):
     """Background task: calculate estimate + notify owner."""
-    sb = get_supabase()
+    db = get_db()
     service_type = lead_data["service_type"]
 
     try:
@@ -50,7 +58,6 @@ async def process_lead(lead_id: str, lead_data: dict):
         estimate_id = str(uuid.uuid4())
         now = datetime.now(timezone.utc).isoformat()
 
-        # Store form inputs + computed meta (zone, tiers, approval) together
         inputs_with_meta = {
             **lead_data["form_data"],
             "_zone":            meta.get("zone", ""),
@@ -74,8 +81,8 @@ async def process_lead(lead_id: str, lead_data: dict):
             "created_at":    now,
         }
 
-        sb.table("estimates").insert(estimate_row).execute()
-        sb.table("leads").update({"status": "estimated"}).eq("id", lead_id).execute()
+        db.table("estimates").insert(estimate_row).execute()
+        db.table("leads").update({"status": "estimated"}).eq("id", lead_id).execute()
 
         notify_owner({**estimate_row, "id": estimate_id}, lead_data)
 
@@ -96,32 +103,50 @@ async def ghl_webhook(request: Request, background_tasks: BackgroundTasks):
 
     logger.info(f"GHL webhook received: {list(payload.keys())}")
 
-    lead_data = parse_webhook_payload(payload)
+    field_map = get_field_map()
+    lead_data = parse_webhook_payload(payload, field_map=field_map)
 
     if not lead_data["ghl_contact_id"]:
         logger.warning("GHL webhook missing contactId — ignoring")
         return {"status": "ignored", "reason": "missing contactId"}
 
-    sb = get_supabase()
-    lead_id = str(uuid.uuid4())
-    now = datetime.now(timezone.utc).isoformat()
+    db = get_db()
 
-    lead_row = {
-        "id": lead_id,
-        "ghl_contact_id": lead_data["ghl_contact_id"],
-        "service_type": lead_data["service_type"],
-        "status": "new",
-        "address": lead_data["address"],
-        "form_data": lead_data["form_data"],
-        "created_at": now,
-    }
-
-    try:
-        sb.table("leads").insert(lead_row).execute()
-        logger.info(f"Lead {lead_id} created for contact {lead_data['ghl_contact_id']}")
-    except Exception as e:
-        logger.error(f"Failed to insert lead: {e}")
-        raise HTTPException(status_code=500, detail="Failed to store lead")
+    # Dedup: update existing lead if contact already exists
+    existing = db.table("leads").select("id").eq("ghl_contact_id", lead_data["ghl_contact_id"]).execute()
+    if existing.data:
+        lead_id = existing.data[0]["id"]
+        db.table("leads").update({
+            "form_data": lead_data["form_data"],
+            "address": lead_data["address"],
+            "contact_name": lead_data.get("contact_name", ""),
+            "contact_phone": lead_data.get("contact_phone", ""),
+            "contact_email": lead_data.get("contact_email", ""),
+        }).eq("id", lead_id).execute()
+        logger.info(f"Lead {lead_id} updated for contact {lead_data['ghl_contact_id']}")
+    else:
+        lead_id = str(uuid.uuid4())
+        now = datetime.now(timezone.utc).isoformat()
+        lead_row = {
+            "id": lead_id,
+            "ghl_contact_id": lead_data["ghl_contact_id"],
+            "service_type": lead_data["service_type"],
+            "status": "new",
+            "address": lead_data["address"],
+            "form_data": lead_data["form_data"],
+            "contact_name": lead_data.get("contact_name", ""),
+            "contact_phone": lead_data.get("contact_phone", ""),
+            "contact_email": lead_data.get("contact_email", ""),
+            "priority": lead_data.get("priority", "MEDIUM"),
+            "tags": [],
+            "created_at": now,
+        }
+        try:
+            db.table("leads").insert(lead_row).execute()
+            logger.info(f"Lead {lead_id} created for contact {lead_data['ghl_contact_id']}")
+        except Exception as e:
+            logger.error(f"Failed to insert lead: {e}")
+            raise HTTPException(status_code=500, detail="Failed to store lead")
 
     background_tasks.add_task(process_lead, lead_id, lead_data)
 

@@ -2,14 +2,27 @@
 
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
-import { api, type PricingConfig } from "@/lib/api";
+import { api, type PricingConfig, type FieldMapping } from "@/lib/api";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Copy, Check, RefreshCw } from "lucide-react";
+import { Copy, Check, RefreshCw, Zap } from "lucide-react";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 const WEBHOOK_URL = `${API_URL}/webhook/ghl`;
+
+const OUR_FIELDS = [
+  { value: "", label: "— Not mapped —" },
+  { value: "fence_height", label: "Fence Height" },
+  { value: "fence_age", label: "Fence Age" },
+  { value: "previously_stained", label: "Previously Stained" },
+  { value: "service_timeline", label: "Service Timeline" },
+  { value: "additional_services", label: "Additional Services" },
+  { value: "additional_notes", label: "Additional Notes" },
+  { value: "surface_type", label: "Surface Type" },
+  { value: "square_footage", label: "Square Footage" },
+  { value: "service_type", label: "Service Type" },
+];
 
 function CopyButton({ text }: { text: string }) {
   const [copied, setCopied] = useState(false);
@@ -61,20 +74,47 @@ export default function SettingsPage() {
   const [saving, setSaving] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [syncResult, setSyncResult] = useState<{ imported: number; skipped_duplicate: number; skipped_no_fields: number; total_fetched: number } | null>(null);
+  const [fields, setFields] = useState<FieldMapping[]>([]);
+  const [discoveringFields, setDiscoveringFields] = useState(false);
 
   const syncGHL = async () => {
     setSyncing(true);
     setSyncResult(null);
     try {
-      const res = await fetch(`${API_URL}/api/sync/ghl`, { method: "POST" });
-      if (!res.ok) throw new Error(await res.text());
-      const data = await res.json();
+      const data = await api.syncGHL();
       setSyncResult(data);
       toast.success(`Synced ${data.imported} new leads from GHL`);
-    } catch (e) {
-      toast.error("Sync failed — check that Supabase is configured");
+    } catch {
+      toast.error("Sync failed — check your GHL API key and database connection");
     } finally {
       setSyncing(false);
+    }
+  };
+
+  const discoverFields = async () => {
+    setDiscoveringFields(true);
+    try {
+      const data = await api.discoverFields();
+      setFields(data.fields);
+      toast.success(`Found ${data.total_fields} fields, ${data.auto_mapped} auto-mapped`);
+    } catch {
+      toast.error("Failed to discover fields — check GHL API key");
+    } finally {
+      setDiscoveringFields(false);
+    }
+  };
+
+  const updateMapping = async (ghlFieldId: string, ourFieldName: string | null) => {
+    try {
+      await api.updateFieldMapping(ghlFieldId, ourFieldName);
+      setFields((prev) =>
+        prev.map((f) =>
+          f.ghl_field_id === ghlFieldId ? { ...f, our_field_name: ourFieldName } : f
+        )
+      );
+      toast.success("Mapping updated");
+    } catch {
+      toast.error("Failed to update mapping");
     }
   };
 
@@ -106,15 +146,66 @@ export default function SettingsPage() {
     <div className="space-y-8 max-w-3xl">
       <div>
         <h1 className="text-3xl font-bold tracking-tight">Settings</h1>
-        <p className="text-muted-foreground">Configure pricing, integrations, and notifications</p>
+        <p className="text-muted-foreground">Configure pricing, integrations, and field mapping</p>
       </div>
+
+      {/* GHL Field Mapping */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Zap className="h-5 w-5" /> GHL Field Mapping
+          </CardTitle>
+          <CardDescription>
+            Discover your GHL custom fields and map them to the fields our system expects. This is required for form data to flow correctly.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <Button onClick={discoverFields} disabled={discoveringFields} className="gap-2">
+            <RefreshCw className={`h-4 w-4 ${discoveringFields ? "animate-spin" : ""}`} />
+            {discoveringFields ? "Discovering..." : "Discover GHL Fields"}
+          </Button>
+
+          {fields.length > 0 && (
+            <div className="rounded-lg border overflow-hidden">
+              <table className="w-full text-sm">
+                <thead className="bg-muted/50">
+                  <tr>
+                    <th className="text-left p-3 font-medium">GHL Field Name</th>
+                    <th className="text-left p-3 font-medium">GHL Key</th>
+                    <th className="text-left p-3 font-medium">Maps To</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y">
+                  {fields.map((field) => (
+                    <tr key={field.ghl_field_id} className="hover:bg-muted/30">
+                      <td className="p-3 font-medium">{field.ghl_field_name}</td>
+                      <td className="p-3 font-mono text-xs text-muted-foreground">{field.ghl_field_key}</td>
+                      <td className="p-3">
+                        <select
+                          className="w-full rounded border px-2 py-1 text-sm bg-background"
+                          value={field.our_field_name || ""}
+                          onChange={(e) => updateMapping(field.ghl_field_id, e.target.value || null)}
+                        >
+                          {OUR_FIELDS.map((opt) => (
+                            <option key={opt.value} value={opt.value}>{opt.label}</option>
+                          ))}
+                        </select>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
       {/* GHL Sync */}
       <Card>
         <CardHeader>
           <CardTitle>Import Existing GHL Contacts</CardTitle>
           <CardDescription>
-            Pull your existing GHL contacts who submitted a fence or pressure wash form and import them as leads. Only imports contacts with form fields filled in. Safe to run multiple times — duplicates are skipped.
+            Pull your existing GHL contacts who submitted a fence or pressure wash form and import them as leads. Only imports contacts with form fields filled in. Safe to run multiple times.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -138,7 +229,7 @@ export default function SettingsPage() {
         <CardHeader>
           <CardTitle>GoHighLevel Webhook</CardTitle>
           <CardDescription>
-            Paste this URL into your GHL automation webhook trigger. Use the "Form Submitted" event.
+            Paste this URL into your GHL automation webhook trigger. Use the &ldquo;Form Submitted&rdquo; event.
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -147,7 +238,7 @@ export default function SettingsPage() {
             <CopyButton text={WEBHOOK_URL} />
           </div>
           <p className="text-xs text-muted-foreground mt-2">
-            GHL → Automations → Webhook → Paste URL above → Map form fields
+            GHL &rarr; Automations &rarr; Webhook &rarr; Paste URL above &rarr; Map form fields
           </p>
         </CardContent>
       </Card>
@@ -157,7 +248,7 @@ export default function SettingsPage() {
         <CardHeader>
           <CardTitle>Fence Staining — Pricing Config</CardTitle>
           <CardDescription>
-            Formula: (linear_feet × height × base_rate) × age_factor × prep_factor × urgency_factor
+            Formula: (linear_feet x height x base_rate) x age_factor x prep_factor x urgency_factor
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -172,7 +263,7 @@ export default function SettingsPage() {
               />
             </div>
             <div>
-              <label className="text-sm font-medium block mb-1">Estimate margin (±%)</label>
+              <label className="text-sm font-medium block mb-1">Estimate margin (+/-%)</label>
               <Input
                 type="number"
                 step="0.01"
@@ -185,7 +276,7 @@ export default function SettingsPage() {
           <div>
             <p className="text-sm font-medium mb-2">Age Factors (multiplier)</p>
             <div className="grid grid-cols-3 gap-3">
-              {([["lt5", "< 5 years"], ["yr5_10", "5–10 years"], ["gt10", "> 10 years"]] as const).map(([key, label]) => (
+              {([["lt5", "< 5 years"], ["yr5_10", "5-10 years"], ["gt10", "> 10 years"]] as const).map(([key, label]) => (
                 <div key={key}>
                   <label className="text-xs text-muted-foreground block mb-1">{label}</label>
                   <Input
@@ -238,7 +329,7 @@ export default function SettingsPage() {
         <CardHeader>
           <CardTitle>Pressure Washing — Pricing Config</CardTitle>
           <CardDescription>
-            Formula: (square_footage × base_rate) × surface_factor × condition_factor
+            Formula: (square_footage x base_rate) x surface_factor x condition_factor
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -253,7 +344,7 @@ export default function SettingsPage() {
               />
             </div>
             <div>
-              <label className="text-sm font-medium block mb-1">Estimate margin (±%)</label>
+              <label className="text-sm font-medium block mb-1">Estimate margin (+/-%)</label>
               <Input
                 type="number"
                 step="0.01"

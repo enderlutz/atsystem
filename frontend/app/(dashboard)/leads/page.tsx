@@ -3,12 +3,12 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { api, type Lead, type LeadStatus, type ServiceType } from "@/lib/api";
-import { formatDate, formatCurrency } from "@/lib/utils";
+import { formatDate } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { Search } from "lucide-react";
+import { Search, CheckCircle2, Circle } from "lucide-react";
 
 const statusVariant: Record<LeadStatus, "pending" | "success" | "destructive" | "warning" | "secondary"> = {
   new: "pending",
@@ -16,6 +16,13 @@ const statusVariant: Record<LeadStatus, "pending" | "success" | "destructive" | 
   approved: "success",
   rejected: "destructive",
   sent: "secondary",
+};
+
+const priorityColors: Record<string, string> = {
+  HOT: "bg-red-100 text-red-700",
+  HIGH: "bg-orange-100 text-orange-700",
+  MEDIUM: "bg-blue-100 text-blue-700",
+  LOW: "bg-gray-100 text-gray-600",
 };
 
 const serviceLabel: Record<ServiceType, string> = {
@@ -37,10 +44,22 @@ export default function LeadsPage() {
       .finally(() => setLoading(false));
   }, [serviceFilter]);
 
-  const filtered = leads.filter((l) =>
-    l.address.toLowerCase().includes(search.toLowerCase()) ||
-    l.ghl_contact_id.toLowerCase().includes(search.toLowerCase())
-  );
+  const filtered = leads.filter((l) => {
+    const q = search.toLowerCase();
+    return (
+      l.address.toLowerCase().includes(q) ||
+      l.ghl_contact_id.toLowerCase().includes(q) ||
+      (l.contact_name || "").toLowerCase().includes(q)
+    );
+  });
+
+  // Sort by priority: HOT > HIGH > MEDIUM > LOW
+  const priorityOrder: Record<string, number> = { HOT: 0, HIGH: 1, MEDIUM: 2, LOW: 3 };
+  const sorted = [...filtered].sort((a, b) => {
+    const pa = priorityOrder[a.priority] ?? 2;
+    const pb = priorityOrder[b.priority] ?? 2;
+    return pa - pb;
+  });
 
   return (
     <div className="space-y-6">
@@ -54,7 +73,7 @@ export default function LeadsPage() {
         <div className="relative flex-1 max-w-sm">
           <Search className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
           <Input
-            placeholder="Search by address..."
+            placeholder="Search by name, address..."
             className="pl-9"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
@@ -81,10 +100,10 @@ export default function LeadsPage() {
             <div key={i} className="h-20 rounded-lg bg-muted animate-pulse" />
           ))}
         </div>
-      ) : filtered.length === 0 ? (
+      ) : sorted.length === 0 ? (
         <Card>
           <CardContent className="py-12 text-center text-muted-foreground">
-            No leads found. They'll appear here when GHL sends them.
+            No leads found. They&apos;ll appear here when GHL sends them.
           </CardContent>
         </Card>
       ) : (
@@ -92,21 +111,38 @@ export default function LeadsPage() {
           <table className="w-full text-sm">
             <thead className="bg-muted/50">
               <tr>
-                <th className="text-left p-4 font-medium">Date</th>
+                <th className="text-left p-4 font-medium">Contact</th>
                 <th className="text-left p-4 font-medium">Service</th>
                 <th className="text-left p-4 font-medium">Address</th>
+                <th className="text-left p-4 font-medium">Priority</th>
+                <th className="text-left p-4 font-medium">Responded</th>
                 <th className="text-left p-4 font-medium">Status</th>
                 <th className="text-right p-4 font-medium">Action</th>
               </tr>
             </thead>
             <tbody className="divide-y">
-              {filtered.map((lead) => (
+              {sorted.map((lead) => (
                 <tr key={lead.id} className="hover:bg-muted/30 transition-colors">
-                  <td className="p-4 text-muted-foreground">{formatDate(lead.created_at)}</td>
+                  <td className="p-4">
+                    <div className="font-medium">{lead.contact_name || "—"}</div>
+                    <div className="text-xs text-muted-foreground">{formatDate(lead.created_at)}</div>
+                  </td>
                   <td className="p-4">
                     <span className="font-medium">{serviceLabel[lead.service_type]}</span>
                   </td>
-                  <td className="p-4">{lead.address}</td>
+                  <td className="p-4 max-w-[200px] truncate">{lead.address || "—"}</td>
+                  <td className="p-4">
+                    <span className={`inline-flex px-2 py-0.5 rounded-full text-xs font-medium ${priorityColors[lead.priority] || priorityColors.MEDIUM}`}>
+                      {lead.priority}
+                    </span>
+                  </td>
+                  <td className="p-4">
+                    {lead.customer_responded ? (
+                      <CheckCircle2 className="h-4 w-4 text-green-600" />
+                    ) : (
+                      <Circle className="h-4 w-4 text-gray-300" />
+                    )}
+                  </td>
                   <td className="p-4">
                     <Badge variant={statusVariant[lead.status]}>{lead.status}</Badge>
                   </td>

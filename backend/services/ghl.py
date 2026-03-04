@@ -1,6 +1,7 @@
 """
 GoHighLevel API v2 client.
-Handles fetching contact info and sending messages back to leads.
+Handles fetching contact info, custom fields, conversations,
+and sending messages/notes back to leads.
 """
 from __future__ import annotations
 
@@ -21,32 +22,42 @@ def _headers() -> dict:
     }
 
 
+# ── Contact fetching ──────────────────────────────────────────────────
+
 def get_contacts(location_id: str, max_contacts: int = 500) -> list[dict]:
-    """
-    Fetch existing contacts from a GHL location (paginated, up to max_contacts).
-    Used for the one-time sync of historical leads.
-    """
+    """Fetch existing contacts from a GHL location (paginated)."""
     all_contacts: list[dict] = []
-    limit = 100
-    skip = 0
+    limit = 20
+    params: dict = {"locationId": location_id, "limit": limit}
 
     while len(all_contacts) < max_contacts:
         try:
             r = httpx.get(
                 f"{GHL_BASE}/contacts/",
                 headers=_headers(),
-                params={"locationId": location_id, "limit": limit, "skip": skip},
+                params=params,
                 timeout=30,
             )
             r.raise_for_status()
             data = r.json()
             contacts = data.get("contacts", [])
             all_contacts.extend(contacts)
-            if len(contacts) < limit:
+
+            meta = data.get("meta", {})
+            start_after = meta.get("startAfter")
+            start_after_id = meta.get("startAfterId")
+
+            if not start_after or not start_after_id or len(contacts) < limit:
                 break
-            skip += limit
+
+            params = {
+                "locationId": location_id,
+                "limit": limit,
+                "startAfter": start_after,
+                "startAfterId": start_after_id,
+            }
         except Exception as e:
-            logger.error(f"GHL get_contacts failed (skip={skip}): {e}")
+            logger.error(f"GHL get_contacts failed: {e}")
             break
 
     return all_contacts
@@ -62,8 +73,27 @@ def get_contact(contact_id: str) -> dict | None:
         return None
 
 
+# ── Custom field discovery ────────────────────────────────────────────
+
+def get_custom_fields(location_id: str) -> list[dict]:
+    """Fetch all custom fields defined in the GHL location."""
+    try:
+        r = httpx.get(
+            f"{GHL_BASE}/locations/{location_id}/customFields",
+            headers=_headers(),
+            timeout=15,
+        )
+        r.raise_for_status()
+        return r.json().get("customFields", [])
+    except Exception as e:
+        logger.error(f"GHL get_custom_fields failed: {e}")
+        return []
+
+
+# ── Messaging ─────────────────────────────────────────────────────────
+
 def send_message_to_contact(contact_id: str, message: str) -> bool:
-    """Send an SMS/email message to a contact via GHL."""
+    """Send an SMS message to a contact via GHL."""
     settings = get_settings()
     try:
         payload = {
@@ -96,39 +126,104 @@ def format_estimate_for_client(estimate: dict, service_type: str) -> str:
     )
 
 
-def parse_webhook_payload(payload: dict) -> dict:
+# ── Conversations (response detection) ───────────────────────────────
+
+def get_conversations(contact_id: str) -> list[dict]:
+    """Fetch conversation messages for a contact to detect inbound replies."""
+    try:
+        r = httpx.get(
+            f"{GHL_BASE}/conversations/search",
+            headers=_headers(),
+            params={"contactId": contact_id},
+            timeout=15,
+        )
+        r.raise_for_status()
+        conversations = r.json().get("conversations", [])
+        if not conversations:
+            return []
+
+        conv_id = conversations[0]["id"]
+
+        r2 = httpx.get(
+            f"{GHL_BASE}/conversations/{conv_id}/messages",
+            headers=_headers(),
+            timeout=15,
+        )
+        r2.raise_for_status()
+        messages_data = r2.json().get("messages", {})
+        if isinstance(messages_data, dict):
+            return messages_data.get("messages", [])
+        return messages_data if isinstance(messages_data, list) else []
+    except Exception as e:
+        logger.error(f"GHL get_conversations failed for {contact_id}: {e}")
+        return []
+
+
+# ── Write-back to GHL ────────────────────────────────────────────────
+
+def add_contact_note(contact_id: str, body: str) -> bool:
+    """POST a note to a GHL contact."""
+    try:
+        r = httpx.post(
+            f"{GHL_BASE}/contacts/{contact_id}/notes",
+            headers=_headers(),
+            json={"body": body},
+            timeout=10,
+        )
+        r.raise_for_status()
+        logger.info(f"Note added to GHL contact {contact_id}")
+        return True
+    except Exception as e:
+        logger.error(f"GHL add_note failed: {e}")
+        return False
+
+
+# ── Webhook payload parsing ──────────────────────────────────────────
+
+def resolve_custom_fields(raw_custom: list[dict], field_map: dict[str, str]) -> dict[str, str]:
+    """Translate GHL custom field IDs to our internal field names using the mapping."""
+    result = {}
+    for f in raw_custom:
+        ghl_id = f.get("id", "")
+        ghl_key = f.get("key", "")
+        value = f.get("value", f.get("fieldValue", ""))
+
+        # Try mapping by ID first, then by key, then fall back to key as-is
+        our_name = field_map.get(ghl_id) or field_map.get(ghl_key) or ghl_key
+        if our_name and value and str(value).strip():
+            result[our_name] = str(value).strip()
+    return result
+
+
+def parse_webhook_payload(payload: dict, field_map: dict[str, str] | None = None) -> dict:
     """
-    Normalize a GHL webhook payload into our standard lead format.
-
-    GHL sends contact custom fields in the `customFields` array as:
-      [{"key": "fence_height", "value": "6ft standard"}, ...]
-
-    Field keys match the snake_case names created in GHL:
-      service_timeline, fence_height, fence_age, previously_stained,
-      additional_services, additional_notes
+    Normalize a GHL webhook/contact payload into our standard lead format.
+    If field_map is provided, translates GHL custom field IDs to our names.
     """
     raw_custom = payload.get("customFields", []) or payload.get("customData", {})
 
-    if isinstance(raw_custom, list):
+    if field_map and isinstance(raw_custom, list):
+        form_data = resolve_custom_fields(raw_custom, field_map)
+    elif isinstance(raw_custom, list):
         fields = {
             f.get("key", f.get("id", "")): f.get("value", f.get("fieldValue", ""))
             for f in raw_custom
             if f.get("key") or f.get("id")
         }
+        form_data = {
+            "service_timeline":    fields.get("service_timeline", ""),
+            "fence_height":        fields.get("fence_height", ""),
+            "fence_age":           fields.get("fence_age", ""),
+            "previously_stained":  fields.get("previously_stained", ""),
+            "additional_services": fields.get("additional_services", ""),
+            "additional_notes":    fields.get("additional_notes", ""),
+        }
     elif isinstance(raw_custom, dict):
-        fields = raw_custom
+        form_data = dict(raw_custom)
     else:
-        fields = {}
+        form_data = {}
 
-    # Map GHL field keys → our internal form_data keys
-    form_data: dict = {
-        "service_timeline":    fields.get("service_timeline", ""),
-        "fence_height":        fields.get("fence_height", ""),
-        "fence_age":           fields.get("fence_age", ""),
-        "previously_stained":  fields.get("previously_stained", ""),
-        "additional_services": fields.get("additional_services", ""),
-        "additional_notes":    fields.get("additional_notes", ""),
-    }
+    # Remove empty values
     form_data = {k: v for k, v in form_data.items() if v and str(v).strip()}
 
     # Service type detection
@@ -136,7 +231,7 @@ def parse_webhook_payload(payload: dict) -> dict:
     service_raw = (
         payload.get("serviceType", "")
         or payload.get("service_type", "")
-        or fields.get("service_type", "")
+        or form_data.get("service_type", "")
         or " ".join(tags)
     ).lower()
 

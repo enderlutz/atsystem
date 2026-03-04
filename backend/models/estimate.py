@@ -29,6 +29,7 @@ class Estimate(BaseModel):
     estimate_low: float
     estimate_high: float
     owner_notes: Optional[str] = None
+    additional_services_sent: bool = False
     created_at: datetime
     approved_at: Optional[datetime] = None
     lead: Optional[Any] = None

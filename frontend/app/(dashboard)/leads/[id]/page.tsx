@@ -8,7 +8,8 @@ import { formatDate, formatCurrency } from "@/lib/utils";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { ArrowLeft, MapPin, ExternalLink } from "lucide-react";
+import { Textarea } from "@/components/ui/textarea";
+import { ArrowLeft, MapPin, ExternalLink, Phone, Mail, User, CheckCircle2, MessageSquare, Tag } from "lucide-react";
 
 const GOOGLE_MAPS_KEY = process.env.NEXT_PUBLIC_GOOGLE_MAPS_KEY || "";
 
@@ -16,6 +17,7 @@ const fieldLabels: Record<string, string> = {
   fence_height: "Fence Height",
   fence_age: "Fence Age",
   previously_stained: "Previously Stained",
+  service_timeline: "Timeline / Urgency",
   timeframe: "Timeframe / Urgency",
   additional_services: "Additional Services",
   additional_notes: "Additional Notes",
@@ -29,10 +31,47 @@ export default function LeadDetailPage() {
   const { id } = useParams<{ id: string }>();
   const [lead, setLead] = useState<LeadDetail | null>(null);
   const [loading, setLoading] = useState(true);
+  const [vaNotes, setVaNotes] = useState("");
+  const [savingNotes, setSavingNotes] = useState(false);
+  const [checkingResponse, setCheckingResponse] = useState(false);
+  const [responseResult, setResponseResult] = useState<string | null>(null);
 
   useEffect(() => {
-    api.getLead(id).then(setLead).catch(console.error).finally(() => setLoading(false));
+    api.getLead(id).then((data) => {
+      setLead(data);
+      setVaNotes(data.va_notes || "");
+    }).catch(console.error).finally(() => setLoading(false));
   }, [id]);
+
+  const handleSaveNotes = async () => {
+    if (!lead) return;
+    setSavingNotes(true);
+    try {
+      await api.updateVANotes(lead.id, vaNotes);
+      setLead({ ...lead, va_notes: vaNotes });
+    } catch (e) {
+      console.error(e);
+    }
+    setSavingNotes(false);
+  };
+
+  const handleCheckResponse = async () => {
+    if (!lead) return;
+    setCheckingResponse(true);
+    try {
+      const result = await api.checkResponse(lead.id);
+      if (result.responded) {
+        setResponseResult(result.latest || "Customer responded");
+        setLead({ ...lead, customer_responded: true, customer_response_text: result.latest || "" });
+      } else {
+        setResponseResult("No response yet");
+      }
+    } catch (e) {
+      console.error(e);
+      setResponseResult("Failed to check");
+    }
+    setCheckingResponse(false);
+  };
 
   if (loading) {
     return (
@@ -62,10 +101,41 @@ export default function LeadDetailPage() {
           </Link>
         </Button>
         <div>
-          <h1 className="text-2xl font-bold">{lead.address}</h1>
+          <h1 className="text-2xl font-bold">{lead.contact_name || lead.address}</h1>
           <p className="text-muted-foreground text-sm">Lead #{lead.id.slice(0, 8)} · {formatDate(lead.created_at)}</p>
         </div>
       </div>
+
+      {/* Contact Info Card */}
+      {(lead.contact_name || lead.contact_phone || lead.contact_email) && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base flex items-center gap-2">
+              <User className="h-4 w-4" /> Contact Info
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="flex flex-wrap gap-6">
+            {lead.contact_name && (
+              <div className="flex items-center gap-2 text-sm">
+                <User className="h-4 w-4 text-muted-foreground" />
+                <span className="font-medium">{lead.contact_name}</span>
+              </div>
+            )}
+            {lead.contact_phone && (
+              <a href={`tel:${lead.contact_phone}`} className="flex items-center gap-2 text-sm text-blue-600 hover:underline">
+                <Phone className="h-4 w-4" />
+                {lead.contact_phone}
+              </a>
+            )}
+            {lead.contact_email && (
+              <a href={`mailto:${lead.contact_email}`} className="flex items-center gap-2 text-sm text-blue-600 hover:underline">
+                <Mail className="h-4 w-4" />
+                {lead.contact_email}
+              </a>
+            )}
+          </CardContent>
+        </Card>
+      )}
 
       <div className="grid gap-6 md:grid-cols-2">
         {/* Lead Details */}
@@ -83,9 +153,25 @@ export default function LeadDetailPage() {
               <Badge>{lead.status}</Badge>
             </div>
             <div className="flex justify-between text-sm">
+              <span className="text-muted-foreground">Priority</span>
+              <span className="font-medium">{lead.priority}</span>
+            </div>
+            <div className="flex justify-between text-sm">
               <span className="text-muted-foreground">GHL Contact</span>
               <span className="font-mono text-xs">{lead.ghl_contact_id}</span>
             </div>
+
+            {/* Tags */}
+            {lead.tags && lead.tags.length > 0 && (
+              <div className="flex flex-wrap gap-1 pt-1">
+                {lead.tags.map((tag) => (
+                  <span key={tag} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs bg-blue-100 text-blue-700">
+                    <Tag className="h-3 w-3" /> {tag}
+                  </span>
+                ))}
+              </div>
+            )}
+
             <hr />
             {Object.entries(lead.form_data).map(([key, value]) => (
               <div key={key} className="flex justify-between text-sm">
@@ -135,6 +221,66 @@ export default function LeadDetailPage() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Customer Response Section */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base flex items-center gap-2">
+            <MessageSquare className="h-4 w-4" /> Customer Response
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          {lead.customer_responded ? (
+            <div className="space-y-2">
+              <div className="flex items-center gap-2 text-sm text-green-700">
+                <CheckCircle2 className="h-4 w-4" /> Customer has responded
+              </div>
+              {lead.customer_response_text && (
+                <div className="p-3 rounded-lg bg-muted text-sm">
+                  &ldquo;{lead.customer_response_text}&rdquo;
+                </div>
+              )}
+            </div>
+          ) : (
+            <div className="flex items-center justify-between">
+              <p className="text-sm text-muted-foreground">No response detected yet</p>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={handleCheckResponse}
+                disabled={checkingResponse}
+              >
+                {checkingResponse ? "Checking..." : "Check for Response"}
+              </Button>
+            </div>
+          )}
+          {responseResult && !lead.customer_responded && (
+            <p className="text-sm text-muted-foreground mt-2">{responseResult}</p>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* VA Notes */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">VA Notes</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <Textarea
+            placeholder="Add notes about this lead (syncs to GHL)..."
+            value={vaNotes}
+            onChange={(e) => setVaNotes(e.target.value)}
+            rows={3}
+          />
+          <Button
+            size="sm"
+            onClick={handleSaveNotes}
+            disabled={savingNotes || vaNotes === (lead.va_notes || "")}
+          >
+            {savingNotes ? "Saving..." : "Save Notes"}
+          </Button>
+        </CardContent>
+      </Card>
 
       {/* Estimate Summary */}
       {lead.estimate && (

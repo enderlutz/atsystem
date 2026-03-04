@@ -2,15 +2,12 @@ from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException, Query
 from typing import Optional
-from supabase import create_client
+
+from db import get_db
 from config import get_settings
+from services.ghl import get_conversations, add_contact_note
 
 router = APIRouter(prefix="/api/leads", tags=["leads"])
-
-
-def get_supabase():
-    s = get_settings()
-    return create_client(s.supabase_url, s.supabase_service_key)
 
 
 @router.get("")
@@ -19,8 +16,8 @@ async def list_leads(
     status: Optional[str] = Query(None),
     limit: int = Query(50, le=200),
 ):
-    sb = get_supabase()
-    q = sb.table("leads").select("*").order("created_at", desc=True).limit(limit)
+    db = get_db()
+    q = db.table("leads").select("*").order("created_at", desc=True).limit(limit)
     if service_type:
         q = q.eq("service_type", service_type)
     if status:
@@ -31,15 +28,15 @@ async def list_leads(
 
 @router.get("/{lead_id}")
 async def get_lead(lead_id: str):
-    sb = get_supabase()
-    res = sb.table("leads").select("*").eq("id", lead_id).single().execute()
+    db = get_db()
+    res = db.table("leads").select("*").eq("id", lead_id).single().execute()
     if not res.data:
         raise HTTPException(status_code=404, detail="Lead not found")
 
     lead = res.data
 
     est_res = (
-        sb.table("estimates")
+        db.table("estimates")
         .select("*")
         .eq("lead_id", lead_id)
         .order("created_at", desc=True)
@@ -50,3 +47,63 @@ async def get_lead(lead_id: str):
         lead["estimate"] = est_res.data[0]
 
     return lead
+
+
+@router.post("/{lead_id}/check-response")
+async def check_customer_response(lead_id: str):
+    """Check GHL conversations for inbound messages from this contact."""
+    db = get_db()
+    lead_res = db.table("leads").select("*").eq("id", lead_id).single().execute()
+    if not lead_res.data:
+        raise HTTPException(status_code=404, detail="Lead not found")
+
+    contact_id = lead_res.data["ghl_contact_id"]
+    messages = get_conversations(contact_id)
+
+    inbound = [m for m in messages if m.get("direction") == "inbound"]
+
+    if inbound:
+        latest = inbound[-1]
+        response_text = latest.get("body", latest.get("message", ""))
+
+        existing_tags = lead_res.data.get("tags") or []
+        if not isinstance(existing_tags, list):
+            existing_tags = []
+        if "estimate_needed" not in existing_tags:
+            existing_tags.append("estimate_needed")
+
+        db.table("leads").update({
+            "customer_responded": True,
+            "customer_response_text": response_text,
+            "tags": existing_tags,
+        }).eq("id", lead_id).execute()
+
+        return {"responded": True, "message_count": len(inbound), "latest": response_text}
+
+    return {"responded": False, "message_count": 0}
+
+
+@router.put("/{lead_id}/notes")
+async def update_va_notes(lead_id: str, body: dict):
+    """VA updates notes on a lead. Also syncs to GHL contact notes."""
+    db = get_db()
+    lead_res = db.table("leads").select("*").eq("id", lead_id).single().execute()
+    if not lead_res.data:
+        raise HTTPException(status_code=404, detail="Lead not found")
+
+    va_notes = body.get("va_notes", "")
+    db.table("leads").update({"va_notes": va_notes}).eq("id", lead_id).execute()
+
+    contact_id = lead_res.data["ghl_contact_id"]
+    if contact_id:
+        add_contact_note(contact_id, f"[Dashboard VA Notes] {va_notes}")
+
+    return {"status": "updated"}
+
+
+@router.put("/{lead_id}/tags")
+async def update_lead_tags(lead_id: str, body: dict):
+    """Update tags on a lead."""
+    db = get_db()
+    db.table("leads").update({"tags": body.get("tags", [])}).eq("id", lead_id).execute()
+    return {"status": "updated"}

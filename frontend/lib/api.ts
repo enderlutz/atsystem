@@ -17,6 +17,18 @@ export const api = {
   getLeads: (params?: string) =>
     request<Lead[]>(`/api/leads${params ? `?${params}` : ""}`),
   getLead: (id: string) => request<LeadDetail>(`/api/leads/${id}`),
+  checkResponse: (leadId: string) =>
+    request<ResponseCheck>(`/api/leads/${leadId}/check-response`, { method: "POST" }),
+  updateVANotes: (leadId: string, notes: string) =>
+    request<{ status: string }>(`/api/leads/${leadId}/notes`, {
+      method: "PUT",
+      body: JSON.stringify({ va_notes: notes }),
+    }),
+  updateLeadTags: (leadId: string, tags: string[]) =>
+    request<{ status: string }>(`/api/leads/${leadId}/tags`, {
+      method: "PUT",
+      body: JSON.stringify({ tags }),
+    }),
 
   // Estimates
   getEstimates: (params?: string) =>
@@ -34,6 +46,10 @@ export const api = {
       method: "PUT",
       body: JSON.stringify({ estimate_low: low, estimate_high: high, owner_notes: notes }),
     }),
+  markAdditionalServicesSent: (estimateId: string) =>
+    request<{ status: string }>(`/api/estimates/${estimateId}/additional-services-sent`, {
+      method: "POST",
+    }),
 
   // Settings
   getPricing: () => request<PricingConfig[]>(`/api/settings/pricing`),
@@ -45,6 +61,16 @@ export const api = {
 
   // Stats
   getStats: () => request<DashboardStats>(`/api/stats`),
+
+  // GHL Sync
+  syncGHL: () => request<SyncResult>("/api/sync/ghl", { method: "POST" }),
+  previewGHL: () => request<SyncPreview>("/api/sync/ghl/preview"),
+  discoverFields: () => request<FieldDiscovery>("/api/sync/ghl/fields"),
+  updateFieldMapping: (ghlFieldId: string, ourFieldName: string | null) =>
+    request<{ status: string }>(`/api/sync/ghl/fields/${ghlFieldId}`, {
+      method: "PUT",
+      body: JSON.stringify({ our_field_name: ourFieldName }),
+    }),
 };
 
 // --- Types ---
@@ -58,6 +84,15 @@ export interface Lead {
   service_type: ServiceType;
   status: LeadStatus;
   address: string;
+  contact_name: string;
+  contact_phone: string;
+  contact_email: string;
+  priority: string;
+  urgency_level: string;
+  customer_responded: boolean;
+  customer_response_text: string;
+  tags: string[];
+  va_notes: string;
   created_at: string;
   form_data: Record<string, string>;
 }
@@ -74,6 +109,7 @@ export interface Estimate {
   estimate_low: number;
   estimate_high: number;
   owner_notes: string | null;
+  additional_services_sent: boolean;
   created_at: string;
   approved_at: string | null;
   lead?: Lead;
@@ -101,4 +137,40 @@ export interface DashboardStats {
   leads_this_week: number;
   approved_this_month: number;
   revenue_estimate_this_month: number;
+}
+
+export interface SyncResult {
+  status: string;
+  total_fetched: number;
+  imported: number;
+  skipped_duplicate: number;
+  skipped_no_fields: number;
+  errors: number;
+}
+
+export interface SyncPreview {
+  status: string;
+  total_contacts: number;
+  with_form_fields: number;
+  sample_names: string[];
+}
+
+export interface FieldDiscovery {
+  status: string;
+  total_fields: number;
+  fields: FieldMapping[];
+  auto_mapped: number;
+}
+
+export interface FieldMapping {
+  ghl_field_id: string;
+  ghl_field_key: string;
+  ghl_field_name: string;
+  our_field_name: string | null;
+}
+
+export interface ResponseCheck {
+  responded: boolean;
+  message_count: number;
+  latest?: string;
 }
