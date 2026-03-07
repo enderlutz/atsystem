@@ -41,6 +41,19 @@ def get_field_map() -> dict[str, str]:
     return mapping
 
 
+def _build_inputs_with_meta(form_data: dict, meta: dict) -> dict:
+    return {
+        **form_data,
+        "_zone":            meta.get("zone", ""),
+        "_sqft":            meta.get("sqft", 0),
+        "_tiers":           meta.get("tiers", {}),
+        "_approval_status": meta.get("approval_status", ""),
+        "_approval_reason": meta.get("approval_reason", ""),
+        "_priority":        meta.get("priority", ""),
+        "_has_addons":      meta.get("has_addons", False),
+    }
+
+
 async def process_lead(lead_id: str, lead_data: dict):
     """Background task: calculate estimate + notify owner."""
     db = get_db()
@@ -58,23 +71,12 @@ async def process_lead(lead_id: str, lead_data: dict):
         estimate_id = str(uuid.uuid4())
         now = datetime.now(timezone.utc).isoformat()
 
-        inputs_with_meta = {
-            **lead_data["form_data"],
-            "_zone":            meta.get("zone", ""),
-            "_sqft":            meta.get("sqft", 0),
-            "_tiers":           meta.get("tiers", {}),
-            "_approval_status": meta.get("approval_status", ""),
-            "_approval_reason": meta.get("approval_reason", ""),
-            "_priority":        meta.get("priority", ""),
-            "_has_addons":      meta.get("has_addons", False),
-        }
-
         estimate_row = {
             "id":            estimate_id,
             "lead_id":       lead_id,
             "service_type":  service_type,
             "status":        "pending",
-            "inputs":        inputs_with_meta,
+            "inputs":        _build_inputs_with_meta(lead_data["form_data"], meta),
             "breakdown":     [b.model_dump() for b in breakdown],
             "estimate_low":  low,
             "estimate_high": high,
@@ -92,6 +94,52 @@ async def process_lead(lead_id: str, lead_data: dict):
         )
     except Exception as e:
         logger.error(f"Failed to process lead {lead_id}: {e}")
+
+
+async def recalculate_estimate_for_lead(lead_id: str, lead_data: dict):
+    """Re-run the estimator and update the existing pending estimate, if any."""
+    db = get_db()
+    service_type = lead_data["service_type"]
+
+    est_res = (
+        db.table("estimates")
+        .select("id,status")
+        .eq("lead_id", lead_id)
+        .eq("status", "pending")
+        .order("created_at", desc=True)
+        .limit(1)
+        .execute()
+    )
+
+    if not est_res.data:
+        # No pending estimate — create one fresh
+        await process_lead(lead_id, lead_data)
+        return
+
+    estimate_id = est_res.data[0]["id"]
+
+    try:
+        config = get_pricing_config(service_type)
+        low, high, breakdown, meta = calculate_estimate(
+            service_type,
+            lead_data["form_data"],
+            config,
+            zip_code=lead_data.get("zip_code", ""),
+        )
+
+        db.table("estimates").update({
+            "inputs":        _build_inputs_with_meta(lead_data["form_data"], meta),
+            "breakdown":     [b.model_dump() for b in breakdown],
+            "estimate_low":  low,
+            "estimate_high": high,
+        }).eq("id", estimate_id).execute()
+
+        logger.info(
+            f"Recalculated estimate {estimate_id} for lead {lead_id}: "
+            f"${low}–${high} | zone={meta.get('zone')} | status={meta.get('approval_status')}"
+        )
+    except Exception as e:
+        logger.error(f"Failed to recalculate estimate for lead {lead_id}: {e}")
 
 
 @router.post("/webhook/ghl")

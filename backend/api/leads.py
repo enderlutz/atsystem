@@ -17,7 +17,7 @@ async def list_leads(
     limit: int = Query(50, le=200),
 ):
     db = get_db()
-    q = db.table("leads").select("*").order("created_at", desc=True).limit(limit)
+    q = db.table("leads").select("*").eq("archived", False).order("created_at", desc=True).limit(limit)
     if service_type:
         q = q.eq("service_type", service_type)
     if status:
@@ -107,3 +107,37 @@ async def update_lead_tags(lead_id: str, body: dict):
     db = get_db()
     db.table("leads").update({"tags": body.get("tags", [])}).eq("id", lead_id).execute()
     return {"status": "updated"}
+
+
+@router.put("/{lead_id}/form-data")
+async def update_lead_form_data(lead_id: str, body: dict):
+    """VA updates estimate inputs (linear feet, fence height, age, etc.) and recalculates."""
+    db = get_db()
+    lead_res = db.table("leads").select("*").eq("id", lead_id).single().execute()
+    if not lead_res.data:
+        raise HTTPException(status_code=404, detail="Lead not found")
+
+    lead = lead_res.data
+    merged = {**(lead.get("form_data") or {}), **body.get("form_data", {})}
+    db.table("leads").update({"form_data": merged}).eq("id", lead_id).execute()
+
+    from api.webhooks import recalculate_estimate_for_lead
+    lead_data = {
+        "service_type": lead["service_type"],
+        "form_data": merged,
+        "zip_code": merged.get("zip_code", ""),
+        "ghl_contact_id": lead.get("ghl_contact_id", ""),
+    }
+    await recalculate_estimate_for_lead(lead_id, lead_data)
+
+    return await get_lead(lead_id)
+
+
+@router.post("/archive-all")
+async def archive_all_leads():
+    """Archive all current leads so they're hidden from the dashboard (not deleted)."""
+    db = get_db()
+    count_res = db.table("leads").select("id").eq("archived", False).execute()
+    count = len(count_res.data or [])
+    db.table("leads").update({"archived": True}).eq("archived", False).execute()
+    return {"status": "archived", "count": count}

@@ -29,6 +29,13 @@ export const api = {
       method: "PUT",
       body: JSON.stringify({ tags }),
     }),
+  updateLeadFormData: (leadId: string, formData: Record<string, string | number | boolean | string[]>) =>
+    request<LeadDetail>(`/api/leads/${leadId}/form-data`, {
+      method: "PUT",
+      body: JSON.stringify({ form_data: formData }),
+    }),
+  archiveAllLeads: () =>
+    request<{ status: string; count: number }>("/api/leads/archive-all", { method: "POST" }),
 
   // Estimates
   getEstimates: (params?: string) =>
@@ -64,6 +71,8 @@ export const api = {
 
   // GHL Sync
   syncGHL: () => request<SyncResult>("/api/sync/ghl", { method: "POST" }),
+  syncPipeline: () => request<PipelineSyncResult>("/api/sync/ghl/pipeline", { method: "POST" }),
+  getSyncStatus: () => request<SyncStatus>("/api/sync/status"),
   previewGHL: () => request<SyncPreview>("/api/sync/ghl/preview"),
   discoverFields: () => request<FieldDiscovery>("/api/sync/ghl/fields"),
   updateFieldMapping: (ghlFieldId: string, ourFieldName: string | null) =>
@@ -113,6 +122,7 @@ export interface Estimate {
   created_at: string;
   approved_at: string | null;
   lead?: Lead;
+  inputs?: Record<string, unknown>;
 }
 
 export interface EstimateDetail extends Estimate {
@@ -173,4 +183,18 @@ export interface ResponseCheck {
   responded: boolean;
   message_count: number;
   latest?: string;
+}
+
+export interface PipelineSyncResult {
+  status: string;
+  pipeline: string;
+  stages_synced: string[];
+  imported: number;
+  updated: number;
+  errors: number;
+}
+
+export interface SyncStatus {
+  last_sync_at: string | null;
+  status: string;
 }

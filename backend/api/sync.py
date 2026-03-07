@@ -11,8 +11,11 @@ from fastapi import APIRouter, BackgroundTasks
 
 from db import get_db
 from config import get_settings
-from services.ghl import get_contacts, get_custom_fields, parse_webhook_payload
-from api.webhooks import get_pricing_config, process_lead, get_field_map
+from services.ghl import (
+    get_contacts, get_contact, get_custom_fields, parse_webhook_payload,
+    get_pipelines, get_opportunities,
+)
+from api.webhooks import get_pricing_config, process_lead, get_field_map, recalculate_estimate_for_lead
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -98,6 +101,189 @@ async def sync_ghl_contacts(background_tasks: BackgroundTasks):
         "skipped_no_fields":  skipped_no_fields,
         "errors":             errors,
     }
+
+
+FENCE_PIPELINE_NAME = "FENCE STAINING NEW AUTOMATION FLOW"
+TARGET_STAGES = {
+    "New Lead": "MEDIUM",
+    "HOT LEAD_SEND ESTIMATE": "HOT",
+}
+
+
+async def run_pipeline_sync(background_tasks: BackgroundTasks | None = None) -> dict:
+    """
+    Core pipeline sync — can be called from the API endpoint or the background poller.
+    Imports new leads AND refreshes contact data for existing ones.
+    Re-runs the estimator if form_data changed.
+    """
+    import asyncio
+
+    settings = get_settings()
+    db = get_db()
+
+    # 1. Find the target pipeline
+    pipelines = get_pipelines(settings.ghl_location_id)
+    pipeline = next(
+        (p for p in pipelines if p.get("name", "").strip().upper() == FENCE_PIPELINE_NAME.upper()),
+        None,
+    )
+    if not pipeline:
+        names = [p.get("name") for p in pipelines]
+        return {
+            "status": "error",
+            "message": f"Pipeline '{FENCE_PIPELINE_NAME}' not found. Available: {names}",
+        }
+
+    pipeline_id = pipeline["id"]
+    stage_map = {s["name"]: s["id"] for s in pipeline.get("stages", [])}
+    matched_stages = {name: stage_map[name] for name in TARGET_STAGES if name in stage_map}
+
+    if not matched_stages:
+        return {
+            "status": "error",
+            "message": f"None of the target stages found. Pipeline stages: {list(stage_map.keys())}",
+        }
+
+    # 2. Load existing leads (id, contact_id, tags, form_data)
+    existing_res = db.table("leads").select("id, ghl_contact_id, tags, form_data").eq("archived", False).execute()
+    existing_map = {
+        r["ghl_contact_id"]: {
+            "id": r["id"],
+            "tags": r.get("tags") or [],
+            "form_data": r.get("form_data") or {},
+        }
+        for r in (existing_res.data or [])
+    }
+    existing_ids = set(existing_map.keys())
+
+    field_map = get_field_map()
+    imported = 0
+    updated = 0
+    errors = 0
+    now = datetime.now(timezone.utc).isoformat()
+
+    # 3. Pull opportunities per stage
+    for stage_name, stage_id in matched_stages.items():
+        priority = TARGET_STAGES[stage_name]
+        opps = get_opportunities(settings.ghl_location_id, pipeline_id, stage_id)
+        logger.info(f"Pipeline sync: {len(opps)} opportunities in stage '{stage_name}'")
+
+        for opp in opps:
+            contact_info = opp.get("contact", {})
+            contact_id = contact_info.get("id", "")
+            if not contact_id:
+                continue
+
+            # Always fetch the full contact to get latest data
+            full_contact = get_contact(contact_id)
+            if full_contact:
+                lead_data = parse_webhook_payload(full_contact, field_map=field_map)
+            else:
+                lead_data = {
+                    "ghl_contact_id": contact_id,
+                    "service_type": "fence_staining",
+                    "address": "",
+                    "zip_code": "",
+                    "contact_name": contact_info.get("name", ""),
+                    "contact_phone": contact_info.get("phone", ""),
+                    "contact_email": contact_info.get("email", ""),
+                    "form_data": {},
+                }
+
+            lead_data["form_data"]["pipeline_stage"] = stage_name
+
+            if contact_id in existing_ids:
+                # Refresh contact data + tags + priority for existing leads
+                existing = existing_map[contact_id]
+                lead_id = existing["id"]
+                current_tags = existing["tags"]
+                old_form_data = existing["form_data"]
+                new_form_data = lead_data["form_data"]
+
+                if stage_name not in current_tags:
+                    current_tags = current_tags + [stage_name]
+
+                db.table("leads").update({
+                    "priority":      priority,
+                    "last_synced_at": now,
+                    "tags":          current_tags,
+                    "contact_name":  lead_data.get("contact_name", ""),
+                    "address":       lead_data.get("address", ""),
+                    "contact_phone": lead_data.get("contact_phone", ""),
+                    "contact_email": lead_data.get("contact_email", ""),
+                    "form_data":     new_form_data,
+                }).eq("id", lead_id).execute()
+
+                # Re-run estimator only if form_data meaningfully changed
+                if new_form_data != old_form_data:
+                    lead_data["zip_code"] = lead_data.get("zip_code", "")
+                    if background_tasks:
+                        background_tasks.add_task(recalculate_estimate_for_lead, lead_id, lead_data)
+                    else:
+                        asyncio.create_task(recalculate_estimate_for_lead(lead_id, lead_data))
+
+                updated += 1
+                continue
+
+            # New lead — insert and run estimator
+            lead_id = str(uuid.uuid4())
+            lead_row = {
+                "id":             lead_id,
+                "ghl_contact_id": contact_id,
+                "service_type":   lead_data.get("service_type", "fence_staining"),
+                "status":         "new",
+                "address":        lead_data.get("address", ""),
+                "form_data":      lead_data["form_data"],
+                "contact_name":   lead_data.get("contact_name", ""),
+                "contact_phone":  lead_data.get("contact_phone", ""),
+                "contact_email":  lead_data.get("contact_email", ""),
+                "priority":       priority,
+                "tags":           [stage_name],
+                "created_at":     now,
+            }
+
+            try:
+                db.table("leads").insert(lead_row).execute()
+                if background_tasks:
+                    background_tasks.add_task(process_lead, lead_id, lead_data)
+                else:
+                    asyncio.create_task(process_lead(lead_id, lead_data))
+                existing_ids.add(contact_id)
+                imported += 1
+                logger.info(f"Pipeline sync: imported contact {contact_id} from '{stage_name}'")
+            except Exception as e:
+                logger.error(f"Pipeline sync: failed to import contact {contact_id}: {e}")
+                errors += 1
+
+    # Update sync cursor
+    db.table("sync_state").update({
+        "last_sync_at": now,
+        "updated_at": now,
+    }).eq("id", "ghl_poll").execute()
+
+    return {
+        "status":        "done",
+        "pipeline":      FENCE_PIPELINE_NAME,
+        "stages_synced": list(matched_stages.keys()),
+        "imported":      imported,
+        "updated":       updated,
+        "errors":        errors,
+    }
+
+
+@router.post("/api/sync/ghl/pipeline")
+async def sync_pipeline_leads(background_tasks: BackgroundTasks):
+    """Manually trigger a pipeline sync."""
+    return await run_pipeline_sync(background_tasks)
+
+
+@router.get("/api/sync/status")
+async def get_sync_status():
+    """Return the last time a pipeline sync completed."""
+    db = get_db()
+    res = db.table("sync_state").select("last_sync_at").eq("id", "ghl_poll").single().execute()
+    last_sync_at = res.data["last_sync_at"] if res.data else None
+    return {"last_sync_at": last_sync_at, "status": "ok"}
 
 
 @router.get("/api/sync/ghl/preview")

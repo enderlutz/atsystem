@@ -73,6 +73,63 @@ def get_contact(contact_id: str) -> dict | None:
         return None
 
 
+# ── Pipelines & Opportunities ─────────────────────────────────────────
+
+def get_pipelines(location_id: str) -> list[dict]:
+    """Fetch all opportunity pipelines (with stages) for a location."""
+    try:
+        r = httpx.get(
+            f"{GHL_BASE}/opportunities/pipelines",
+            headers=_headers(),
+            params={"locationId": location_id},
+            timeout=15,
+        )
+        r.raise_for_status()
+        return r.json().get("pipelines", [])
+    except Exception as e:
+        logger.error(f"GHL get_pipelines failed: {e}")
+        return []
+
+
+def get_opportunities(location_id: str, pipeline_id: str, stage_id: str | None = None) -> list[dict]:
+    """Fetch all opportunities from a pipeline, optionally filtered by stage."""
+    all_opps: list[dict] = []
+    page = 1
+
+    while True:
+        params: dict = {
+            "location_id": location_id,
+            "pipeline_id": pipeline_id,
+            "limit": 100,
+            "page": page,
+        }
+        if stage_id:
+            params["pipeline_stage_id"] = stage_id
+
+        try:
+            r = httpx.get(
+                f"{GHL_BASE}/opportunities/search",
+                headers=_headers(),
+                params=params,
+                timeout=30,
+            )
+            r.raise_for_status()
+            data = r.json()
+            opps = data.get("opportunities", [])
+            all_opps.extend(opps)
+
+            meta = data.get("meta", {})
+            total = meta.get("total", 0)
+            if len(all_opps) >= total or len(opps) == 0:
+                break
+            page += 1
+        except Exception as e:
+            logger.error(f"GHL get_opportunities failed (page {page}): {e}")
+            break
+
+    return all_opps
+
+
 # ── Custom field discovery ────────────────────────────────────────────
 
 def get_custom_fields(location_id: str) -> list[dict]:

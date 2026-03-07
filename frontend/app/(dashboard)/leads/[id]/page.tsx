@@ -9,23 +9,45 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { ArrowLeft, MapPin, ExternalLink, Phone, Mail, User, CheckCircle2, MessageSquare, Tag } from "lucide-react";
+import { Input } from "@/components/ui/input";
+import { ArrowLeft, MapPin, ExternalLink, Phone, Mail, User, CheckCircle2, MessageSquare, Tag, Calculator, RefreshCw } from "lucide-react";
 
 const GOOGLE_MAPS_KEY = process.env.NEXT_PUBLIC_GOOGLE_MAPS_KEY || "";
 
-const fieldLabels: Record<string, string> = {
-  fence_height: "Fence Height",
-  fence_age: "Fence Age",
-  previously_stained: "Previously Stained",
-  service_timeline: "Timeline / Urgency",
-  timeframe: "Timeframe / Urgency",
-  additional_services: "Additional Services",
-  additional_notes: "Additional Notes",
-  linear_feet: "Linear Feet (VA Estimate)",
-  surface_type: "Surface Type",
-  square_footage: "Square Footage",
-  condition: "Condition",
+const FENCE_HEIGHT_OPTIONS = [
+  "6ft standard",
+  "6.5ft standard with rot board",
+  "7ft",
+  "8ft",
+  "Not sure",
+];
+
+const FENCE_AGE_OPTIONS = [
+  "Brand new (less than 6 months)",
+  "1-6 years",
+  "6-15 years",
+  "Older than 15 years / Not sure",
+];
+
+const TIMELINE_OPTIONS = [
+  "As soon as possible",
+  "Within 2 weeks",
+  "Sometime this month",
+  "Just planning ahead",
+];
+
+const FENCE_SIDES = {
+  Inside: ["Inside Front", "Inside Left", "Inside Back", "Inside Right"],
+  Outside: ["Outside Front", "Outside Left", "Outside Back", "Outside Right"],
 };
+
+const APPROVAL_CONFIG = {
+  green: { label: "Ready to Send", classes: "bg-green-50 border-green-300 text-green-800", dot: "bg-green-500" },
+  yellow: { label: "Add-ons Pending", classes: "bg-yellow-50 border-yellow-300 text-yellow-800", dot: "bg-yellow-500" },
+  red: { label: "Needs Review", classes: "bg-red-50 border-red-300 text-red-800", dot: "bg-red-500" },
+} as const;
+
+const selectCls = "w-full border border-input rounded-md px-3 py-2 text-sm bg-background focus:outline-none focus:ring-2 focus:ring-ring";
 
 export default function LeadDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -36,12 +58,43 @@ export default function LeadDetailPage() {
   const [checkingResponse, setCheckingResponse] = useState(false);
   const [responseResult, setResponseResult] = useState<string | null>(null);
 
+  // Estimate inputs state
+  const [linearFeet, setLinearFeet] = useState("");
+  const [fenceHeight, setFenceHeight] = useState("6ft standard");
+  const [fenceAge, setFenceAge] = useState("1-6 years");
+  const [previouslyStained, setPreviouslyStained] = useState("No");
+  const [timeline, setTimeline] = useState("");
+  const [additionalServices, setAdditionalServices] = useState("");
+  const [zipCode, setZipCode] = useState("");
+  const [confidencePct, setConfidencePct] = useState("100");
+  const [fenceSides, setFenceSides] = useState<string[]>([]);
+  const [savingEstimate, setSavingEstimate] = useState(false);
+
   useEffect(() => {
     api.getLead(id).then((data) => {
       setLead(data);
       setVaNotes(data.va_notes || "");
+      const fd = data.form_data || {};
+      setLinearFeet(String(fd.linear_feet || ""));
+      setFenceHeight(String(fd.fence_height || "6ft standard"));
+      setFenceAge(String(fd.fence_age || "1-6 years"));
+      setPreviouslyStained(String(fd.previously_stained || "No"));
+      setTimeline(String(fd.service_timeline || fd.timeframe || ""));
+      setAdditionalServices(String(fd.additional_services || ""));
+      setZipCode(String(fd.zip_code || ""));
+      setConfidencePct(String(fd.confident_pct ?? 100));
+      const rawSides = fd.fence_sides;
+      if (Array.isArray(rawSides)) setFenceSides(rawSides);
+      else if (typeof rawSides === "string" && rawSides) setFenceSides(rawSides.split(",").map((s: string) => s.trim()));
+      else setFenceSides([]);
     }).catch(console.error).finally(() => setLoading(false));
   }, [id]);
+
+  const toggleFenceSide = (side: string) => {
+    setFenceSides((prev) =>
+      prev.includes(side) ? prev.filter((s) => s !== side) : [...prev, side]
+    );
+  };
 
   const handleSaveNotes = async () => {
     if (!lead) return;
@@ -73,6 +126,30 @@ export default function LeadDetailPage() {
     setCheckingResponse(false);
   };
 
+  const handleSaveEstimateInputs = async () => {
+    if (!lead) return;
+    setSavingEstimate(true);
+    try {
+      const formData: Record<string, string | number | boolean | string[]> = {
+        fence_height: fenceHeight,
+        fence_age: fenceAge,
+        previously_stained: previouslyStained,
+        additional_services: additionalServices,
+        fence_sides: fenceSides,
+        confident_pct: Number(confidencePct) || 100,
+      };
+      if (linearFeet) formData.linear_feet = Number(linearFeet);
+      if (timeline) formData.service_timeline = timeline;
+      if (zipCode) formData.zip_code = zipCode;
+
+      const updated = await api.updateLeadFormData(lead.id, formData);
+      setLead(updated);
+    } catch (e) {
+      console.error(e);
+    }
+    setSavingEstimate(false);
+  };
+
   if (loading) {
     return (
       <div className="space-y-4">
@@ -92,6 +169,11 @@ export default function LeadDetailPage() {
 
   const mapsLink = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(lead.address)}`;
 
+  const est = lead.estimate;
+  const approvalStatus = (est?.inputs?._approval_status as string) || "";
+  const approvalReason = (est?.inputs?._approval_reason as string) || "";
+  const approvalCfg = APPROVAL_CONFIG[approvalStatus as keyof typeof APPROVAL_CONFIG];
+
   return (
     <div className="space-y-6 max-w-4xl">
       <div className="flex items-center gap-4">
@@ -106,7 +188,7 @@ export default function LeadDetailPage() {
         </div>
       </div>
 
-      {/* Contact Info Card */}
+      {/* Contact Info */}
       {(lead.contact_name || lead.contact_phone || lead.contact_email) && (
         <Card>
           <CardHeader>
@@ -160,8 +242,6 @@ export default function LeadDetailPage() {
               <span className="text-muted-foreground">GHL Contact</span>
               <span className="font-mono text-xs">{lead.ghl_contact_id}</span>
             </div>
-
-            {/* Tags */}
             {lead.tags && lead.tags.length > 0 && (
               <div className="flex flex-wrap gap-1 pt-1">
                 {lead.tags.map((tag) => (
@@ -171,14 +251,6 @@ export default function LeadDetailPage() {
                 ))}
               </div>
             )}
-
-            <hr />
-            {Object.entries(lead.form_data).map(([key, value]) => (
-              <div key={key} className="flex justify-between text-sm">
-                <span className="text-muted-foreground">{fieldLabels[key] ?? key}</span>
-                <span className="font-medium text-right max-w-[200px]">{String(value)}</span>
-              </div>
-            ))}
           </CardContent>
         </Card>
 
@@ -222,7 +294,175 @@ export default function LeadDetailPage() {
         </Card>
       </div>
 
-      {/* Customer Response Section */}
+      {/* Estimate Inputs — VA fills this in */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base flex items-center gap-2">
+            <Calculator className="h-4 w-4" /> Estimate Inputs
+          </CardTitle>
+          <p className="text-xs text-muted-foreground mt-1">
+            Fill in fence details to generate or update the estimate. Measure linear feet from the satellite map above.
+          </p>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="grid grid-cols-3 gap-4">
+            <div className="space-y-1">
+              <label className="text-sm font-medium">Linear Feet</label>
+              <Input
+                type="number"
+                placeholder="e.g. 120"
+                value={linearFeet}
+                onChange={(e) => setLinearFeet(e.target.value)}
+              />
+              <p className="text-xs text-muted-foreground">Measure from satellite map</p>
+            </div>
+            <div className="space-y-1">
+              <label className="text-sm font-medium">Zip Code</label>
+              <Input
+                type="text"
+                placeholder="e.g. 77433"
+                value={zipCode}
+                onChange={(e) => setZipCode(e.target.value)}
+                maxLength={5}
+              />
+              <p className="text-xs text-muted-foreground">Determines pricing zone</p>
+            </div>
+            <div className="space-y-1">
+              <label className="text-sm font-medium">Confidence Score (%)</label>
+              <Input
+                type="number"
+                min={0}
+                max={100}
+                placeholder="e.g. 85"
+                value={confidencePct}
+                onChange={(e) => setConfidencePct(e.target.value)}
+              />
+              <p className="text-xs text-muted-foreground">Below 80% → Needs Review</p>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-1">
+              <label className="text-sm font-medium">Fence Height</label>
+              <select className={selectCls} value={fenceHeight} onChange={(e) => setFenceHeight(e.target.value)}>
+                {FENCE_HEIGHT_OPTIONS.map((o) => <option key={o}>{o}</option>)}
+              </select>
+            </div>
+            <div className="space-y-1">
+              <label className="text-sm font-medium">Fence Age</label>
+              <select className={selectCls} value={fenceAge} onChange={(e) => setFenceAge(e.target.value)}>
+                {FENCE_AGE_OPTIONS.map((o) => <option key={o}>{o}</option>)}
+              </select>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-1">
+              <label className="text-sm font-medium">Previously Stained</label>
+              <select className={selectCls} value={previouslyStained} onChange={(e) => setPreviouslyStained(e.target.value)}>
+                <option>No</option>
+                <option>Yes</option>
+                <option>Not sure</option>
+              </select>
+            </div>
+            <div className="space-y-1">
+              <label className="text-sm font-medium">Service Timeline</label>
+              <select className={selectCls} value={timeline} onChange={(e) => setTimeline(e.target.value)}>
+                <option value="">— select —</option>
+                {TIMELINE_OPTIONS.map((o) => <option key={o}>{o}</option>)}
+              </select>
+            </div>
+          </div>
+
+          {/* Sides of Fence */}
+          <div className="space-y-2">
+            <label className="text-sm font-medium">
+              Sides of Fence
+              {fenceSides.length > 0 && (
+                <span className="ml-2 text-xs font-normal text-muted-foreground">
+                  ({fenceSides.length} selected)
+                </span>
+              )}
+            </label>
+            <div className="grid grid-cols-2 gap-x-6 gap-y-1 rounded-lg border p-3 bg-muted/20">
+              {Object.entries(FENCE_SIDES).map(([group, sides]) => (
+                <div key={group}>
+                  <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1.5">{group}</p>
+                  <div className="space-y-1">
+                    {sides.map((side) => (
+                      <label key={side} className="flex items-center gap-2 text-sm cursor-pointer select-none">
+                        <input
+                          type="checkbox"
+                          className="h-3.5 w-3.5 rounded"
+                          checked={fenceSides.includes(side)}
+                          onChange={() => toggleFenceSide(side)}
+                        />
+                        {side}
+                      </label>
+                    ))}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="space-y-1">
+            <label className="text-sm font-medium">Additional Services</label>
+            <Input
+              placeholder="e.g. gate painting, pressure washing (leave blank if none)"
+              value={additionalServices}
+              onChange={(e) => setAdditionalServices(e.target.value)}
+            />
+          </div>
+
+          <Button onClick={handleSaveEstimateInputs} disabled={savingEstimate} className="gap-2">
+            <RefreshCw className={`h-4 w-4 ${savingEstimate ? "animate-spin" : ""}`} />
+            {savingEstimate ? "Recalculating..." : "Save & Recalculate Estimate"}
+          </Button>
+        </CardContent>
+      </Card>
+
+      {/* Estimate Result */}
+      {est && (
+        <Card>
+          <CardHeader>
+            <div className="flex items-center justify-between">
+              <CardTitle className="text-base">Estimate</CardTitle>
+              <Badge variant={
+                est.status === "approved" ? "success" :
+                est.status === "rejected" ? "destructive" : "pending"
+              }>
+                {est.status}
+              </Badge>
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {approvalCfg && (
+              <div className={`flex items-start gap-3 border rounded-lg px-3 py-2 ${approvalCfg.classes}`}>
+                <span className={`mt-0.5 h-2.5 w-2.5 rounded-full flex-shrink-0 ${approvalCfg.dot}`} />
+                <div>
+                  <p className="font-semibold text-sm">{approvalCfg.label}</p>
+                  {approvalReason && <p className="text-xs mt-0.5 opacity-80">{approvalReason}</p>}
+                </div>
+              </div>
+            )}
+            <div className="flex items-center justify-between">
+              <p className="text-3xl font-bold">
+                {est.estimate_low > 0
+                  ? `${formatCurrency(est.estimate_low)}–${formatCurrency(est.estimate_high)}`
+                  : "—"}
+              </p>
+              <Button asChild>
+                <Link href={`/estimates/${est.id}`}>
+                  {est.status === "pending" ? "Review & Send" : "View Estimate"}
+                </Link>
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Customer Response */}
       <Card>
         <CardHeader>
           <CardTitle className="text-base flex items-center gap-2">
@@ -244,12 +484,7 @@ export default function LeadDetailPage() {
           ) : (
             <div className="flex items-center justify-between">
               <p className="text-sm text-muted-foreground">No response detected yet</p>
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={handleCheckResponse}
-                disabled={checkingResponse}
-              >
+              <Button size="sm" variant="outline" onClick={handleCheckResponse} disabled={checkingResponse}>
                 {checkingResponse ? "Checking..." : "Check for Response"}
               </Button>
             </div>
@@ -281,35 +516,6 @@ export default function LeadDetailPage() {
           </Button>
         </CardContent>
       </Card>
-
-      {/* Estimate Summary */}
-      {lead.estimate && (
-        <Card>
-          <CardHeader>
-            <div className="flex items-center justify-between">
-              <CardTitle className="text-base">Generated Estimate</CardTitle>
-              <Badge variant={
-                lead.estimate.status === "approved" ? "success" :
-                lead.estimate.status === "rejected" ? "destructive" : "pending"
-              }>
-                {lead.estimate.status}
-              </Badge>
-            </div>
-          </CardHeader>
-          <CardContent>
-            <div className="flex items-center justify-between">
-              <p className="text-3xl font-bold">
-                {formatCurrency(lead.estimate.estimate_low)}–{formatCurrency(lead.estimate.estimate_high)}
-              </p>
-              <Button asChild>
-                <Link href={`/estimates/${lead.estimate.id}`}>
-                  {lead.estimate.status === "pending" ? "Review & Approve" : "View Estimate"}
-                </Link>
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
-      )}
     </div>
   );
 }

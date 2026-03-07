@@ -206,7 +206,11 @@ def calculate_fence_staining(
     age_bracket = parse_age_bracket(str(form_data.get("fence_age", "1-6 years")))
     additional_services = str(form_data.get("additional_services", "") or "").strip()
     has_addons = bool(additional_services) and additional_services.lower() not in ("none", "no")
-    confident = bool(form_data.get("confident", True))
+    confident_pct = form_data.get("confident_pct")
+    if confident_pct is not None:
+        confident = float(confident_pct) >= 80
+    else:
+        confident = bool(form_data.get("confident", True))
     priority = parse_priority(str(form_data.get("service_timeline", "")))
 
     # Zone lookup

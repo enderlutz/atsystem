@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
-import { api, type PricingConfig, type FieldMapping } from "@/lib/api";
+import { api, type FieldMapping, type PipelineSyncResult } from "@/lib/api";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -74,8 +74,41 @@ export default function SettingsPage() {
   const [saving, setSaving] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [syncResult, setSyncResult] = useState<{ imported: number; skipped_duplicate: number; skipped_no_fields: number; total_fetched: number } | null>(null);
+  const [archiving, setArchiving] = useState(false);
+  const [syncingPipeline, setSyncingPipeline] = useState(false);
+  const [pipelineResult, setPipelineResult] = useState<PipelineSyncResult | null>(null);
   const [fields, setFields] = useState<FieldMapping[]>([]);
   const [discoveringFields, setDiscoveringFields] = useState(false);
+
+  const archiveAll = async () => {
+    setArchiving(true);
+    try {
+      const data = await api.archiveAllLeads();
+      toast.success(`Archived ${data.count} leads — dashboard is now clear`);
+    } catch {
+      toast.error("Archive failed");
+    } finally {
+      setArchiving(false);
+    }
+  };
+
+  const syncPipeline = async () => {
+    setSyncingPipeline(true);
+    setPipelineResult(null);
+    try {
+      const data = await api.syncPipeline();
+      setPipelineResult(data);
+      if (data.status === "error") {
+        toast.error("Pipeline sync failed — see details below");
+      } else {
+        toast.success(`Pipeline sync complete — ${data.imported} imported, ${data.updated} updated`);
+      }
+    } catch {
+      toast.error("Pipeline sync failed — check your GHL API key");
+    } finally {
+      setSyncingPipeline(false);
+    }
+  };
 
   const syncGHL = async () => {
     setSyncing(true);
@@ -195,6 +228,45 @@ export default function SettingsPage() {
                   ))}
                 </tbody>
               </table>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Pipeline Sync */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Zap className="h-5 w-5 text-orange-500" /> Sync Fence Staining Pipeline
+          </CardTitle>
+          <CardDescription>
+            Pull leads from the <span className="font-medium">FENCE STAINING NEW AUTOMATION FLOW</span> pipeline —
+            stages: <span className="font-medium">New Lead</span> and <span className="font-medium">HOT LEAD_SEND ESTIMATE</span>.
+            New contacts are imported; existing ones have their priority updated.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <Button onClick={syncPipeline} disabled={syncingPipeline} className="gap-2 bg-orange-600 hover:bg-orange-700">
+            <RefreshCw className={`h-4 w-4 ${syncingPipeline ? "animate-spin" : ""}`} />
+            {syncingPipeline ? "Syncing pipeline..." : "Sync Pipeline Leads"}
+          </Button>
+          {pipelineResult && (
+            <div className={`rounded-lg border p-4 text-sm space-y-1 ${pipelineResult.status === "error" ? "bg-red-50 border-red-200" : "bg-muted/50"}`}>
+              {pipelineResult.status === "error" ? (
+                <p className="text-red-700 font-medium">{(pipelineResult as unknown as { message: string }).message}</p>
+              ) : (
+                <>
+                  <p className="font-medium text-muted-foreground">{pipelineResult.pipeline}</p>
+                  <p className="text-xs text-muted-foreground">Stages: {(pipelineResult.stages_synced ?? []).join(", ")}</p>
+                  <div className="pt-1 space-y-1">
+                    <p className="text-green-700"><span className="font-medium">Imported:</span> {pipelineResult.imported} new leads</p>
+                    <p className="text-muted-foreground"><span className="font-medium">Updated:</span> {pipelineResult.updated} existing leads</p>
+                    {pipelineResult.errors > 0 && (
+                      <p className="text-red-600"><span className="font-medium">Errors:</span> {pipelineResult.errors}</p>
+                    )}
+                  </div>
+                </>
+              )}
             </div>
           )}
         </CardContent>
@@ -397,6 +469,22 @@ export default function SettingsPage() {
       <Button onClick={savePricing} disabled={saving} size="lg">
         {saving ? "Saving..." : "Save All Settings"}
       </Button>
+
+      {/* Danger Zone */}
+      <Card className="border-red-200">
+        <CardHeader>
+          <CardTitle className="text-red-700">Danger Zone</CardTitle>
+          <CardDescription>
+            Archive all current leads so the dashboard is cleared. Leads are hidden, not deleted — they can be restored directly in the database if needed.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <Button variant="destructive" onClick={archiveAll} disabled={archiving} className="gap-2">
+            <RefreshCw className={`h-4 w-4 ${archiving ? "animate-spin" : ""}`} />
+            {archiving ? "Archiving..." : "Archive All Leads"}
+          </Button>
+        </CardContent>
+      </Card>
     </div>
   );
 }

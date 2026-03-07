@@ -129,12 +129,15 @@ export default function DashboardPage() {
                     <div className="space-y-1">
                       <div className="flex items-center gap-2">
                         <span className="font-medium text-sm">
-                          {serviceLabel[est.service_type] ?? est.service_type}
+                          {est.lead?.contact_name || (serviceLabel[est.service_type] ?? est.service_type)}
                         </span>
                         <Badge variant={statusVariant[est.status] ?? "outline"}>
                           {est.status}
                         </Badge>
                       </div>
+                      <p className="text-xs text-muted-foreground">
+                        {serviceLabel[est.service_type] ?? est.service_type}
+                      </p>
                       <p className="text-sm text-muted-foreground">
                         {est.lead?.address ?? "Address pending"}
                       </p>
