@@ -6,7 +6,9 @@ import { api, type Lead, type Estimate } from "@/lib/api";
 import { formatDate } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Search, CheckCircle2, Circle, RefreshCw, Flame, LayoutGrid, List, Send } from "lucide-react";
+import { Search, CheckCircle2, Circle, RefreshCw, Flame, LayoutGrid, List, Send, Sparkles } from "lucide-react";
+
+const LAST_VISIT_KEY = "atSystemLastVisitAt";
 
 type KanbanStatus = "gray" | "no_address" | "needs_info" | "green" | "yellow" | "red" | "follow_up";
 
@@ -152,6 +154,9 @@ export default function LeadsPage() {
   const [search, setSearch] = useState("");
   const [activeTab, setActiveTab] = useState<"kanban" | "queue">("kanban");
   const [quickApprovingId, setQuickApprovingId] = useState<string | null>(null);
+  const [newLeadIds, setNewLeadIds] = useState<Set<string>>(new Set());
+  const [newLeadCount, setNewLeadCount] = useState(0);
+  const [newBannerDismissed, setNewBannerDismissed] = useState(false);
 
   const loadData = useCallback(async () => {
     const [leadsData, estimatesData] = await Promise.all([
@@ -164,6 +169,14 @@ export default function LeadsPage() {
       if (!map.has(est.lead_id)) map.set(est.lead_id, est);
     }
     setEstimateMap(map);
+
+    // "New Lead" logic — compare against last visit timestamp
+    const lastVisit = localStorage.getItem(LAST_VISIT_KEY);
+    if (lastVisit) {
+      const newOnes = leadsData.filter((l) => l.created_at > lastVisit);
+      setNewLeadIds(new Set(newOnes.map((l) => l.id)));
+      setNewLeadCount(newOnes.length);
+    }
   }, []);
 
   useEffect(() => {
@@ -180,6 +193,18 @@ export default function LeadsPage() {
     return () => clearInterval(interval);
   }, [loadData]);
 
+  // Stamp the current time after 5 seconds so next visit knows the baseline
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      localStorage.setItem(LAST_VISIT_KEY, new Date().toISOString());
+    }, 5000);
+    return () => {
+      clearTimeout(timer);
+      // Also stamp on unmount (tab close / navigate away)
+      localStorage.setItem(LAST_VISIT_KEY, new Date().toISOString());
+    };
+  }, []);
+
   const handleSyncNow = async () => {
     setSyncing(true);
     try {
@@ -192,6 +217,12 @@ export default function LeadsPage() {
     } finally {
       setSyncing(false);
     }
+  };
+
+  const handleDismissNewBanner = () => {
+    setNewBannerDismissed(true);
+    // Clear the "new" highlights too — they've been seen
+    setNewLeadIds(new Set());
   };
 
   const handleQuickApprove = async (lead: Lead) => {
@@ -294,6 +325,22 @@ export default function LeadsPage() {
         </div>
       )}
 
+      {/* New Leads Banner */}
+      {!newBannerDismissed && newLeadCount > 0 && (
+        <div className="flex items-center gap-3 px-4 py-2.5 rounded-lg bg-blue-50 border border-blue-200 text-blue-800 text-sm font-medium">
+          <Sparkles className="h-4 w-4 text-blue-500 shrink-0" />
+          <span>
+            {newLeadCount} new lead{newLeadCount > 1 ? "s" : ""} added since your last visit
+          </span>
+          <button
+            className="ml-auto text-xs underline underline-offset-2 hover:no-underline"
+            onClick={handleDismissNewBanner}
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
+
       {/* Search + Tabs row */}
       <div className="flex items-center gap-3">
         <div className="relative max-w-sm flex-1">
@@ -374,13 +421,20 @@ export default function LeadsPage() {
                             key={lead.id}
                             className={`bg-white rounded-md border shadow-sm p-3 space-y-2 hover:shadow-md transition-shadow ${
                               isOwnerLead ? "opacity-80" : ""
-                            }`}
+                            } ${newLeadIds.has(lead.id) ? "ring-2 ring-blue-300 ring-offset-1" : ""}`}
                           >
                             {/* Name + priority */}
                             <div className="flex items-start justify-between gap-1">
-                              <span className="font-medium text-sm leading-tight">
-                                {lead.contact_name || "—"}
-                              </span>
+                              <div className="flex items-center gap-1.5 min-w-0">
+                                {newLeadIds.has(lead.id) && (
+                                  <span className="shrink-0 inline-flex px-1.5 py-0.5 rounded-full text-xs font-bold bg-blue-100 text-blue-700">
+                                    NEW
+                                  </span>
+                                )}
+                                <span className="font-medium text-sm leading-tight truncate">
+                                  {lead.contact_name || "—"}
+                                </span>
+                              </div>
                               <div className="flex items-center gap-1 shrink-0">
                                 {isOwnerLead && (
                                   <span className="inline-flex px-1.5 py-0.5 rounded-full text-xs font-medium bg-gray-100 text-gray-500">
@@ -484,8 +538,14 @@ export default function LeadsPage() {
                   key={lead.id}
                   className={`flex items-center gap-3 rounded-lg border bg-white px-4 py-3 shadow-sm hover:shadow-md transition-shadow ${
                     isHot ? "border-l-4 border-l-orange-400" : ""
-                  } ${isOwner ? "opacity-75" : ""}`}
+                  } ${isOwner ? "opacity-75" : ""} ${newLeadIds.has(lead.id) ? "ring-2 ring-blue-300 ring-offset-1" : ""}`}
                 >
+                  {/* NEW badge */}
+                  {newLeadIds.has(lead.id) && (
+                    <span className="shrink-0 inline-flex px-1.5 py-0.5 rounded-full text-xs font-bold bg-blue-100 text-blue-700">
+                      NEW
+                    </span>
+                  )}
                   {/* Priority */}
                   <span className={`shrink-0 inline-flex px-2 py-0.5 rounded-full text-xs font-semibold ${
                     priorityColors[lead.priority] || priorityColors.MEDIUM
