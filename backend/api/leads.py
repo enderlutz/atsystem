@@ -118,6 +118,16 @@ async def update_lead_form_data(lead_id: str, body: dict):
         raise HTTPException(status_code=404, detail="Lead not found")
 
     lead = lead_res.data
+
+    # Validate linear_feet if provided — prevent $0 estimates
+    incoming_lf = body.get("form_data", {}).get("linear_feet")
+    if incoming_lf is not None:
+        try:
+            if float(incoming_lf) <= 0:
+                raise HTTPException(status_code=400, detail="linear_feet must be greater than 0")
+        except (TypeError, ValueError):
+            raise HTTPException(status_code=400, detail="linear_feet must be a valid number")
+
     merged = {**(lead.get("form_data") or {}), **body.get("form_data", {})}
     db.table("leads").update({"form_data": merged}).eq("id", lead_id).execute()
 

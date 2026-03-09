@@ -221,6 +221,19 @@ def calculate_fence_staining(
     # Sqft
     sqft = round(linear_feet * height, 2)
 
+    # Guard: no linear feet entered → can't price
+    if sqft == 0:
+        meta: dict[str, Any] = {
+            "zone": zone, "zone_surcharge": zone_surcharge,
+            "sqft": 0, "height": height, "age_bracket": age_bracket,
+            "has_addons": has_addons, "priority": priority,
+            "approval_status": "red",
+            "approval_reason": "Missing linear feet — VA measurement required",
+            "tiers": {"essential": 0.0, "signature": 0.0, "legacy": 0.0},
+            "size_surcharge_applied": False,
+        }
+        return 0.0, 0.0, [], meta
+
     # Approval status
     approval_status, approval_reason = get_approval_status(
         age_bracket, zone, sqft, has_addons, confident

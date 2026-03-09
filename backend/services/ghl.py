@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import httpx
 import logging
+import re
 from config import get_settings
 
 logger = logging.getLogger(__name__)
@@ -307,6 +308,16 @@ def parse_webhook_payload(payload: dict, field_map: dict[str, str] | None = None
     ]
     address = " ".join(p for p in address_parts if p).strip()
     zip_code = str(payload.get("postalCode", "") or "").strip()[:5]
+
+    # Fallback 1: extract 5-digit zip from full address string
+    if not zip_code and address:
+        m = re.search(r'\b(\d{5})\b', address)
+        if m:
+            zip_code = m.group(1)
+
+    # Fallback 2: check form_data (VA may have entered zip manually via dashboard)
+    if not zip_code:
+        zip_code = str(fields.get("zip_code", "") or "").strip()[:5]
 
     first = payload.get("firstName", "") or payload.get("first_name", "")
     last  = payload.get("lastName", "")  or payload.get("last_name", "")

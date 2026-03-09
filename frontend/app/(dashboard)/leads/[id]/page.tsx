@@ -69,6 +69,8 @@ export default function LeadDetailPage() {
   const [confidencePct, setConfidencePct] = useState("100");
   const [fenceSides, setFenceSides] = useState<string[]>([]);
   const [savingEstimate, setSavingEstimate] = useState(false);
+  const [additionalServicesSent, setAdditionalServicesSent] = useState(false);
+  const [markingAddons, setMarkingAddons] = useState(false);
 
   useEffect(() => {
     api.getLead(id).then((data) => {
@@ -87,6 +89,7 @@ export default function LeadDetailPage() {
       if (Array.isArray(rawSides)) setFenceSides(rawSides);
       else if (typeof rawSides === "string" && rawSides) setFenceSides(rawSides.split(",").map((s: string) => s.trim()));
       else setFenceSides([]);
+      setAdditionalServicesSent(data.estimate?.additional_services_sent ?? false);
     }).catch(console.error).finally(() => setLoading(false));
   }, [id]);
 
@@ -94,6 +97,19 @@ export default function LeadDetailPage() {
     setFenceSides((prev) =>
       prev.includes(side) ? prev.filter((s) => s !== side) : [...prev, side]
     );
+  };
+
+  const handleMarkAddonsSent = async () => {
+    if (!lead?.estimate) return;
+    setMarkingAddons(true);
+    try {
+      await api.markAdditionalServicesSent(lead.estimate.id);
+      setAdditionalServicesSent(true);
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setMarkingAddons(false);
+    }
   };
 
   const handleSaveNotes = async () => {
@@ -458,6 +474,23 @@ export default function LeadDetailPage() {
                 </Link>
               </Button>
             </div>
+            {approvalStatus === "yellow" && (
+              <div className="flex items-center justify-between pt-1 border-t">
+                <p className="text-sm text-muted-foreground">Additional services pricing</p>
+                {additionalServicesSent ? (
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-emerald-100 text-emerald-700">
+                    <CheckCircle2 className="h-3 w-3" /> Sent Additional Proposal
+                  </span>
+                ) : (
+                  <Button size="sm" variant="outline" className="text-xs h-7 px-2"
+                    disabled={markingAddons}
+                    onClick={handleMarkAddonsSent}
+                  >
+                    {markingAddons ? "Saving…" : "Mark Add-ons Sent"}
+                  </Button>
+                )}
+              </div>
+            )}
           </CardContent>
         </Card>
       )}
