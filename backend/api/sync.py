@@ -215,14 +215,15 @@ async def run_pipeline_sync(background_tasks: BackgroundTasks | None = None) -> 
                         merged_form_data[field] = old_form_data[field]
 
                 db.table("leads").update({
-                    "priority":      priority,
-                    "last_synced_at": now,
-                    "tags":          current_tags,
-                    "contact_name":  lead_data.get("contact_name", ""),
-                    "address":       lead_data.get("address", ""),
-                    "contact_phone": lead_data.get("contact_phone", ""),
-                    "contact_email": lead_data.get("contact_email", ""),
-                    "form_data":     merged_form_data,
+                    "priority":           priority,
+                    "last_synced_at":     now,
+                    "tags":               current_tags,
+                    "contact_name":       lead_data.get("contact_name", ""),
+                    "address":            lead_data.get("address", ""),
+                    "contact_phone":      lead_data.get("contact_phone", ""),
+                    "contact_email":      lead_data.get("contact_email", ""),
+                    "form_data":          merged_form_data,
+                    "ghl_opportunity_id": opp.get("id"),
                 }).eq("id", lead_id).execute()
 
                 # Re-run estimator only if GHL-sourced fields changed (not VA fields)
@@ -244,18 +245,19 @@ async def run_pipeline_sync(background_tasks: BackgroundTasks | None = None) -> 
             # New lead — insert and run estimator
             lead_id = str(uuid.uuid4())
             lead_row = {
-                "id":             lead_id,
-                "ghl_contact_id": contact_id,
-                "service_type":   lead_data.get("service_type", "fence_staining"),
-                "status":         "new",
-                "address":        lead_data.get("address", ""),
-                "form_data":      lead_data["form_data"],
-                "contact_name":   lead_data.get("contact_name", ""),
-                "contact_phone":  lead_data.get("contact_phone", ""),
-                "contact_email":  lead_data.get("contact_email", ""),
-                "priority":       priority,
-                "tags":           [stage_name],
-                "created_at":     now,
+                "id":                 lead_id,
+                "ghl_contact_id":     contact_id,
+                "ghl_opportunity_id": opp.get("id"),
+                "service_type":       lead_data.get("service_type", "fence_staining"),
+                "status":             "new",
+                "address":            lead_data.get("address", ""),
+                "form_data":          lead_data["form_data"],
+                "contact_name":       lead_data.get("contact_name", ""),
+                "contact_phone":      lead_data.get("contact_phone", ""),
+                "contact_email":      lead_data.get("contact_email", ""),
+                "priority":           priority,
+                "tags":               [stage_name],
+                "created_at":         now,
             }
 
             try:

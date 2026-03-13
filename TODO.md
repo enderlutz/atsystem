@@ -6,18 +6,19 @@ Items tracked here were intentionally deferred during implementation. Pick these
 
 ## 🔴 BLOCKING LAUNCH — Fix Before Deploy
 
-- [ ] **Add missing Python dependencies** — `google-auth` and `google-api-python-client` are used in `google_calendar.py` but NOT in `requirements.txt`. Fresh `pip install -r requirements.txt` will crash on booking. Add both packages.
-- [ ] **Fix CORS wildcard pattern** — `"https://*.vercel.app"` in `main.py` line 26 doesn't work (Starlette doesn't support glob in allow_origins). Replace with `allow_origin_regex=r"https://.*\.vercel\.app"` or move to env var.
-- [ ] **Add missing `confirmAddress` API method** — Frontend calls `api.confirmAddress(lead.id)` in `leads/[id]/page.tsx` line 229, but this method doesn't exist in `api.ts`. Add it or the address confirmation button crashes.
-- [ ] **Fix `NameError` in webhook parsing** — `parse_webhook_payload()` in `ghl.py` line 358 references `fields.get("zip_code")` but `fields` is only defined in one code branch. Change to `form_data.get("zip_code")` to fix crash on leads with no postal code.
-- [ ] **Update `.env.example`** — Missing 6 env vars: `PROPOSAL_BASE_URL`, `OWNER_GHL_CONTACT_ID`, `GOOGLE_CALENDAR_CREDENTIALS_JSON`, `GOOGLE_CALENDAR_ID`, `GOOGLE_MAPS_API_KEY`, `STRIPE_SECRET_KEY`. Add all to backend/.env.example.
+- [x] **Add missing Python dependencies** — Added `google-auth` and `google-api-python-client` to `requirements.txt`. DONE.
+- [x] **Fix CORS wildcard pattern** — Replaced `"https://*.vercel.app"` with `allow_origin_regex=r"https://.*\.vercel\.app"` in `main.py`. DONE.
+- [x] **Add missing `confirmAddress` API method** — Added `api.confirmAddress()` to `api.ts`. DONE.
+- [x] **Fix `NameError` in webhook parsing** — Changed `fields.get("zip_code")` to `form_data.get("zip_code")` in `ghl.py`. DONE.
+- [x] **Update `.env.example`** — Added all missing vars including `AUTH_SECRET`, `OWNER_GHL_CONTACT_ID`, Google Calendar, Maps, and Stripe keys. DONE.
 - [ ] **Stripe webhook handler** — Payment confirmation relies on redirect only. If redirect fails, booking is lost. Add `POST /webhook/stripe` endpoint that listens for `checkout.session.completed` events as a safety net.
+- [ ] **Remove Stripe bypass mode** — When `STRIPE_SECRET_KEY` is not set, `create-checkout` skips payment and redirects directly with `session_id=bypass`. This lets the full booking flow run in dev/testing. **Before launch:** set `STRIPE_SECRET_KEY` in production env — the bypass is automatically disabled the moment the key is present.
 
 ---
 
 ## ⚠️ SHOULD FIX BEFORE LAUNCH
 
-- [ ] **Schedule booking count bug** — `schedule.py` counts ALL proposals (preview/sent/viewed/booked) toward slot limits, not just booked ones. Filter to `status='booked'` only.
+- [x] **Schedule booking count bug** — Added `.eq("status", "booked")` filter to both public and admin schedule endpoints. DONE.
 - [ ] **Stripe session not tied to proposal** — `book_proposal` verifies payment but doesn't check the session belongs to this specific token. An attacker with one paid session could book any proposal. Store `proposal_id` in Stripe metadata and verify it.
 - [ ] **Settings page loading state** — No loading spinner. User might save default values before API returns, overwriting production pricing. Add loading state.
 - [ ] **Update setup.sh** — Only mentions migration 001 in output. There are 10 migrations (001–010). Update the "Next steps" message.
@@ -27,9 +28,9 @@ Items tracked here were intentionally deferred during implementation. Pick these
 
 ## 🐛 Logic & UX Issues — Critical
 
-- [ ] **Dashboard stats always show `0`** — Frontend calls `GET /api/stats` but backend endpoint is at `GET /api/settings/stats` (router prefix). 404s silently. Fix: change `getStats` in `api.ts` line 92 to hit `/api/settings/stats`.
+- [x] **Dashboard stats always show `0`** — Changed `getStats` to hit `/api/settings/stats` in `api.ts`. DONE.
 - [ ] **Fence staining pricing settings are a dead UI** — Settings page lets you edit base rate, age factors, etc. Values get saved to DB but `estimator.py` never reads them — uses hardcoded `TIER_RATES`. All settings changes have zero effect.
-- [ ] **$0 RED estimates can be approved from Estimate Detail page** — Lead detail blocks RED estimate approval, but estimate detail page only checks `customer_responded`. A $0 estimate (outside zone, 15+ yr fence, missing data) can be sent to customer.
+- [x] **$0 RED estimates can be approved from Estimate Detail page** — Added RED status block + $0 price guard on the approve button in estimate detail page. DONE.
 - [ ] **Step 3 confirmation shows $0 after Stripe redirect** — When customer returns from Stripe, `pkg` local state is null. Confirmation shows: Package "—", Price "$0.00", Remaining Balance "$-50.00". The response has `selected_tier`/`booked_at` but local display variables aren't populated from it.
 
 ---
@@ -40,7 +41,7 @@ Items tracked here were intentionally deferred during implementation. Pick these
 - [ ] **Dragging lead to "Estimate Sent" creates a lie** — Only sets display column. No estimate approved, no proposal created, no message sent. Other team members believe customer received estimate.
 - [ ] **"Sent" badge shown even when GHL delivery fails** — Frontend optimistically shows "Sent to customer" after API success. Backend only sets "sent" if GHL message delivers. If delivery fails, backend stays at "approved" but UI says "sent" until refresh.
 - [ ] **Re-saving estimate inputs re-enables "Approve & Send" button** — If VA re-calculates after estimate was sent, `estimateSent` resets to false. Button reappears, clicking creates duplicate proposal + sends second message.
-- [ ] **"Archive All Leads" has no confirmation dialog** — Single click archives entire pipeline. No "Are you sure?" Recovery requires direct DB access.
+- [x] **"Archive All Leads" has no confirmation dialog** — Added `confirm()` dialog before archiving in `settings/page.tsx`. DONE.
 
 ---
 
@@ -134,7 +135,7 @@ Items tracked here were intentionally deferred during implementation. Pick these
 - [ ] **CrewClock Integration** — On job close, POST to Thomas's API; pull back labor/material costs for profit tracking
 - [ ] **Google Reviews automation** — Auto-send review request after job completion
 - [ ] **Referral system** — Auto-send referral link, track referrals, apply referral discount
-- [ ] **Add authentication** — Dashboard currently has no auth. Add simple password or basic auth before exposing to the internet. (Currently safe only if behind a VPN or private network.)
+- [x] **Add authentication** — JWT-based auth with 3 users (Alan/Thomas admin, VA). Login page, role-based access, sidebar user info + logout. DONE.
 - [ ] **GHL webhook signature validation** — Validate `x-ghl-signature` header on `POST /webhook/ghl` to prevent spoofed payloads.
 
 ---

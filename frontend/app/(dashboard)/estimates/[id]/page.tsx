@@ -321,8 +321,18 @@ export default function EstimateDetailPage() {
           <CardContent className="space-y-4">
             {mode === "view" && (
               <div className="space-y-3">
+                {approvalStatus === "red" && (
+                  <p className="text-sm text-red-700 bg-red-50 border border-red-200 rounded-md px-3 py-2">
+                    This estimate requires Alan&apos;s review before sending. Approval is blocked.
+                  </p>
+                )}
+                {tiers.signature === 0 && approvalStatus !== "red" && (
+                  <p className="text-sm text-orange-700 bg-orange-50 border border-orange-200 rounded-md px-3 py-2">
+                    Estimate price is $0 — recalculate before approving.
+                  </p>
+                )}
                 <div className="flex gap-3 flex-wrap">
-                  <Button onClick={handleApprove} disabled={submitting || (!estimate.lead?.customer_responded && !forceSend)} className="gap-2 bg-green-600 hover:bg-green-700">
+                  <Button onClick={handleApprove} disabled={submitting || approvalStatus === "red" || tiers.signature === 0 || (!estimate.lead?.customer_responded && !forceSend)} className="gap-2 bg-green-600 hover:bg-green-700">
                     <CheckCircle className="h-4 w-4" />
                     {submitting ? "Sending..." : "Approve & Send All Packages"}
                   </Button>

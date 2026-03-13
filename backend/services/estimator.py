@@ -241,8 +241,11 @@ def calculate_fence_staining(
         age_bracket, zone, sqft, has_addons, confident
     )
 
-    # Tier rates — None means 15+ year fence
-    rates = TIER_RATES.get(age_bracket)
+    # Tier rates — use DB config if provided, else fall back to hardcoded defaults
+    tier_rates = (config or {}).get("tier_rates") or TIER_RATES
+    size_surcharge_rate = float((config or {}).get("size_surcharge_rate") or SIZE_SURCHARGE_RATE)
+
+    rates = tier_rates.get(age_bracket)
     if rates is None:
         meta: dict[str, Any] = {
             "zone": zone,
@@ -261,7 +264,7 @@ def calculate_fence_staining(
 
     # Size surcharge
     size_surcharge_applied = SIZE_SURCHARGE_MIN <= sqft <= SIZE_SURCHARGE_MAX
-    size_surcharge = SIZE_SURCHARGE_RATE if size_surcharge_applied else 0.0
+    size_surcharge = size_surcharge_rate if size_surcharge_applied else 0.0
 
     # Calculate all 3 tiers
     def calc_tier(base_rate: float) -> float:

@@ -1,10 +1,11 @@
 """Schedule slots API — public read + admin write for booking availability calendar."""
 from datetime import datetime, timezone
 from typing import Optional
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from db import get_db
+from api.auth import require_admin
 
 router = APIRouter(tags=["schedule"])
 
@@ -63,6 +64,7 @@ async def get_available_dates(month: Optional[str] = None):
     proposals_res = (
         db.table("proposals")
         .select("booked_at")
+        .eq("status", "booked")
         .execute()
     ).data or []
 
@@ -129,6 +131,7 @@ async def get_admin_schedule(month: Optional[str] = None):
     proposals_res = (
         db.table("proposals")
         .select("booked_at")
+        .eq("status", "booked")
         .execute()
     ).data or []
 
@@ -151,7 +154,7 @@ async def get_admin_schedule(month: Optional[str] = None):
 
 
 @router.post("/api/admin/schedule")
-async def upsert_schedule_slot(body: SlotUpsert):
+async def upsert_schedule_slot(body: SlotUpsert, _: dict = Depends(require_admin)):
     """Admin — add or update a booking slot."""
     db = get_db()
 
@@ -180,7 +183,7 @@ async def upsert_schedule_slot(body: SlotUpsert):
 
 
 @router.delete("/api/admin/schedule/{date}")
-async def delete_schedule_slot(date: str):
+async def delete_schedule_slot(date: str, _: dict = Depends(require_admin)):
     """Admin — remove a slot entirely."""
     db = get_db()
     db.table("schedule_slots").delete().eq("date", date).execute()

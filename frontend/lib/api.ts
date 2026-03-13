@@ -1,10 +1,34 @@
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
+function getToken(): string | null {
+  if (typeof document === "undefined") return null;
+  const match = document.cookie.match(/(?:^|;\s*)at_auth=([^;]*)/);
+  return match ? decodeURIComponent(match[1]) : null;
+}
+
+export function getCurrentUser(): { sub: string; name: string; role: string } | null {
+  const token = getToken();
+  if (!token) return null;
+  try {
+    const payload = JSON.parse(atob(token.split(".")[1]));
+    // Check expiry
+    if (payload.exp && payload.exp * 1000 < Date.now()) return null;
+    return payload;
+  } catch {
+    return null;
+  }
+}
+
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
-  const res = await fetch(`${API_URL}${path}`, {
-    headers: { "Content-Type": "application/json" },
-    ...options,
-  });
+  const token = getToken();
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  if (token) headers["Authorization"] = `Bearer ${token}`;
+  const res = await fetch(`${API_URL}${path}`, { headers, ...options });
+  if (res.status === 401) {
+    document.cookie = "at_auth=; max-age=0; path=/";
+    window.location.href = "/login";
+    throw new Error("Unauthorized");
+  }
   if (!res.ok) {
     const err = await res.json().catch(() => ({ detail: res.statusText }));
     throw new Error(err.detail || "Request failed");
@@ -13,6 +37,13 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
 }
 
 export const api = {
+  // Auth
+  login: (username: string, password: string) =>
+    request<{ token: string; user: { username: string; name: string; role: string } }>(
+      "/api/auth/login",
+      { method: "POST", body: JSON.stringify({ username, password }) }
+    ),
+
   // Leads
   getLeads: (params?: string) =>
     request<Lead[]>(`/api/leads${params ? `?${params}` : ""}`),
@@ -89,8 +120,11 @@ export const api = {
       body: JSON.stringify({ service_type, config }),
     }),
 
+  confirmAddress: (leadId: string) =>
+    request<{ status: string }>(`/api/leads/${leadId}/confirm-address`, { method: "POST" }),
+
   // Stats
-  getStats: () => request<DashboardStats>(`/api/stats`),
+  getStats: () => request<DashboardStats>(`/api/settings/stats`),
 
   // GHL Sync
   syncGHL: () => request<SyncResult>("/api/sync/ghl", { method: "POST" }),
@@ -111,9 +145,10 @@ export const api = {
     selected_tier: string;
     booked_at: string;
     contact_email?: string | null;
+    backup_dates?: string[] | null;
     selected_color?: string | null;
     color_mode?: string;
-    hoa_colors?: number[] | null;
+    hoa_colors?: string[] | null;
     custom_color?: string | null;
   }) =>
     request<{ checkout_url: string }>(`/api/proposal/${token}/create-checkout`, {
@@ -124,13 +159,23 @@ export const api = {
     selected_tier: string;
     booked_at: string;
     contact_email?: string | null;
+    backup_dates?: string[] | null;
     selected_color?: string | null;
     color_mode?: string;
-    hoa_colors?: number[] | null;
+    hoa_colors?: string[] | null;
     custom_color?: string | null;
     stripe_session_id?: string | null;
   }) =>
-    request<{ status: string; booked_at: string; selected_tier: string }>(
+    request<{
+      status: string;
+      booked_at: string;
+      selected_tier: string;
+      booked_tier_price: number;
+      color_display: string;
+      backup_dates: string[];
+      deposit_paid: boolean;
+      address: string;
+    }>(
       `/api/proposal/${token}/book`,
       { method: "POST", body: JSON.stringify(data) }
     ),
@@ -279,14 +324,23 @@ export interface SyncStatus {
 
 export interface ProposalData {
   token: string;
-  status: "sent" | "viewed" | "booked";
+  status: "sent" | "viewed" | "booked" | "preview";
   customer_name: string;
   address: string;
+  contact_email?: string;
   service_type?: string;
   previously_stained?: string;
   tiers?: { essential: number; signature: number; legacy: number };
   booked_at?: string;
   selected_tier?: string;
+  booked_tier_price?: number;
+  selected_color?: string;
+  color_mode?: "gallery" | "hoa_only" | "hoa_approved" | "custom";
+  hoa_colors?: string[];
+  custom_color?: string;
+  color_display?: string;
+  backup_dates?: string[];
+  deposit_paid?: boolean;
 }
 
 export interface ScheduleSlot {

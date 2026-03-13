@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { api, type AdminScheduleSlot } from "@/lib/api";
+import { api, getCurrentUser, type AdminScheduleSlot } from "@/lib/api";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -23,6 +23,8 @@ function toDayStr(year: number, month: number, day: number) {
 }
 
 export default function SchedulePage() {
+  const user = getCurrentUser();
+  const isAdmin = user?.role === "admin";
   const now = new Date();
   const [year, setYear] = useState(now.getFullYear());
   const [month, setMonth] = useState(now.getMonth()); // 0-indexed
@@ -75,11 +77,13 @@ export default function SchedulePage() {
   const handleDayClick = (day: number) => {
     const dateStr = toDayStr(year, month, day);
     setSelectedDate(dateStr);
-    const existing = slotMap[dateStr];
-    setEditSlot(existing
-      ? { date: dateStr, is_available: existing.is_available, max_bookings: existing.max_bookings, label: existing.label || "" }
-      : { date: dateStr, is_available: true, max_bookings: 1, label: "" }
-    );
+    if (isAdmin) {
+      const existing = slotMap[dateStr];
+      setEditSlot(existing
+        ? { date: dateStr, is_available: existing.is_available, max_bookings: existing.max_bookings, label: existing.label || "" }
+        : { date: dateStr, is_available: true, max_bookings: 1, label: "" }
+      );
+    }
   };
 
   const handleSave = async () => {
@@ -120,9 +124,11 @@ export default function SchedulePage() {
   return (
     <div className="space-y-6 max-w-3xl">
       <div>
-        <h1 className="text-2xl font-bold">Schedule Management</h1>
+        <h1 className="text-2xl font-bold">Schedule</h1>
         <p className="text-muted-foreground text-sm mt-1">
-          Control which dates customers can book via the proposal page. Click any date to add or edit availability.
+          {isAdmin
+            ? "Control which dates customers can book via the proposal page. Click any date to add or edit availability."
+            : "View booking availability for each month."}
         </p>
       </div>
 
@@ -163,7 +169,7 @@ export default function SchedulePage() {
                 const isToday = dateStr === todayStr;
                 const isPast = dateStr < todayStr;
 
-                let cellClass = "rounded-lg border text-center py-2 text-sm cursor-pointer transition-all select-none ";
+                let cellClass = `rounded-lg border text-center py-2 text-sm ${isAdmin || slotMap[dateStr] ? "cursor-pointer" : "cursor-default"} transition-all select-none `;
                 if (isSelected) {
                   cellClass += "border-blue-500 bg-blue-50 text-blue-800 font-semibold ";
                 } else if (slot?.is_available && slot.booked_count < slot.max_bookings) {
@@ -202,7 +208,7 @@ export default function SchedulePage() {
           </CardContent>
         </Card>
 
-        {/* Edit panel */}
+        {/* Detail / Edit panel */}
         <div className="space-y-4">
           {selectedDate ? (
             <Card>
@@ -221,60 +227,74 @@ export default function SchedulePage() {
                   </Badge>
                 )}
               </CardHeader>
-              <CardContent className="space-y-3">
-                <div className="flex items-center gap-2">
-                  <input
-                    type="checkbox"
-                    id="avail"
-                    className="h-4 w-4 rounded"
-                    checked={editSlot.is_available ?? true}
-                    onChange={(e) => setEditSlot((s) => ({ ...s, is_available: e.target.checked }))}
-                  />
-                  <label htmlFor="avail" className="text-sm font-medium cursor-pointer">Available for booking</label>
-                </div>
+              {isAdmin ? (
+                <CardContent className="space-y-3">
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="checkbox"
+                      id="avail"
+                      className="h-4 w-4 rounded"
+                      checked={editSlot.is_available ?? true}
+                      onChange={(e) => setEditSlot((s) => ({ ...s, is_available: e.target.checked }))}
+                    />
+                    <label htmlFor="avail" className="text-sm font-medium cursor-pointer">Available for booking</label>
+                  </div>
 
-                <div className="space-y-1">
-                  <label className="text-xs font-medium text-muted-foreground">Max bookings</label>
-                  <Input
-                    type="number"
-                    min={1}
-                    max={10}
-                    value={editSlot.max_bookings ?? 1}
-                    onChange={(e) => setEditSlot((s) => ({ ...s, max_bookings: parseInt(e.target.value) || 1 }))}
-                    className="h-8 text-sm"
-                  />
-                </div>
+                  <div className="space-y-1">
+                    <label className="text-xs font-medium text-muted-foreground">Max bookings</label>
+                    <Input
+                      type="number"
+                      min={1}
+                      max={10}
+                      value={editSlot.max_bookings ?? 1}
+                      onChange={(e) => setEditSlot((s) => ({ ...s, max_bookings: parseInt(e.target.value) || 1 }))}
+                      className="h-8 text-sm"
+                    />
+                  </div>
 
-                <div className="space-y-1">
-                  <label className="text-xs font-medium text-muted-foreground">Label (optional)</label>
-                  <Input
-                    placeholder="e.g. Morning only"
-                    value={editSlot.label ?? ""}
-                    onChange={(e) => setEditSlot((s) => ({ ...s, label: e.target.value }))}
-                    className="h-8 text-sm"
-                  />
-                </div>
+                  <div className="space-y-1">
+                    <label className="text-xs font-medium text-muted-foreground">Label (optional)</label>
+                    <Input
+                      placeholder="e.g. Morning only"
+                      value={editSlot.label ?? ""}
+                      onChange={(e) => setEditSlot((s) => ({ ...s, label: e.target.value }))}
+                      className="h-8 text-sm"
+                    />
+                  </div>
 
-                <div className="flex flex-col gap-2 pt-1">
-                  <Button size="sm" onClick={handleSave} disabled={saving} className="w-full">
-                    {saving ? "Saving…" : slotMap[selectedDate] ? "Update" : "Add Date"}
-                  </Button>
-                  {slotMap[selectedDate] && (
-                    <Button size="sm" variant="outline" onClick={handleDelete} disabled={deleting || (slotMap[selectedDate]?.booked_count ?? 0) > 0} className="w-full text-destructive hover:text-destructive">
-                      {deleting ? "Removing…" : "Remove Date"}
+                  <div className="flex flex-col gap-2 pt-1">
+                    <Button size="sm" onClick={handleSave} disabled={saving} className="w-full">
+                      {saving ? "Saving…" : slotMap[selectedDate] ? "Update" : "Add Date"}
                     </Button>
+                    {slotMap[selectedDate] && (
+                      <Button size="sm" variant="outline" onClick={handleDelete} disabled={deleting || (slotMap[selectedDate]?.booked_count ?? 0) > 0} className="w-full text-destructive hover:text-destructive">
+                        {deleting ? "Removing…" : "Remove Date"}
+                      </Button>
+                    )}
+                    {(slotMap[selectedDate]?.booked_count ?? 0) > 0 && (
+                      <p className="text-xs text-muted-foreground text-center">Can't remove — has active bookings</p>
+                    )}
+                  </div>
+                </CardContent>
+              ) : (
+                <CardContent className="space-y-2 text-sm text-muted-foreground">
+                  {slotMap[selectedDate] ? (
+                    <>
+                      <p>Status: <span className="font-medium text-foreground">{slotMap[selectedDate].is_available ? "Available" : "Unavailable"}</span></p>
+                      <p>Capacity: <span className="font-medium text-foreground">{slotMap[selectedDate].booked_count} / {slotMap[selectedDate].max_bookings}</span></p>
+                      {slotMap[selectedDate].label && <p>Note: <span className="font-medium text-foreground">{slotMap[selectedDate].label}</span></p>}
+                    </>
+                  ) : (
+                    <p>No availability configured for this date.</p>
                   )}
-                  {(slotMap[selectedDate]?.booked_count ?? 0) > 0 && (
-                    <p className="text-xs text-muted-foreground text-center">Can't remove — has active bookings</p>
-                  )}
-                </div>
-              </CardContent>
+                </CardContent>
+              )}
             </Card>
           ) : (
             <Card>
               <CardContent className="pt-6 text-center text-sm text-muted-foreground space-y-2">
                 <CalendarDays className="h-8 w-8 mx-auto opacity-40" />
-                <p>Click any date to add or edit availability</p>
+                <p>{isAdmin ? "Click any date to add or edit availability" : "Click any date to view details"}</p>
               </CardContent>
             </Card>
           )}

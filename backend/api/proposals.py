@@ -6,7 +6,7 @@ from fastapi import APIRouter, HTTPException
 
 from db import get_db
 from config import get_settings
-from services.ghl import send_message_to_contact
+from services.ghl import send_message_to_contact, update_opportunity_stage
 from services.google_calendar import create_calendar_event
 from services.notify import send_booking_confirmation_to_customer
 
@@ -18,6 +18,7 @@ class CheckoutRequest(BaseModel):
     selected_tier: str
     booked_at: str
     contact_email: str | None = None
+    backup_dates: list[str] | None = None
     selected_color: str | None = None
     color_mode: str = "gallery"
     hoa_colors: list | None = None
@@ -28,6 +29,7 @@ class BookingRequest(BaseModel):
     selected_tier: str          # "essential" | "signature" | "legacy"
     booked_at: str              # ISO datetime string from customer
     contact_email: str | None = None
+    backup_dates: list[str] | None = None
     selected_color: str | None = None
     color_mode: str = "gallery" # gallery | hoa_only | hoa_approved | custom
     hoa_colors: list | None = None
@@ -44,13 +46,6 @@ async def get_proposal(token: str):
         raise HTTPException(status_code=404, detail="Proposal not found")
 
     proposal = result.data
-    if proposal["status"] == "booked":
-        return {
-            "status": "booked",
-            "token": token,
-            "booked_at": proposal.get("booked_at"),
-            "selected_tier": proposal.get("selected_tier"),
-        }
 
     is_preview = proposal["status"] == "preview"
 
@@ -70,18 +65,45 @@ async def get_proposal(token: str):
         db.table("proposals").update({"status": "viewed"}).eq("token", token).execute()
 
     inputs = estimate.get("inputs") or {}
+    selected_tier = proposal.get("selected_tier")
+    selected_tier_price = float(tiers.get(selected_tier) or 0) if selected_tier else 0
+
+    color_mode = proposal.get("color_mode") or "gallery"
+    if color_mode == "gallery" and proposal.get("selected_color"):
+        color_display = proposal.get("selected_color")
+    elif color_mode == "hoa_only" and proposal.get("hoa_colors"):
+        colors = proposal.get("hoa_colors") or []
+        color_display = f"HOA colors: {', '.join(str(c) for c in colors)}"
+    elif color_mode == "hoa_approved":
+        color_display = f"HOA Approved: {proposal.get('custom_color') or 'TBD'}"
+    elif color_mode == "custom":
+        color_display = f"Custom: {proposal.get('custom_color') or 'TBD'}"
+    else:
+        color_display = "Not specified"
+
     return {
-        "status": "preview" if is_preview else "viewed",
+        "status": proposal.get("status") if proposal.get("status") == "booked" else ("preview" if is_preview else "viewed"),
         "token": token,
         "customer_name": lead.get("contact_name") or "",
         "address": lead.get("address") or "",
         "service_type": estimate.get("service_type", "fence_staining"),
         "previously_stained": inputs.get("previously_stained") or "No",
+        "contact_email": lead.get("contact_email") or "",
         "tiers": {
             "essential": float(tiers.get("essential") or 0),
             "signature": float(tiers.get("signature") or 0),
             "legacy":    float(tiers.get("legacy") or 0),
         },
+        "selected_tier": selected_tier,
+        "booked_tier_price": selected_tier_price,
+        "booked_at": proposal.get("booked_at"),
+        "selected_color": proposal.get("selected_color"),
+        "color_mode": color_mode,
+        "hoa_colors": proposal.get("hoa_colors") or [],
+        "custom_color": proposal.get("custom_color"),
+        "color_display": color_display,
+        "backup_dates": proposal.get("backup_dates") or [],
+        "deposit_paid": bool(proposal.get("deposit_paid")),
     }
 
 
@@ -89,8 +111,6 @@ async def get_proposal(token: str):
 async def create_checkout(token: str, body: CheckoutRequest):
     db = get_db()
     settings = get_settings()
-    if not settings.stripe_secret_key:
-        raise HTTPException(status_code=503, detail="Payment not configured")
 
     result = db.table("proposals").select("*").eq("token", token).single().execute()
     if not result.data:
@@ -110,12 +130,18 @@ async def create_checkout(token: str, body: CheckoutRequest):
             "selected_tier": body.selected_tier,
             "booked_at": body.booked_at,
             "contact_email": body.contact_email,
+            "backup_dates": body.backup_dates,
             "selected_color": body.selected_color,
             "color_mode": body.color_mode,
             "hoa_colors": body.hoa_colors,
             "custom_color": body.custom_color,
         }
     }).eq("token", token).execute()
+
+    # Bypass mode — no Stripe key configured (dev/testing only)
+    if not settings.stripe_secret_key:
+        logger.warning(f"STRIPE_BYPASS: no STRIPE_SECRET_KEY — skipping payment for proposal {token}")
+        return {"checkout_url": f"{settings.frontend_url}/proposal/{token}?session_id=bypass"}
 
     import stripe as stripe_lib
     stripe_lib.api_key = settings.stripe_secret_key
@@ -129,6 +155,7 @@ async def create_checkout(token: str, body: CheckoutRequest):
             },
             "quantity": 1,
         }],
+        metadata={"proposal_token": token},
         success_url=f"{settings.frontend_url}/proposal/{token}?session_id={{CHECKOUT_SESSION_ID}}",
         cancel_url=f"{settings.frontend_url}/proposal/{token}",
     )
@@ -152,22 +179,31 @@ async def book_proposal(token: str, body: BookingRequest):
     # If coming from Stripe redirect, verify payment and load pending booking data
     if body.stripe_session_id:
         settings_inner = get_settings()
-        if not settings_inner.stripe_secret_key:
-            raise HTTPException(status_code=503, detail="Payment not configured")
-        import stripe as stripe_lib
-        stripe_lib.api_key = settings_inner.stripe_secret_key
-        try:
-            session = stripe_lib.checkout.Session.retrieve(body.stripe_session_id)
-        except Exception as e:
-            raise HTTPException(status_code=400, detail=f"Could not verify payment: {e}")
-        if session.payment_status != "paid":
-            raise HTTPException(status_code=400, detail="Payment not completed")
+        if body.stripe_session_id == "bypass":
+            # Dev bypass — only allowed when Stripe is not configured
+            if settings_inner.stripe_secret_key:
+                raise HTTPException(status_code=400, detail="Payment bypass not allowed in production")
+            logger.warning(f"STRIPE_BYPASS: booking proposal {token} without payment")
+        else:
+            if not settings_inner.stripe_secret_key:
+                raise HTTPException(status_code=503, detail="Payment not configured")
+            import stripe as stripe_lib
+            stripe_lib.api_key = settings_inner.stripe_secret_key
+            try:
+                session = stripe_lib.checkout.Session.retrieve(body.stripe_session_id)
+            except Exception as e:
+                raise HTTPException(status_code=400, detail=f"Could not verify payment: {e}")
+            if session.payment_status != "paid":
+                raise HTTPException(status_code=400, detail="Payment not completed")
+            if session.metadata.get("proposal_token") != token:
+                raise HTTPException(status_code=400, detail="Payment does not match this proposal")
         # Load pending booking from DB
         pending_result = db.table("proposals").select("pending_booking").eq("token", token).single().execute()
         pending = (pending_result.data or {}).get("pending_booking") or {}
         body.selected_tier = pending.get("selected_tier") or body.selected_tier
         body.booked_at = pending.get("booked_at") or body.booked_at
         body.contact_email = pending.get("contact_email")
+        body.backup_dates = pending.get("backup_dates") or []
         body.selected_color = pending.get("selected_color")
         body.color_mode = pending.get("color_mode", "gallery")
         body.hoa_colors = pending.get("hoa_colors")
@@ -181,6 +217,16 @@ async def book_proposal(token: str, body: BookingRequest):
         booked_dt = datetime.fromisoformat(body.booked_at.replace("Z", "+00:00"))
     except ValueError:
         raise HTTPException(status_code=400, detail="Invalid booked_at datetime")
+
+    parsed_backup_dates: list[str] = []
+    for raw_date in (body.backup_dates or []):
+        try:
+            parsed_dt = datetime.fromisoformat(raw_date.replace("Z", "+00:00"))
+            parsed_backup_dates.append(parsed_dt.date().isoformat())
+        except ValueError:
+            continue
+    parsed_backup_dates = [d for d in parsed_backup_dates if d != booked_dt.date().isoformat()]
+    parsed_backup_dates = list(dict.fromkeys(parsed_backup_dates))[:3]
 
     # Fetch lead + estimate for context
     lead_result = db.table("leads").select("*").eq("id", proposal["lead_id"]).single().execute()
@@ -206,6 +252,25 @@ async def book_proposal(token: str, body: BookingRequest):
     elif body.color_mode == "custom":
         color_display = f"Custom: {body.custom_color or 'TBD'}"
 
+    inputs_data = estimate.get("inputs") or {}
+    linear_feet = inputs_data.get("linear_feet")
+    fence_height = inputs_data.get("fence_height") or ""
+    fence_desc = f"{int(linear_feet)} linear feet" if linear_feet else "your fence"
+    height_desc = fence_height.split(" ")[0] if fence_height else ""
+
+    wood_details = (
+        f"Property: {fence_desc}{f', {height_desc} tall' if height_desc else ''}\n"
+        f"Stain system: Ready Seal Exterior Stain & Sealer, applied in two coats\n"
+        f"Surface preparation: Professional soft-wash + pressure rinse before staining\n"
+        f"Color: {color_display or 'To be confirmed with HOA approval'}"
+    )
+
+    backup_dates_text = "None selected"
+    if parsed_backup_dates:
+        backup_dates_text = ", ".join(
+            datetime.fromisoformat(f"{d}T12:00:00").strftime("%A, %B %-d") for d in parsed_backup_dates
+        )
+
     # Create Google Calendar event
     summary = f"Fence Staining — {customer_name} ({tier_label})"
     description = (
@@ -213,6 +278,7 @@ async def book_proposal(token: str, body: BookingRequest):
         f"Address: {address}\n"
         f"Package: {tier_label} — ${tier_price:,.2f}\n"
         f"Color: {color_display or 'Not specified'}\n"
+        f"Backup dates: {backup_dates_text}\n"
         f"Phone: {lead.get('contact_phone') or 'N/A'}\n"
         f"Booked via proposal link"
     )
@@ -234,6 +300,7 @@ async def book_proposal(token: str, body: BookingRequest):
             f"Package: {tier_label} (${tier_price:,.0f})\n"
             f"Color: {color_display or 'Not specified'}\n"
             f"Date: {date_str}\n"
+            f"Backup: {backup_dates_text}\n"
             f"Address: {address}"
         )
         sent = send_message_to_contact(settings.owner_ghl_contact_id, alan_msg)
@@ -244,6 +311,11 @@ async def book_proposal(token: str, body: BookingRequest):
 
     # Send booking confirmation to customer
     if body.contact_email:
+        is_hoa_approval_needed = body.color_mode in ("hoa_only", "hoa_approved")
+        hoa_color_options = (
+            [str(c) for c in (body.hoa_colors or [])] if body.color_mode == "hoa_only"
+            else ([body.custom_color] if body.custom_color else [])
+        )
         send_booking_confirmation_to_customer(
             to_email=body.contact_email,
             customer_name=customer_name,
@@ -252,6 +324,11 @@ async def book_proposal(token: str, body: BookingRequest):
             color_display=color_display or "Not specified",
             date_str=date_str,
             address=address,
+            backup_dates=parsed_backup_dates,
+            is_hoa_approval_needed=is_hoa_approval_needed,
+            hoa_color_mode=body.color_mode,
+            hoa_color_options=hoa_color_options,
+            wood_details=wood_details,
         )
 
     # Update proposal row
@@ -260,6 +337,7 @@ async def book_proposal(token: str, body: BookingRequest):
         "selected_tier": body.selected_tier,
         "booked_at": booked_dt.isoformat(),
         "calendar_event_id": calendar_event_id,
+        "backup_dates": parsed_backup_dates,
         "selected_color": body.selected_color,
         "color_mode": body.color_mode,
         "hoa_colors": body.hoa_colors,
@@ -270,4 +348,24 @@ async def book_proposal(token: str, body: BookingRequest):
 
     logger.info(f"Proposal {token} booked: {tier_label} on {date_str} for {customer_name}")
 
-    return {"status": "booked", "booked_at": booked_dt.isoformat(), "selected_tier": body.selected_tier}
+    # Move GHL opportunity to "Booked" stage if configured
+    if settings.ghl_booked_stage_id:
+        opp_res = db.table("leads").select("ghl_opportunity_id").eq("id", proposal["lead_id"]).single().execute()
+        opp_id = (opp_res.data or {}).get("ghl_opportunity_id")
+        if opp_id:
+            moved = update_opportunity_stage(opp_id, settings.ghl_booked_stage_id)
+            if not moved:
+                logger.warning(f"Failed to move GHL opportunity {opp_id} to booked stage")
+        else:
+            logger.debug(f"No ghl_opportunity_id for lead {proposal['lead_id']} — skipping stage update")
+
+    return {
+        "status": "booked",
+        "booked_at": booked_dt.isoformat(),
+        "selected_tier": body.selected_tier,
+        "booked_tier_price": float(tier_price or 0),
+        "color_display": color_display or "Not specified",
+        "backup_dates": parsed_backup_dates,
+        "deposit_paid": bool(body.stripe_session_id),
+        "address": address,
+    }

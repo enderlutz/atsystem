@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
-import { api, type FieldMapping, type PipelineSyncResult } from "@/lib/api";
+import { api, getCurrentUser, type FieldMapping, type PipelineSyncResult } from "@/lib/api";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -38,12 +38,15 @@ function CopyButton({ text }: { text: string }) {
   );
 }
 
+type TierRates = { essential: number; signature: number; legacy: number };
+
 type FenceConfig = {
-  base_rate_per_sqft: number;
-  age_factors: { lt5: number; yr5_10: number; gt10: number };
-  prep_factor_new: number;
-  urgency_factors: { flexible: number; within_month: number; rush: number };
-  estimate_margin: number;
+  tier_rates: {
+    brand_new: TierRates;
+    "1_6yr": TierRates;
+    "6_15yr": TierRates;
+  };
+  size_surcharge_rate: number;
 };
 
 type PressureConfig = {
@@ -54,11 +57,12 @@ type PressureConfig = {
 };
 
 const defaultFenceConfig: FenceConfig = {
-  base_rate_per_sqft: 1.5,
-  age_factors: { lt5: 1.0, yr5_10: 1.1, gt10: 1.25 },
-  prep_factor_new: 1.15,
-  urgency_factors: { flexible: 1.0, within_month: 1.05, rush: 1.25 },
-  estimate_margin: 0.1,
+  tier_rates: {
+    brand_new: { essential: 0.72, signature: 0.84, legacy: 1.09 },
+    "1_6yr":   { essential: 0.74, signature: 0.86, legacy: 1.11 },
+    "6_15yr":  { essential: 0.76, signature: 0.88, legacy: 1.13 },
+  },
+  size_surcharge_rate: 0.12,
 };
 
 const defaultPressureConfig: PressureConfig = {
@@ -69,6 +73,8 @@ const defaultPressureConfig: PressureConfig = {
 };
 
 export default function SettingsPage() {
+  const currentUser = getCurrentUser();
+  const isAdmin = currentUser?.role === "admin";
   const [fenceConfig, setFenceConfig] = useState<FenceConfig>(defaultFenceConfig);
   const [pressureConfig, setPressureConfig] = useState<PressureConfig>(defaultPressureConfig);
   const [saving, setSaving] = useState(false);
@@ -81,6 +87,7 @@ export default function SettingsPage() {
   const [discoveringFields, setDiscoveringFields] = useState(false);
 
   const archiveAll = async () => {
+    if (!confirm("Archive ALL leads? They will be hidden from the dashboard. This cannot be undone without direct database access.")) return;
     setArchiving(true);
     try {
       const data = await api.archiveAllLeads();
@@ -320,78 +327,60 @@ export default function SettingsPage() {
         <CardHeader>
           <CardTitle>Fence Staining — Pricing Config</CardTitle>
           <CardDescription>
-            Formula: (linear_feet x height x base_rate) x age_factor x prep_factor x urgency_factor
+            Per-sqft rates by fence age. Signature is the recommended middle tier. Zone surcharges (+2% Blue, +5% Purple) and size surcharge (500–1,000 sqft range) are applied on top.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="text-sm font-medium block mb-1">Base rate per sq ft ($)</label>
-              <Input
-                type="number"
-                step="0.01"
-                value={fenceConfig.base_rate_per_sqft}
-                onChange={(e) => setFenceConfig((c) => ({ ...c, base_rate_per_sqft: Number(e.target.value) }))}
-              />
-            </div>
-            <div>
-              <label className="text-sm font-medium block mb-1">Estimate margin (+/-%)</label>
-              <Input
-                type="number"
-                step="0.01"
-                value={fenceConfig.estimate_margin}
-                onChange={(e) => setFenceConfig((c) => ({ ...c, estimate_margin: Number(e.target.value) }))}
-              />
-            </div>
+          <div className="rounded-lg border overflow-hidden">
+            <table className="w-full text-sm">
+              <thead className="bg-muted/50">
+                <tr>
+                  <th className="text-left p-3 font-medium">Fence Age</th>
+                  <th className="text-center p-3 font-medium">Essential ($/sqft)</th>
+                  <th className="text-center p-3 font-medium text-primary">Signature ★ ($/sqft)</th>
+                  <th className="text-center p-3 font-medium">Legacy ($/sqft)</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y">
+                {([
+                  ["brand_new", "Brand New"],
+                  ["1_6yr", "1–6 Years"],
+                  ["6_15yr", "6–15 Years"],
+                ] as const).map(([bracket, label]) => (
+                  <tr key={bracket} className="hover:bg-muted/20">
+                    <td className="p-3 font-medium text-muted-foreground">{label}</td>
+                    {(["essential", "signature", "legacy"] as const).map((tier) => (
+                      <td key={tier} className="p-2 text-center">
+                        <Input
+                          type="number"
+                          step="0.01"
+                          className={`w-20 mx-auto text-center ${tier === "signature" ? "border-primary/50" : ""}`}
+                          value={fenceConfig.tier_rates[bracket][tier]}
+                          onChange={(e) => setFenceConfig((c) => ({
+                            ...c,
+                            tier_rates: {
+                              ...c.tier_rates,
+                              [bracket]: { ...c.tier_rates[bracket], [tier]: Number(e.target.value) },
+                            },
+                          }))}
+                        />
+                      </td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
           </div>
 
-          <div>
-            <p className="text-sm font-medium mb-2">Age Factors (multiplier)</p>
-            <div className="grid grid-cols-3 gap-3">
-              {([["lt5", "< 5 years"], ["yr5_10", "5-10 years"], ["gt10", "> 10 years"]] as const).map(([key, label]) => (
-                <div key={key}>
-                  <label className="text-xs text-muted-foreground block mb-1">{label}</label>
-                  <Input
-                    type="number"
-                    step="0.01"
-                    value={fenceConfig.age_factors[key]}
-                    onChange={(e) => setFenceConfig((c) => ({
-                      ...c, age_factors: { ...c.age_factors, [key]: Number(e.target.value) }
-                    }))}
-                  />
-                </div>
-              ))}
-            </div>
-          </div>
-
-          <div>
-            <label className="text-sm font-medium block mb-1">Not previously stained factor</label>
+          <div className="flex items-center gap-3">
+            <label className="text-sm font-medium whitespace-nowrap">Size surcharge ($/sqft, 500–1,000 sqft jobs)</label>
             <Input
               type="number"
               step="0.01"
-              value={fenceConfig.prep_factor_new}
-              onChange={(e) => setFenceConfig((c) => ({ ...c, prep_factor_new: Number(e.target.value) }))}
-              className="w-40"
+              className="w-24"
+              value={fenceConfig.size_surcharge_rate}
+              onChange={(e) => setFenceConfig((c) => ({ ...c, size_surcharge_rate: Number(e.target.value) }))}
             />
-          </div>
-
-          <div>
-            <p className="text-sm font-medium mb-2">Urgency Factors</p>
-            <div className="grid grid-cols-3 gap-3">
-              {([["flexible", "Flexible"], ["within_month", "Within month"], ["rush", "Rush"]] as const).map(([key, label]) => (
-                <div key={key}>
-                  <label className="text-xs text-muted-foreground block mb-1">{label}</label>
-                  <Input
-                    type="number"
-                    step="0.01"
-                    value={fenceConfig.urgency_factors[key]}
-                    onChange={(e) => setFenceConfig((c) => ({
-                      ...c, urgency_factors: { ...c.urgency_factors, [key]: Number(e.target.value) }
-                    }))}
-                  />
-                </div>
-              ))}
-            </div>
           </div>
         </CardContent>
       </Card>
@@ -470,21 +459,23 @@ export default function SettingsPage() {
         {saving ? "Saving..." : "Save All Settings"}
       </Button>
 
-      {/* Danger Zone */}
-      <Card className="border-red-200">
-        <CardHeader>
-          <CardTitle className="text-red-700">Danger Zone</CardTitle>
-          <CardDescription>
-            Archive all current leads so the dashboard is cleared. Leads are hidden, not deleted — they can be restored directly in the database if needed.
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <Button variant="destructive" onClick={archiveAll} disabled={archiving} className="gap-2">
-            <RefreshCw className={`h-4 w-4 ${archiving ? "animate-spin" : ""}`} />
-            {archiving ? "Archiving..." : "Archive All Leads"}
-          </Button>
-        </CardContent>
-      </Card>
+      {/* Danger Zone — admin only */}
+      {isAdmin && (
+        <Card className="border-red-200">
+          <CardHeader>
+            <CardTitle className="text-red-700">Danger Zone</CardTitle>
+            <CardDescription>
+              Archive all current leads so the dashboard is cleared. Leads are hidden, not deleted — they can be restored directly in the database if needed.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Button variant="destructive" onClick={archiveAll} disabled={archiving} className="gap-2">
+              <RefreshCw className={`h-4 w-4 ${archiving ? "animate-spin" : ""}`} />
+              {archiving ? "Archiving..." : "Archive All Leads"}
+            </Button>
+          </CardContent>
+        </Card>
+      )}
     </div>
   );
 }

@@ -31,6 +31,12 @@ class Settings(BaseSettings):
 
     stripe_secret_key: str | None = None
 
+    auth_secret: str = "change-me-in-production"
+
+    # GHL pipeline stage ID to move opportunities to when a booking is made.
+    # Find this in GHL: Settings → Pipelines → hover over stage → copy ID.
+    ghl_booked_stage_id: str = ""
+
     class Config:
         env_file = ".env"
 

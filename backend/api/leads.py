@@ -1,12 +1,13 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from typing import Optional
 from datetime import datetime, timezone
 
 from db import get_db
 from config import get_settings
 from services.ghl import get_conversations, get_all_messages, add_contact_note
+from api.auth import require_admin
 
 router = APIRouter(prefix="/api/leads", tags=["leads"])
 
@@ -290,7 +291,7 @@ async def get_lead_messages(lead_id: str):
 
 
 @router.post("/archive-all")
-async def archive_all_leads():
+async def archive_all_leads(_: dict = Depends(require_admin)):
     """Archive all current leads so they're hidden from the dashboard (not deleted)."""
     db = get_db()
     count_res = db.table("leads").select("id").eq("archived", False).execute()

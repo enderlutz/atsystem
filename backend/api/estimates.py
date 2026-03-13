@@ -131,22 +131,38 @@ async def adjust_estimate(estimate_id: str, body: EstimateAdjust):
     db.table("estimates").update(update_data).eq("id", estimate_id).execute()
     db.table("leads").update({"status": "approved"}).eq("id", estimate["lead_id"]).execute()
 
+    # Generate proposal token and store
+    settings = get_settings()
+    token = secrets.token_urlsafe(12)
+    proposal_url = f"{settings.proposal_base_url}/proposal/{token}"
+    try:
+        db.table("proposals").insert({
+            "token": token,
+            "estimate_id": estimate_id,
+            "lead_id": estimate["lead_id"],
+            "status": "sent",
+        }).execute()
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).warning(f"Failed to create proposal row: {e}")
+
     lead_res = db.table("leads").select("*").eq("id", estimate["lead_id"]).single().execute()
     lead = lead_res.data or {}
     contact_id = lead.get("ghl_contact_id")
     if contact_id:
         adjusted_estimate = {**estimate, "estimate_low": body.estimate_low, "estimate_high": body.estimate_high}
         msg = format_estimate_for_client(adjusted_estimate, estimate["service_type"])
+        msg += f"\n\nView your custom quote and book your appointment:\n{proposal_url}"
         sent = send_message_to_contact(contact_id, msg)
         if sent:
             db.table("leads").update({"status": "sent"}).eq("id", estimate["lead_id"]).execute()
             add_contact_note(contact_id, (
-                f"[ATSystem] Adjusted estimate sent: ${body.estimate_low:,.0f}-${body.estimate_high:,.0f}\n"
+                f"[ATSystem] Adjusted estimate sent: ${body.estimate_low:,.0f}\n"
                 f"Service: {estimate['service_type'].replace('_', ' ').title()}\n"
-                f"Status: Adjusted"
+                f"Proposal link: {proposal_url}"
             ))
 
-    return {"status": "adjusted", "estimate_id": estimate_id}
+    return {"status": "adjusted", "estimate_id": estimate_id, "proposal_token": token, "proposal_url": proposal_url}
 
 
 @router.post("/{estimate_id}/reject")

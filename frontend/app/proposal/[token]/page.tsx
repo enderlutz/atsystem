@@ -75,6 +75,10 @@ function formatDateDisplay(dateStr: string): string {
   return new Date(dateStr + "T12:00:00").toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" });
 }
 
+function formatShortDateDisplay(dateStr: string): string {
+  return new Date(dateStr + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+}
+
 function generateICS(customerName: string, address: string, dateStr: string, tier: string): string {
   const d = new Date(dateStr + "T09:00:00");
   const end = new Date(dateStr + "T13:00:00");
@@ -147,7 +151,7 @@ function TrustCardGuarantee({ open, onToggle }: { open: boolean; onToggle: () =>
   const QAS = [
     { q: "What if I don't like how it looks?", a: "We do a full walkthrough before we pack up. We don't leave until you're happy." },
     { q: "What if it rains right after?", a: "We monitor the weather and never stain before rain. If weather surprises us, we come back at no charge." },
-    { q: "How long will the stain last?", a: "Essential ~2 years, Signature 3-5 years, Legacy 5-8 years — depending on sun exposure." },
+    { q: "How long will the stain last?", a: "Essential ~2 years, Signature 3-5 years, Legacy 5-8 years, depending on sun exposure." },
     { q: "Will you protect my landscaping?", a: "We cover all plants and bushes. Our chemicals are biodegradable and pet-safe." },
     { q: "What if you miss a spot?", a: "We apply 2 full coats. Text us a photo if you spot anything and we'll come back." },
     { q: "Licensed & insured? Any surprise charges?", a: "Fully licensed and insured. Your quote covers all staining and cleaning. Board replacement is separate if needed." },
@@ -226,8 +230,8 @@ export default function ProposalPage() {
   });
   const [datesLoading, setDatesLoading] = useState(false);
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
-  const [showBackup, setShowBackup] = useState(false);
-  const [backupDate, setBackupDate] = useState<string | null>(null);
+
+  const [backupDates, setBackupDates] = useState<string[]>([]);
 
   // Contact
   const [contactEmail, setContactEmail] = useState("");
@@ -241,7 +245,24 @@ export default function ProposalPage() {
 
   useEffect(() => {
     api.getProposal(token)
-      .then((data) => { setProposal(data); if (data.status === "booked") setStep(3); })
+      .then((data) => {
+        setProposal(data);
+        if (data.status === "booked") {
+          setStep(3);
+          if (data.selected_tier && (data.selected_tier === "essential" || data.selected_tier === "signature" || data.selected_tier === "legacy")) {
+            setPkg(data.selected_tier);
+          }
+          if (data.booked_at) {
+            setSelectedDate(data.booked_at.slice(0, 10));
+          }
+          if (data.backup_dates?.length) {
+            setBackupDates(data.backup_dates.slice(0, 2));
+          }
+          if (data.contact_email) {
+            setContactEmail(data.contact_email);
+          }
+        }
+      })
       .catch((e) => setError(e.message || "Proposal not found"))
       .finally(() => setLoading(false));
   }, [token]);
@@ -255,7 +276,22 @@ export default function ProposalPage() {
     setProcessingPayment(true);
     api.bookProposal(token, { stripe_session_id: sessionId, selected_tier: "", booked_at: "" })
       .then((res) => {
-        setProposal(prev => prev ? { ...prev, status: "booked", selected_tier: res.selected_tier, booked_at: res.booked_at } : prev);
+        setProposal(prev => prev ? {
+          ...prev,
+          status: "booked",
+          selected_tier: res.selected_tier,
+          booked_at: res.booked_at,
+          booked_tier_price: res.booked_tier_price,
+          color_display: res.color_display,
+          backup_dates: res.backup_dates,
+          deposit_paid: res.deposit_paid,
+          address: res.address || prev.address,
+        } : prev);
+        if (res.selected_tier === "essential" || res.selected_tier === "signature" || res.selected_tier === "legacy") {
+          setPkg(res.selected_tier);
+        }
+        setSelectedDate(res.booked_at.slice(0, 10));
+        setBackupDates((res.backup_dates || []).slice(0, 2));
         setStep(3);
       })
       .catch((e) => {
@@ -278,8 +314,10 @@ export default function ProposalPage() {
     setSelectedColor(null);
     setHoaColors([]);
     setCustomColor("");
-    setColorMode("gallery");
-    if (p === "essential") setSelectedColor(0);
+    if (p === "essential") {
+      setColorMode("gallery");
+      setSelectedColor(0);
+    }
     setTimeout(() => colorRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 100);
   };
 
@@ -287,10 +325,17 @@ export default function ProposalPage() {
     setHoaColors((prev) => prev.includes(id) ? prev.filter((x) => x !== id) : prev.length >= 5 ? prev : [...prev, id]);
   };
 
+  const getHoaColorNames = (): string[] => {
+    return hoaColors.map((id) => {
+      const color = MAIN_COLORS.find((x) => x.id === id) || PALETTE_COLORS.find((x) => x.id === id);
+      return color?.name || String(id);
+    });
+  };
+
   const isColorComplete = (): boolean => {
     if (!pkg) return false;
     if (pkg === "essential") return true;
-    if (colorMode === "gallery") return selectedColor !== null;
+    if (colorMode === "gallery") return selectedColor !== null && (selectedColor !== -1 || customColor.trim().length > 0);
     if (colorMode === "hoa_only") return hoaColors.length >= 2;
     if (colorMode === "hoa_approved") return hoaSendLater || customColor.trim().length > 0;
     if (colorMode === "custom") return customSendLater || customColor.trim().length > 0;
@@ -300,6 +345,7 @@ export default function ProposalPage() {
   const getColorDisplayName = (): string => {
     if (!pkg || pkg === "essential") return "Clear Sealant";
     if (colorMode === "gallery") {
+      if (selectedColor === -1) return customColor.trim();
       const c = MAIN_COLORS.find((x) => x.id === selectedColor) || PALETTE_COLORS.find((x) => x.id === selectedColor);
       return c ? `${c.name} (${(c as typeof MAIN_COLORS[0] & { brand?: string }).brand || ""})`.trim().replace(/\(\)$/, "").trim() : "";
     }
@@ -313,18 +359,20 @@ export default function ProposalPage() {
     if (!selectedDate || !proposal || !pkg) return;
     setBooking(true); setBookError(null);
     const bookedAt = new Date(selectedDate + "T09:00:00");
+    const backupDatePayload = backupDates.map((d) => new Date(d + "T09:00:00").toISOString());
     const colorData = pkg === "essential"
       ? { selected_color: "Clear Sealant", color_mode: "gallery", hoa_colors: null, custom_color: null }
       : colorMode === "gallery"
       ? { selected_color: getColorDisplayName(), color_mode: "gallery", hoa_colors: null, custom_color: null }
       : colorMode === "hoa_only"
-      ? { selected_color: null, color_mode: "hoa_only", hoa_colors: hoaColors, custom_color: null }
+      ? { selected_color: null, color_mode: "hoa_only", hoa_colors: getHoaColorNames(), custom_color: null }
       : { selected_color: null, color_mode: colorMode, hoa_colors: null, custom_color: customColor || null };
     try {
       const { checkout_url } = await api.createCheckout(token, {
         selected_tier: pkg,
         booked_at: bookedAt.toISOString(),
         contact_email: contactEmail.trim() || null,
+        backup_dates: backupDatePayload,
         ...colorData,
       });
       window.location.href = checkout_url;
@@ -356,15 +404,19 @@ export default function ProposalPage() {
   );
 
   const tiers = proposal.tiers;
-  const tierPrice = tiers && pkg ? tiers[pkg] : 0;
+  const bookedTierKey = ((proposal.selected_tier as "essential" | "signature" | "legacy" | undefined) || pkg);
+  const tierPrice = proposal.booked_tier_price ?? (tiers && bookedTierKey ? tiers[bookedTierKey] : 0);
   const firstName = proposal.customer_name?.split(" ")[0] || "";
   const previouslyStained = (proposal.previously_stained || "No").toLowerCase().startsWith("y");
+  const selectedColorDisplay = proposal.color_display || getColorDisplayName() || "Not specified";
+  const selectedBackupDates = (proposal.backup_dates || backupDates || []).slice(0, 2);
+
 
   const TIERS = [
     { key: "essential" as const, label: "Essential Seal™", badge: null,
       features: ["Clear natural wood refresh", "Slows moisture & sun damage", "Most affordable option"],
       bg: C.card, accentColor: "#CBD5E1", labelColor: C.cream,
-      disabled: previouslyStained, disabledMsg: "Not available for previously stained fences — the sealant won't adhere properly to prior stain." },
+      disabled: previouslyStained, disabledMsg: "Not available for previously stained fences, the sealant won't adhere properly to prior stain." },
     { key: "signature" as const, label: "Signature Finish™", badge: "Most Popular",
       features: ["Rich, even color finish", "Protects against sun & moisture", "No restaining for years", "Chosen by 8 out of 10 homeowners"],
       bg: C.card, accentColor: C.gold, labelColor: C.cream,
@@ -382,6 +434,7 @@ export default function ProposalPage() {
   const daysInCalMonth = new Date(calYear, calMonthNum, 0).getDate();
   const calCells: (number | null)[] = [...Array(firstDayOfMonth).fill(null), ...Array.from({ length: daysInCalMonth }, (_, i) => i + 1)];
   while (calCells.length % 7 !== 0) calCells.push(null);
+  const todayISO = new Date().toISOString().slice(0, 10);
 
   const prevDatesMonth = () => {
     const d = new Date(calYear, calMonthNum - 2, 1);
@@ -398,7 +451,7 @@ export default function ProposalPage() {
   // ── Selected color chip (for sidebar/bar) ─────────────────────────────────
   const colorChip = () => {
     if (!pkg || pkg === "essential") return null;
-    if (colorMode === "gallery" && selectedColor) {
+    if (colorMode === "gallery" && selectedColor && selectedColor !== -1) {
       const c = MAIN_COLORS.find((x) => x.id === selectedColor) || PALETTE_COLORS.find((x) => x.id === selectedColor);
       if (c) return <span className="h-3 w-3 rounded-full inline-block shrink-0" style={{ background: (c as { hex: string }).hex }} />;
     }
@@ -512,10 +565,11 @@ export default function ProposalPage() {
               {/* Summary card */}
               <div className="rounded-2xl overflow-hidden text-left" style={{ background: C.card, border: `1px solid ${C.border}` }}>
                 {[
-                  { label: "Package", value: pkg ? `${TIERS.find((t) => t.key === pkg)?.label}` : "—" },
+                  { label: "Package", value: bookedTierKey ? `${TIERS.find((t) => t.key === bookedTierKey)?.label}` : "—" },
                   { label: "Price", value: fmtFull(tierPrice) },
-                  { label: "Color", value: getColorDisplayName() || "—" },
+                  { label: "Color", value: selectedColorDisplay },
                   { label: "Date", value: proposal.booked_at ? formatDateDisplay(proposal.booked_at.slice(0, 10)) : "—" },
+                  { label: "Backup Dates", value: selectedBackupDates.length ? selectedBackupDates.map((d) => formatShortDateDisplay(d)).join(" • ") : "None selected" },
                   { label: "Arrival", value: "We'll confirm exact time beforehand" },
                   { label: "Deposit Paid", value: "$50.00" },
                   { label: "Remaining Balance", value: `${fmtFull(tierPrice - 50)} (due day of service)` },
@@ -527,6 +581,17 @@ export default function ProposalPage() {
                 ))}
               </div>
 
+              {(proposal.color_mode === "hoa_only" || proposal.color_mode === "hoa_approved") && (
+                <div className="rounded-xl p-4 text-left" style={{ background: "rgba(28,34,53,0.05)", border: `1px solid ${C.border}` }}>
+                  <p style={{ color: C.gold }} className="text-sm font-semibold">HOA Approval Support</p>
+                  <p style={{ color: C.textMuted }} className="text-xs mt-1 leading-relaxed">
+                    {proposal.color_mode === "hoa_only"
+                      ? "Your confirmation email includes your color options, fence specs, and a ready-to-send HOA letter, forward it directly to your board."
+                      : "Your HOA approval is confirmed. Your confirmation email includes the full stain product details for your records."}
+                  </p>
+                </div>
+              )}
+
               <div className="rounded-xl p-3 text-left" style={{ background: "rgba(28,34,53,0.05)", borderLeft: `3px solid ${C.gold}` }}>
                 <p style={{ color: C.textMuted }} className="text-xs">Dates may shift due to weather at no charge. We&apos;ll always notify you in advance.</p>
               </div>
@@ -534,9 +599,9 @@ export default function ProposalPage() {
               <div className="text-left space-y-3">
                 <p style={{ color: C.cream }} className="font-semibold text-sm">What happens next:</p>
                 {[
-                  "You'll receive a confirmation text shortly",
+                  "You'll receive a confirmation email with your job details and selected dates",
                   "We'll reach out before your date to confirm the exact arrival window",
-                  "Your crew will arrive with your chosen color ready to go",
+                  "Your crew will arrive with your chosen color and prep system ready to go",
                   "After the job, we'd love a quick Google review!",
                 ].map((text, i) => (
                   <div key={text} className="flex items-start gap-3">
@@ -546,9 +611,9 @@ export default function ProposalPage() {
                 ))}
               </div>
 
-              {proposal.booked_at && pkg && (
+              {proposal.booked_at && bookedTierKey && (
                 <a
-                  href={generateICS(proposal.customer_name || "", proposal.address || "", proposal.booked_at.slice(0, 10), TIERS.find((t) => t.key === pkg)?.label || "Fence Staining")}
+                  href={generateICS(proposal.customer_name || "", proposal.address || "", proposal.booked_at.slice(0, 10), TIERS.find((t) => t.key === bookedTierKey)?.label || "Fence Staining")}
                   download="at-fence-staining.ics"
                   className="block w-full rounded-2xl py-3.5 text-center font-semibold text-sm dark-btn"
                   style={{ background: "rgba(28,34,53,0.07)", color: C.gold, border: `1px solid ${C.border}`, ...bodyStyle }}>
@@ -559,7 +624,7 @@ export default function ProposalPage() {
               <div className="rounded-2xl p-4" style={{ background: C.card, border: `1px solid ${C.border}` }}>
                 <p style={{ color: C.cream }} className="font-semibold text-sm mb-2">Questions? We&apos;re here.</p>
                 <a href="tel:+18323346528" style={{ color: C.gold }} className="font-semibold block text-lg">(832) 334-6528</a>
-                <p style={{ color: C.textMuted }} className="text-xs mt-1">Or reply to any of our texts — we respond fast.</p>
+                <p style={{ color: C.textMuted }} className="text-xs mt-1">Or reply to any of our texts, we respond fast.</p>
               </div>
 
               <p style={{ color: C.textMuted }} className="text-xs pb-4">
@@ -595,8 +660,11 @@ export default function ProposalPage() {
                   {/* Section header + Trust cards + Promo — above packages */}
                   <div className="space-y-4">
                     <div>
-                      <h2 style={{ color: C.cream, ...headingStyle }} className="text-xl font-semibold">What Every Job Includes</h2>
-                      <p style={{ color: C.textMuted }} className="text-sm mt-1">Before you choose, we want you to know exactly how we show up for you — every step of the way.</p>
+                      <div className="flex items-center gap-2.5 mb-1">
+                        <span className="shrink-0 w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold" style={{ background: C.gold, color: "#FFFFFF" }}>1</span>
+                        <h2 style={{ color: C.cream, ...headingStyle }} className="text-xl font-semibold">What Every Job Includes</h2>
+                      </div>
+                      <p style={{ color: C.textMuted }} className="text-sm mt-1 pl-8">Before you choose, we want you to know exactly how we show up for you, every step of the way.</p>
                     </div>
 
                     <TrustCardPrep open={openTrust === "prep"} onToggle={() => setOpenTrust(openTrust === "prep" ? null : "prep")} />
@@ -615,9 +683,64 @@ export default function ProposalPage() {
                     </div>
                   </div>
 
+                  {/* ── HOA Requirements section ── */}
+                  <div>
+                    <div className="flex items-center gap-2.5 mb-1">
+                      <span className="shrink-0 w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold" style={{ background: C.gold, color: "#FFFFFF" }}>2</span>
+                      <h2 style={{ color: C.cream, ...headingStyle }} className="text-lg font-semibold">Do You Have HOA Color Requirements?</h2>
+                    </div>
+                    <p style={{ color: C.textMuted }} className="text-sm mt-1 pl-8 mb-3">Let us know now so we can prepare the right documentation for your board.</p>
+
+                    <div className="grid gap-2 pl-0">
+                      {[
+                        { mode: "gallery" as const, label: "No HOA, I'll pick from the color gallery", desc: "Standard gallery selection, no board approval needed" },
+                        { mode: "hoa_only" as const, label: "I need HOA approval first", desc: "We'll help you submit 2–5 ranked color choices to your board" },
+                        { mode: "hoa_approved" as const, label: "I already have my HOA-approved color", desc: "Enter the pre-approved color name at the next step" },
+                      ].map(({ mode, label, desc }) => {
+                        const isActive = colorMode === mode;
+                        return (
+                          <button key={mode}
+                            onClick={() => setColorMode(mode)}
+                            className="w-full text-left rounded-xl p-3 border-2 transition-all"
+                            style={{
+                              background: isActive ? "rgba(28,34,53,0.06)" : C.cardLight,
+                              borderColor: isActive ? C.gold : C.border,
+                            }}>
+                            <div className="flex items-start gap-2">
+                              <div className="shrink-0 mt-0.5 h-4 w-4 rounded-full border-2 flex items-center justify-center" style={{ borderColor: isActive ? C.gold : C.textMuted }}>
+                                {isActive && <div className="h-2 w-2 rounded-full" style={{ background: C.gold }} />}
+                              </div>
+                              <div>
+                                <p style={{ color: C.cream }} className="text-sm font-semibold">{label}</p>
+                                <p style={{ color: C.textMuted }} className="text-xs mt-0.5">{desc}</p>
+                              </div>
+                            </div>
+                          </button>
+                        );
+                      })}
+                    </div>
+
+                    {(colorMode === "hoa_only" || colorMode === "hoa_approved") && (
+                      <div className="mt-3 rounded-xl p-4 fade-slide" style={{ background: "rgba(212,166,74,0.07)", border: "1px solid rgba(212,166,74,0.35)" }}>
+                        <p style={{ color: "#92701A" }} className="text-sm font-semibold mb-1">About HOA Color Approval</p>
+                        <p style={{ color: C.textMuted }} className="text-xs leading-relaxed">
+                          HOA boards typically take <strong style={{ color: C.creamDark }}>2–6 weeks</strong> to review color requests, but we make the process easy. Once you book, we&apos;ll send you a ready-to-forward submission packet that includes product spec sheets, color swatches, and a pre-written approval letter drafted specifically for your HOA board. Most of our customers get first-try approval.
+                        </p>
+                        {colorMode === "hoa_only" && (
+                          <p style={{ color: C.textMuted }} className="text-xs mt-2 leading-relaxed">
+                            <strong style={{ color: C.creamDark }}>Next:</strong> After picking your package, you&apos;ll rank 2–5 color options from our gallery. We&apos;ll submit your top choices to give your HOA the best selection to approve from.
+                          </p>
+                        )}
+                      </div>
+                    )}
+                  </div>
+
                   {/* ── Package cards — stack on mobile, 3-col on md+ ── */}
                   <div>
-                    <h2 style={{ color: C.cream, ...headingStyle }} className="text-lg font-semibold mb-3">Choose Your Package</h2>
+                    <div className="flex items-center gap-2.5 mb-3">
+                      <span className="shrink-0 w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold" style={{ background: C.gold, color: "#FFFFFF" }}>3</span>
+                      <h2 style={{ color: C.cream, ...headingStyle }} className="text-lg font-semibold">Choose Your Package</h2>
+                    </div>
                     <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 md:gap-4">
                       {TIERS.map(({ key, label, badge, features, bg, accentColor, labelColor, disabled, disabledMsg }) => {
                         const price = tiers ? tiers[key] : 0;
@@ -671,7 +794,7 @@ export default function ProposalPage() {
                                 ))}
                               </ul>
 
-                              {disabled && <p className="text-xs mt-2 leading-relaxed" style={{ color: C.red }}>{disabledMsg}</p>}
+                              {disabled && disabledMsg && <p className="text-xs mt-2 leading-relaxed" style={{ color: C.red }}>{disabledMsg}</p>}
 
                               {/* Price */}
                               {price > 0 && !disabled && (
@@ -692,10 +815,13 @@ export default function ProposalPage() {
                   {pkg && (
                     <div ref={colorRef} className="space-y-4 fade-slide">
                       <div>
-                        <h2 style={{ color: C.cream, ...headingStyle }} className="text-xl font-semibold">Now, Let&apos;s Choose Your Stain Color</h2>
-                        <p style={{ color: C.textMuted }} className="text-sm mt-1">
+                        <div className="flex items-center gap-2.5 mb-1">
+                          <span className="shrink-0 w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold" style={{ background: C.gold, color: "#FFFFFF" }}>4</span>
+                          <h2 style={{ color: C.cream, ...headingStyle }} className="text-xl font-semibold">Now, Let&apos;s Choose Your Stain Color</h2>
+                        </div>
+                        <p style={{ color: C.textMuted }} className="text-sm mt-1 pl-8">
                           {pkg === "essential"
-                            ? "Essential Seal is a clear sealant — it preserves your fence's natural wood color."
+                            ? "Essential Seal is a clear sealant, it preserves your fence's natural wood color."
                             : "Select the color that best fits your home and neighborhood."}
                         </p>
                       </div>
@@ -717,34 +843,96 @@ export default function ProposalPage() {
                       ) : (
                         <>
                           {colorMode === "gallery" && (
-                            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-                              {MAIN_COLORS.map((c) => {
-                                const isSelected = selectedColor === c.id;
-                                return (
-                                  <button
-                                    key={c.id}
-                                    onClick={() => setSelectedColor(c.id)}
-                                    className="rounded-xl overflow-hidden border-2 text-left transition-all"
-                                    style={{
-                                      borderColor: isSelected ? C.gold : C.border,
-                                      background: C.card,
-                                      boxShadow: isSelected ? `0 4px 16px rgba(28,34,53,0.10)` : "0 1px 3px rgba(0,0,0,0.05)",
-                                    }}>
-                                    <div style={{ height: 80, background: c.hex }} />
-                                    <div className="px-3 py-2 flex items-center justify-between gap-2">
-                                      <div className="min-w-0">
-                                        <p style={{ color: C.cream }} className="text-xs font-semibold truncate">{c.name}</p>
-                                        <p style={{ color: C.textMuted }} className="text-xs">{c.brand}</p>
-                                      </div>
-                                      {isSelected && (
-                                        <span className="h-5 w-5 rounded-full flex items-center justify-center shrink-0" style={{ background: C.gold }}>
-                                          <span style={{ color: "#FFFFFF" }} className="text-xs font-bold">✓</span>
-                                        </span>
-                                      )}
+                            <div className="space-y-5">
+                              {/* Featured 6 */}
+                              <div>
+                                <p className="text-xs font-semibold uppercase tracking-wider mb-2.5" style={{ color: C.textMuted }}>Most Popular</p>
+                                <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                                  {MAIN_COLORS.map((c) => {
+                                    const isSelected = selectedColor === c.id;
+                                    return (
+                                      <button
+                                        key={c.id}
+                                        onClick={() => setSelectedColor(c.id)}
+                                        className="rounded-xl overflow-hidden border-2 text-left transition-all"
+                                        style={{
+                                          borderColor: isSelected ? C.gold : C.border,
+                                          background: C.card,
+                                          boxShadow: isSelected ? `0 4px 16px rgba(28,34,53,0.10)` : "0 1px 3px rgba(0,0,0,0.05)",
+                                        }}>
+                                        <div style={{ height: 80, background: c.hex }} />
+                                        <div className="px-3 py-2 flex items-center justify-between gap-2">
+                                          <div className="min-w-0">
+                                            <p style={{ color: C.cream }} className="text-xs font-semibold truncate">{c.name}</p>
+                                            <p style={{ color: C.textMuted }} className="text-xs">{c.brand}</p>
+                                          </div>
+                                          {isSelected && (
+                                            <span className="h-5 w-5 rounded-full flex items-center justify-center shrink-0" style={{ background: C.gold }}>
+                                              <span style={{ color: "#FFFFFF" }} className="text-xs font-bold">✓</span>
+                                            </span>
+                                          )}
+                                        </div>
+                                      </button>
+                                    );
+                                  })}
+                                </div>
+                              </div>
+
+                              {/* Full palette */}
+                              <div>
+                                <p className="text-xs font-semibold uppercase tracking-wider mb-2.5" style={{ color: C.textMuted }}>More Colors</p>
+                                <div className="grid grid-cols-4 sm:grid-cols-5 gap-2">
+                                  {PALETTE_COLORS.map((c) => {
+                                    const isSelected = selectedColor === c.id;
+                                    return (
+                                      <button key={c.id} onClick={() => setSelectedColor(c.id)}
+                                        className="rounded-lg overflow-hidden border-2 transition-all"
+                                        style={{ borderColor: isSelected ? C.gold : C.border, background: C.card }}>
+                                        <div style={{ height: 44, background: c.hex }} />
+                                        <div className="px-1 py-1.5">
+                                          <p style={{ color: isSelected ? C.cream : C.textMuted }} className="text-[10px] leading-tight truncate">{c.name}</p>
+                                        </div>
+                                      </button>
+                                    );
+                                  })}
+                                </div>
+                              </div>
+
+                              {/* Other / custom */}
+                              <div>
+                                <button
+                                  onClick={() => setSelectedColor(-1)}
+                                  className="w-full text-left rounded-xl p-3.5 border-2 transition-all"
+                                  style={{
+                                    borderColor: selectedColor === -1 ? C.gold : C.border,
+                                    background: selectedColor === -1 ? "rgba(28,34,53,0.04)" : C.cardLight,
+                                  }}>
+                                  <div className="flex items-center gap-3">
+                                    <div className="shrink-0 h-4 w-4 rounded-full border-2 flex items-center justify-center"
+                                      style={{ borderColor: selectedColor === -1 ? C.gold : C.textMuted }}>
+                                      {selectedColor === -1 && <div className="h-2 w-2 rounded-full" style={{ background: C.gold }} />}
                                     </div>
-                                  </button>
-                                );
-                              })}
+                                    <div>
+                                      <p style={{ color: C.cream }} className="text-sm font-semibold">Other / Custom Color</p>
+                                      <p style={{ color: C.textMuted }} className="text-xs mt-0.5">Describe the color or enter a brand + color name</p>
+                                    </div>
+                                  </div>
+                                </button>
+                                {selectedColor === -1 && (
+                                  <div className="mt-2 fade-slide">
+                                    <input
+                                      type="text"
+                                      placeholder='e.g. "Sherwin-Williams Rustic Brown" or "dark brown, similar to my shutters"'
+                                      value={customColor}
+                                      onChange={(e) => setCustomColor(e.target.value)}
+                                      className="w-full rounded-xl px-4 py-3 text-sm border outline-none"
+                                      style={{ background: C.cardLight, color: C.cream, borderColor: customColor.trim() ? C.gold : C.border }}
+                                      autoFocus
+                                    />
+                                    <p style={{ color: C.textMuted }} className="text-xs mt-1.5 pl-1">Include the brand and color name if you know it, or just describe what you&apos;re looking for.</p>
+                                  </div>
+                                )}
+                              </div>
                             </div>
                           )}
 
@@ -792,7 +980,7 @@ export default function ProposalPage() {
                               {hoaColors.length < 2 && (
                                 <p style={{ color: C.textMuted }} className="text-xs text-center">Select at least 2 colors to continue</p>
                               )}
-                              <p style={{ color: C.textMuted }} className="text-xs font-semibold uppercase tracking-wider">Additional Colors — Backup options</p>
+                              <p style={{ color: C.textMuted }} className="text-xs font-semibold uppercase tracking-wider">Additional Colors, Backup options</p>
                               <div className="grid grid-cols-4 sm:grid-cols-5 gap-2">
                                 {PALETTE_COLORS.map((c) => {
                                   const rank = hoaColors.indexOf(c.id) + 1;
@@ -834,7 +1022,7 @@ export default function ProposalPage() {
                               )}
                               <label className="flex items-center gap-2 text-sm cursor-pointer" style={{ color: C.textMuted }}>
                                 <input type="checkbox" checked={hoaSendLater} onChange={(e) => setHoaSendLater(e.target.checked)} className="h-4 w-4 rounded" />
-                                I don&apos;t know the exact name — I&apos;ll send it before my appointment
+                                I don&apos;t know the exact name, I&apos;ll send it before my appointment
                               </label>
                             </div>
                           )}
@@ -861,31 +1049,10 @@ export default function ProposalPage() {
                             </div>
                           )}
 
-                          {colorMode === "gallery" && (
-                            <div className="space-y-2 pt-1">
-                              <p style={{ color: C.textMuted }} className="text-xs font-semibold uppercase tracking-wider">Other options</p>
-                              <div className="grid gap-2 sm:grid-cols-1">
-                                {[
-                                  { mode: "hoa_only" as const, label: "I need HOA approval first", desc: "Pick 2–5 colors for your HOA submission" },
-                                  { mode: "hoa_approved" as const, label: "I already have my HOA-approved color", desc: "Enter your pre-approved color name" },
-                                  { mode: "custom" as const, label: "I have a different color in mind", desc: "Tell us what you're looking for" },
-                                ].map(({ mode, label, desc }) => (
-                                  <button key={mode}
-                                    onClick={() => { setColorMode(mode); setSelectedColor(null); }}
-                                    className="w-full text-left rounded-xl p-3 border transition-all"
-                                    style={{ background: C.cardLight, borderColor: C.border }}>
-                                    <p style={{ color: C.cream }} className="text-sm font-semibold">{label}</p>
-                                    <p style={{ color: C.textMuted }} className="text-xs mt-0.5">{desc}</p>
-                                  </button>
-                                ))}
-                              </div>
-                            </div>
-                          )}
-
                           {colorMode !== "gallery" && (
                             <button onClick={() => { setColorMode("gallery"); setHoaColors([]); setCustomColor(""); }}
                               style={{ color: C.textMuted }} className="text-xs underline">
-                              ← Back to color gallery
+                              ← Back to standard color gallery
                             </button>
                           )}
                         </>
@@ -912,19 +1079,19 @@ export default function ProposalPage() {
               {step === 2 && (
                 <div className="space-y-5">
                   <div>
-                    <h1 style={{ color: C.cream, ...headingStyle }} className="text-2xl md:text-3xl font-bold">Book Your Date</h1>
-                    <p style={{ color: C.textMuted }} className="text-sm mt-1">Choose your preferred start date. We typically begin around 9am.</p>
+                    <h1 style={{ color: C.cream, ...headingStyle }} className="text-2xl md:text-3xl font-bold">Choose Your Dates</h1>
+                    <p style={{ color: C.textMuted }} className="text-sm mt-1">Pick up to 4 dates that work for you, we&apos;ll prioritize your first choice. Our large crew accommodates 90%+ of requests, even in busy months.</p>
                   </div>
 
-                  {/* Scarcity badges */}
+                  {/* Date guidance */}
                   <div className="flex flex-wrap gap-2">
                     <span className="text-xs px-3 py-1.5 rounded-full font-medium"
-                      style={{ background: "rgba(229,57,53,0.12)", color: C.red, border: "1px solid rgba(229,57,53,0.2)" }}>
-                      Only a few dates available this month
+                      style={{ background: "rgba(28,34,53,0.07)", color: C.gold, border: `1px solid ${C.border}` }}>
+                      1st tap = preferred date
                     </span>
                     <span className="text-xs px-3 py-1.5 rounded-full font-medium"
-                      style={{ background: "rgba(28,34,53,0.07)", color: C.gold, border: `1px solid ${C.border}` }}>
-                      A homeowner in Cypress booked recently
+                      style={{ background: "rgba(22,163,74,0.10)", color: C.green, border: "1px solid rgba(22,163,74,0.25)" }}>
+                      Green dates = best availability
                     </span>
                   </div>
 
@@ -952,26 +1119,55 @@ export default function ProposalPage() {
                             if (!day) return <div key={i} />;
                             const dateStr = `${calYear}-${String(calMonthNum).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
                             const slot = dateSlotMap[dateStr];
+                            const isPast = dateStr < todayISO;
+                            const isPreferred = Boolean(slot);
                             const isPrimary = selectedDate === dateStr;
-                            const isBackup = backupDate === dateStr;
-                            if (!slot) return (
+                            const isBackup = backupDates.includes(dateStr);
+                            if (isPast) return (
                               <div key={i} className="rounded-lg text-center py-2.5">
-                                <p className="text-xs" style={{ color: "#D1D5DB" }}>{day}</p>
+                                <p className="text-xs" style={{ color: "#9CA3AF", opacity: 0.4 }}>{day}</p>
                               </div>
                             );
+                            const backupIndex = backupDates.indexOf(dateStr);
+                            const selectionLabel = isPrimary ? "1st" : backupIndex === 0 ? "2nd" : backupIndex === 1 ? "3rd" : backupIndex === 2 ? "4th" : null;
+                            const atMax = !isPrimary && !isBackup && selectedDate !== null && backupDates.length >= 3;
                             return (
                               <button
                                 key={i}
-                                onClick={() => { if (showBackup && selectedDate && !isPrimary) setBackupDate(dateStr); else setSelectedDate(dateStr); }}
-                                className="rounded-lg text-center py-2.5 transition-all"
+                                onClick={() => {
+                                  if (isPrimary) {
+                                    setSelectedDate(null);
+                                    setBackupDates([]);
+                                    return;
+                                  }
+                                  if (isBackup) {
+                                    setBackupDates(prev => prev.filter(d => d !== dateStr));
+                                    return;
+                                  }
+                                  if (!selectedDate) {
+                                    setSelectedDate(dateStr);
+                                    return;
+                                  }
+                                  if (backupDates.length < 3) {
+                                    setBackupDates(prev => [...prev, dateStr]);
+                                  }
+                                }}
+                                className="rounded-lg text-center py-2 transition-all"
                                 style={{
-                                  background: isPrimary ? C.gold : isBackup ? "rgba(28,34,53,0.12)" : "rgba(28,34,53,0.06)",
-                                  border: `1px solid ${isPrimary || isBackup ? C.gold : C.border}`,
-                                  boxShadow: isPrimary ? `0 2px 8px rgba(28,34,53,0.2)` : "none",
+                                  background: isPrimary ? C.gold : isBackup ? "rgba(212,166,74,0.12)" : isPreferred ? "rgba(22,163,74,0.08)" : "rgba(28,34,53,0.05)",
+                                  border: `1px solid ${isPrimary ? C.gold : isBackup ? "rgba(212,166,74,0.5)" : isPreferred ? C.green : C.border}`,
+                                  boxShadow: isPrimary ? `0 2px 10px rgba(212,166,74,0.3)` : "none",
+                                  opacity: atMax ? 0.4 : 1,
+                                  cursor: atMax ? "not-allowed" : "pointer",
                                 }}>
-                                <p className="text-xs font-bold" style={{ color: isPrimary ? "#FFFFFF" : C.cream }}>{day}</p>
-                                {slot.label && (
-                                  <p className="text-[9px] leading-none mt-0.5" style={{ color: isPrimary ? "rgba(255,255,255,0.75)" : C.textMuted }}>{slot.label}</p>
+                                <p className="text-xs font-bold leading-none" style={{ color: isPrimary ? "#FFFFFF" : C.cream }}>{day}</p>
+                                {selectionLabel && (
+                                  <p className="text-[8px] leading-none mt-0.5 font-bold" style={{ color: isPrimary ? "rgba(255,255,255,0.9)" : C.gold }}>{selectionLabel}</p>
+                                )}
+                                {!selectionLabel && isPreferred && (
+                                  <p className="text-[8px] leading-none mt-0.5 font-semibold" style={{ color: C.green }}>
+                                    {slot?.label || "Best Availability"}
+                                  </p>
                                 )}
                               </button>
                             );
@@ -979,39 +1175,39 @@ export default function ProposalPage() {
                         </div>
                       )}
                       {availableDates.length === 0 && !datesLoading && (
-                        <p className="text-center text-sm py-6" style={{ color: C.textMuted }}>No dates available this month — check next month →</p>
+                        <p className="text-center text-sm py-6" style={{ color: C.textMuted }}>No preferred dates this month, any date above is still available to request →</p>
                       )}
                     </div>
                   </div>
 
                   {/* Selected date confirmation */}
-                  {selectedDate && (
-                    <div className="rounded-xl p-4 fade-slide" style={{ background: "rgba(28,34,53,0.05)", border: `1px solid ${C.border}` }}>
-                      <p style={{ color: C.gold }} className="font-semibold text-sm">✓ {formatDateDisplay(selectedDate)}</p>
-                      <p style={{ color: C.textMuted }} className="text-xs mt-1">We&apos;ll reach out before your date to confirm the exact arrival time.</p>
+                  {selectedDate ? (
+                    <div className="rounded-xl p-4 fade-slide" style={{ background: "rgba(22,163,74,0.06)", border: "1px solid rgba(22,163,74,0.25)" }}>
+                      <p style={{ color: C.green }} className="font-semibold text-sm">✓ Preferred: {formatDateDisplay(selectedDate)}</p>
+                      {backupDates.length > 0 && (
+                        <p style={{ color: C.creamDark }} className="text-xs mt-1">
+                          Backups: {backupDates.map((d, i) => `${["2nd","3rd","4th"][i]}, ${formatShortDateDisplay(d)}`).join(" • ")}
+                        </p>
+                      )}
+                      {backupDates.length < 3 && (
+                        <p style={{ color: C.textMuted }} className="text-xs mt-1.5">
+                          {backupDates.length === 0
+                            ? "Tap up to 3 more dates as backups for weather or HOA delays."
+                            : `Tap ${3 - backupDates.length} more date${3 - backupDates.length > 1 ? "s" : ""} as backup, or continue below.`}
+                        </p>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="rounded-xl p-3 fade-slide" style={{ background: "rgba(28,34,53,0.04)", border: `1px solid ${C.border}` }}>
+                      <p style={{ color: C.textMuted }} className="text-xs">Tap a date to select your preferred day. Add up to 3 backup dates for flexibility.</p>
                     </div>
                   )}
-
-                  {/* Backup date */}
-                  <div>
-                    {!showBackup ? (
-                      <button onClick={() => setShowBackup(true)} style={{ color: C.textMuted }} className="text-xs underline hover:text-gold transition-colors">
-                        + Add a backup date in case of weather (optional)
-                      </button>
-                    ) : (
-                      <div className="space-y-2">
-                        <p style={{ color: C.textMuted }} className="text-xs">Select a backup date from the calendar above:</p>
-                        {backupDate && <p style={{ color: C.creamDark }} className="text-xs">Backup: {formatDateDisplay(backupDate)}</p>}
-                        <button onClick={() => { setShowBackup(false); setBackupDate(null); }} style={{ color: C.textMuted }} className="text-xs underline">Remove backup</button>
-                      </div>
-                    )}
-                  </div>
 
                   {/* Weather notice */}
                   <div className="rounded-xl p-3" style={{ background: "rgba(28,34,53,0.04)", borderLeft: `3px solid ${C.gold}` }}>
                     <p style={{ color: C.gold }} className="text-xs font-semibold">Weather Notice</p>
                     <p style={{ color: C.textMuted }} className="text-xs mt-1 leading-relaxed">
-                      Your date may shift due to weather. Your booking transfers at no charge — we always notify you in advance.
+                      Your date may shift due to weather. Your booking transfers at no charge, we always notify you in advance.
                     </p>
                   </div>
 
@@ -1103,6 +1299,11 @@ export default function ProposalPage() {
                           <div>
                             <p className="text-xs uppercase tracking-wider mb-1" style={{ color: C.textMuted }}>Date</p>
                             <p className="text-sm font-medium" style={{ color: C.creamDark }}>{formatDateDisplay(selectedDate)}</p>
+                            {backupDates.length > 0 && (
+                              <p className="text-xs mt-1" style={{ color: C.textMuted }}>
+                                Backups: {backupDates.map((d) => formatShortDateDisplay(d)).join(" • ")}
+                              </p>
+                            )}
                           </div>
                         )}
 

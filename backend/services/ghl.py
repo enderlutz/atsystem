@@ -148,6 +148,24 @@ def get_custom_fields(location_id: str) -> list[dict]:
         return []
 
 
+# ── Opportunity stage update ──────────────────────────────────────────
+
+def update_opportunity_stage(opportunity_id: str, stage_id: str) -> bool:
+    """Move a GHL opportunity to a different pipeline stage."""
+    try:
+        r = httpx.put(
+            f"{GHL_BASE}/opportunities/{opportunity_id}",
+            headers=_headers(),
+            json={"pipelineStageId": stage_id},
+            timeout=10,
+        )
+        r.raise_for_status()
+        return True
+    except Exception as e:
+        logger.error(f"GHL update_opportunity_stage failed: {e}")
+        return False
+
+
 # ── Messaging ─────────────────────────────────────────────────────────
 
 def send_message_to_contact(contact_id: str, message: str) -> bool:
@@ -367,7 +385,7 @@ def parse_webhook_payload(payload: dict, field_map: dict[str, str] | None = None
 
     # Fallback 2: check form_data (VA may have entered zip manually via dashboard)
     if not zip_code:
-        zip_code = str(fields.get("zip_code", "") or "").strip()[:5]
+        zip_code = str(form_data.get("zip_code", "") or "").strip()[:5]
 
     first = payload.get("firstName", "") or payload.get("first_name", "")
     last  = payload.get("lastName", "")  or payload.get("last_name", "")

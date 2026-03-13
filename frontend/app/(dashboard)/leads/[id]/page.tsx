@@ -148,6 +148,14 @@ export default function LeadDetailPage() {
       setContactPhone(data.contact_phone || "");
       setContactAddress(data.address || "");
     }).catch(console.error).finally(() => setLoading(false));
+
+    // Auto-load messages on page open
+    api.getLeadMessages(id).then((result) => {
+      setMessages(result.messages || []);
+      setMessagesLoaded(true);
+    }).catch(() => {
+      setMessagesLoaded(true);
+    });
   }, [id]);
 
   const toggleFenceSide = (side: string) => {
@@ -556,15 +564,9 @@ export default function LeadDetailPage() {
               )}
             </CardTitle>
             <div className="flex gap-2">
-              {!messagesLoaded ? (
-                <Button size="sm" variant="outline" onClick={() => handleLoadMessages()} disabled={loadingMessages}>
-                  {loadingMessages ? "Loading..." : "Load Messages"}
-                </Button>
-              ) : (
-                <Button size="sm" variant="ghost" onClick={() => handleLoadMessages(true)} disabled={loadingMessages}>
-                  <RefreshCw className={`h-3.5 w-3.5 ${loadingMessages ? "animate-spin" : ""}`} />
-                </Button>
-              )}
+              <Button size="sm" variant="ghost" onClick={() => handleLoadMessages(true)} disabled={loadingMessages}>
+                <RefreshCw className={`h-3.5 w-3.5 ${loadingMessages ? "animate-spin" : ""}`} />
+              </Button>
               <Button size="sm" variant="outline" onClick={handleCheckResponse} disabled={checkingResponse}>
                 {checkingResponse ? "Checking..." : "Check for Response"}
               </Button>
@@ -573,11 +575,7 @@ export default function LeadDetailPage() {
         </CardHeader>
         <CardContent>
           {!messagesLoaded ? (
-            <p className="text-sm text-muted-foreground">
-              {lead.customer_responded
-                ? `Customer replied: "${lead.customer_response_text}" — click Load Messages to see full thread.`
-                : "Click 'Load Messages' to see the SMS conversation, or 'Check for Response' to detect a new reply."}
-            </p>
+            <p className="text-sm text-muted-foreground">Loading messages…</p>
           ) : messagesError ? (
             <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
               <p className="font-semibold mb-1">Could not load messages</p>
