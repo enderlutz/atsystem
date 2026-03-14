@@ -10,7 +10,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { CheckCircle, XCircle, ExternalLink, ShieldCheck } from "lucide-react";
+import { CheckCircle, XCircle, ExternalLink, ShieldCheck, Eye } from "lucide-react";
 
 const PRIORITY_ORDER: Record<string, number> = { HOT: 0, HIGH: 1, MEDIUM: 2, LOW: 3 };
 
@@ -67,6 +67,7 @@ export default function AdminApprovalPage() {
   const [loading, setLoading] = useState(true);
   const [priceStates, setPriceStates] = useState<Record<string, PriceState>>({});
   const [submittingId, setSubmittingId] = useState<string | null>(null);
+  const [previewingId, setPreviewingId] = useState<string | null>(null);
 
   // Guard: redirect if not admin
   useEffect(() => {
@@ -154,6 +155,18 @@ export default function AdminApprovalPage() {
     }
   };
 
+  const handlePreview = async (estimateId: string) => {
+    setPreviewingId(estimateId);
+    try {
+      const { token } = await api.getPreviewToken(estimateId);
+      window.open(`/proposal/${token}`, "_blank");
+    } catch {
+      toast.error("Failed to generate preview");
+    } finally {
+      setPreviewingId(null);
+    }
+  };
+
   if (loading) {
     return (
       <div className="space-y-4">
@@ -228,12 +241,22 @@ export default function AdminApprovalPage() {
                     <p className="text-sm text-muted-foreground truncate">{l?.address || "No address"}</p>
                     <p className="text-xs text-muted-foreground">Fence Staining · Created {formatDate(est.created_at)}</p>
                   </div>
-                  <Link
-                    href={`/estimates/${est.id}`}
-                    className="shrink-0 text-xs text-muted-foreground hover:text-foreground flex items-center gap-1 underline underline-offset-2"
-                  >
-                    Full Details <ExternalLink className="h-3 w-3" />
-                  </Link>
+                  <div className="flex items-center gap-3 shrink-0">
+                    <button
+                      onClick={() => handlePreview(est.id)}
+                      disabled={previewingId === est.id}
+                      className="text-xs text-muted-foreground hover:text-foreground flex items-center gap-1 underline underline-offset-2"
+                    >
+                      <Eye className="h-3 w-3" />
+                      {previewingId === est.id ? "Loading…" : "Preview"}
+                    </button>
+                    <Link
+                      href={`/estimates/${est.id}`}
+                      className="text-xs text-muted-foreground hover:text-foreground flex items-center gap-1 underline underline-offset-2"
+                    >
+                      Full Details <ExternalLink className="h-3 w-3" />
+                    </Link>
+                  </div>
                 </div>
 
                 {/* Price inputs */}

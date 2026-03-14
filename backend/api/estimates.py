@@ -76,7 +76,7 @@ async def approve_estimate(estimate_id: str, body: EstimateApprove = EstimateApp
 
     db.table("leads").update({"status": "approved"}).eq("id", estimate["lead_id"]).execute()
 
-    # Generate proposal token and store in proposals table
+    # Generate proposal token and store — MUST succeed before sending SMS
     settings = get_settings()
     token = secrets.token_urlsafe(12)
     proposal_url = f"{settings.proposal_base_url}/proposal/{token}"
@@ -88,8 +88,7 @@ async def approve_estimate(estimate_id: str, body: EstimateApprove = EstimateApp
             "status": "sent",
         }).execute()
     except Exception as e:
-        import logging
-        logging.getLogger(__name__).warning(f"Failed to create proposal row: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to create proposal record: {e}")
 
     contact_id = lead.get("ghl_contact_id")
     if contact_id:
@@ -166,8 +165,7 @@ async def admin_approve_estimate(estimate_id: str, body: AdminApproveRequest, _:
             "status": "sent",
         }).execute()
     except Exception as e:
-        import logging
-        logging.getLogger(__name__).warning(f"Failed to create proposal row: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to create proposal record: {e}")
 
     contact_id = lead.get("ghl_contact_id")
     if contact_id:
@@ -220,8 +218,7 @@ async def adjust_estimate(estimate_id: str, body: EstimateAdjust, _: dict = Depe
             "status": "sent",
         }).execute()
     except Exception as e:
-        import logging
-        logging.getLogger(__name__).warning(f"Failed to create proposal row: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to create proposal record: {e}")
 
     lead_res = db.table("leads").select("*").eq("id", estimate["lead_id"]).single().execute()
     lead = lead_res.data or {}

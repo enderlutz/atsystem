@@ -11,7 +11,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
-import { ArrowLeft, CheckCircle, XCircle, Edit2, MapPin, ExternalLink } from "lucide-react";
+import { ArrowLeft, CheckCircle, XCircle, Edit2, MapPin, ExternalLink, Eye } from "lucide-react";
 
 const fieldLabels: Record<string, string> = {
   fence_height: "Fence Height",
@@ -85,6 +85,7 @@ export default function EstimateDetailPage() {
   const [adjustPrice, setAdjustPrice] = useState("");
   const [notes, setNotes] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [previewLoading, setPreviewLoading] = useState(false);
 
   useEffect(() => {
     api.getEstimate(id).then((e) => {
@@ -135,6 +136,18 @@ export default function EstimateDetailPage() {
     }
   };
 
+  const handlePreview = async () => {
+    setPreviewLoading(true);
+    try {
+      const { token } = await api.getPreviewToken(id);
+      window.open(`/proposal/${token}`, "_blank");
+    } catch (e) {
+      toast.error("Failed to generate preview");
+    } finally {
+      setPreviewLoading(false);
+    }
+  };
+
   if (loading) {
     return (
       <div className="space-y-4">
@@ -181,13 +194,19 @@ export default function EstimateDetailPage() {
             Created {formatDate(estimate.created_at)}
           </p>
         </div>
-        <Badge variant={
-          estimate.status === "approved" ? "success" :
-          estimate.status === "rejected" ? "destructive" :
-          estimate.status === "adjusted" ? "warning" : "pending"
-        } className="ml-auto">
-          {estimate.status}
-        </Badge>
+        <div className="ml-auto flex items-center gap-2">
+          <Button size="sm" variant="outline" onClick={handlePreview} disabled={previewLoading} className="gap-1.5">
+            <Eye className="h-3.5 w-3.5" />
+            {previewLoading ? "Loading…" : "Preview Proposal"}
+          </Button>
+          <Badge variant={
+            estimate.status === "approved" ? "success" :
+            estimate.status === "rejected" ? "destructive" :
+            estimate.status === "adjusted" ? "warning" : "pending"
+          }>
+            {estimate.status}
+          </Badge>
+        </div>
       </div>
 
       {/* Approval Status Banner */}
