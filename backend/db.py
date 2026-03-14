@@ -62,6 +62,8 @@ class QueryBuilder:
         self._in_filters: list[tuple[str, list]] = []
         self._not_in_filters: list[tuple[str, list]] = []
         self._gte_filters: list[tuple[str, str]] = []
+        self._lt_filters: list[tuple[str, str]] = []
+        self._is_null_filters: list[str] = []
         self._not_is_filters: list[tuple[str, str]] = []
 
     # --- Builder methods ---
@@ -102,6 +104,16 @@ class QueryBuilder:
 
     def not_in(self, col: str, vals: list) -> QueryBuilder:
         self._not_in_filters.append((col, vals))
+        return self
+
+    def is_(self, col: str, val: str) -> QueryBuilder:
+        """Handles .is_("col", "null") → col IS NULL"""
+        if val.lower() == "null":
+            self._is_null_filters.append(col)
+        return self
+
+    def lt(self, col: str, val: str) -> QueryBuilder:
+        self._lt_filters.append((col, val))
         return self
 
     def gte(self, col: str, val: str) -> QueryBuilder:
@@ -157,6 +169,11 @@ class QueryBuilder:
             placeholders = ", ".join(["%s"] * len(vals))
             parts.append(f"{col} NOT IN ({placeholders})")
             params.extend(vals)
+        for col in self._is_null_filters:
+            parts.append(f"{col} IS NULL")
+        for col, val in self._lt_filters:
+            parts.append(f"{col} < %s")
+            params.append(val)
         for col, val in self._gte_filters:
             parts.append(f"{col} >= %s")
             params.append(val)
