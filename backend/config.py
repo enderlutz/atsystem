@@ -30,6 +30,7 @@ class Settings(BaseSettings):
     google_calendar_id: str = "primary"
 
     stripe_secret_key: str | None = None
+    stripe_webhook_secret: str | None = None
 
     auth_secret: str = "change-me-in-production"
 

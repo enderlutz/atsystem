@@ -268,3 +268,75 @@ async def ghl_webhook(request: Request, background_tasks: BackgroundTasks):
     background_tasks.add_task(process_lead, lead_id, lead_data)
 
     return {"status": "received", "lead_id": lead_id}
+
+
+@router.post("/webhook/stripe")
+async def stripe_webhook(request: Request):
+    """Safety-net: complete booking if customer paid but redirect back failed."""
+    settings = get_settings()
+    if not settings.stripe_webhook_secret:
+        logger.warning("Stripe webhook received but STRIPE_WEBHOOK_SECRET not configured — ignoring")
+        return {"status": "ignored"}
+
+    body = await request.body()
+    sig = request.headers.get("stripe-signature", "")
+
+    import stripe as stripe_lib
+    try:
+        event = stripe_lib.Webhook.construct_event(body, sig, settings.stripe_webhook_secret)
+    except stripe_lib.error.SignatureVerificationError:
+        raise HTTPException(status_code=400, detail="Invalid Stripe signature")
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Webhook error: {e}")
+
+    if event["type"] != "checkout.session.completed":
+        return {"status": "ignored", "event": event["type"]}
+
+    session = event["data"]["object"]
+    if session.get("payment_status") != "paid":
+        return {"status": "not_paid"}
+
+    token = (session.get("metadata") or {}).get("proposal_token")
+    if not token:
+        logger.error("Stripe webhook: no proposal_token in session metadata")
+        return {"status": "no_token"}
+
+    db = get_db()
+    proposal_res = db.table("proposals").select("*").eq("token", token).single().execute()
+    if not proposal_res.data:
+        logger.error(f"Stripe webhook: proposal {token} not found")
+        return {"status": "not_found"}
+
+    proposal = proposal_res.data
+    if proposal["status"] == "booked":
+        logger.info(f"Stripe webhook: proposal {token} already booked — skipping duplicate")
+        return {"status": "already_booked"}
+
+    pending = proposal.get("pending_booking") or {}
+    if not pending.get("selected_tier") or not pending.get("booked_at"):
+        logger.error(f"Stripe webhook: missing pending_booking for proposal {token}")
+        return {"status": "no_pending_booking"}
+
+    from api.proposals import _finalize_booking
+    try:
+        await _finalize_booking(
+            token=token,
+            proposal=proposal,
+            selected_tier=pending["selected_tier"],
+            booked_at_str=pending["booked_at"],
+            contact_email=pending.get("contact_email"),
+            backup_dates=pending.get("backup_dates") or [],
+            selected_color=pending.get("selected_color"),
+            color_mode=pending.get("color_mode", "gallery"),
+            hoa_colors=pending.get("hoa_colors"),
+            custom_color=pending.get("custom_color"),
+            stripe_session_id=session["id"],
+            settings=settings,
+            db=db,
+        )
+        logger.info(f"Stripe webhook: proposal {token} finalized successfully")
+    except Exception as e:
+        logger.error(f"Stripe webhook: failed to finalize proposal {token}: {e}")
+        raise
+
+    return {"status": "booked"}

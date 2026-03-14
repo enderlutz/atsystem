@@ -162,6 +162,163 @@ async def create_checkout(token: str, body: CheckoutRequest):
     return {"checkout_url": session.url}
 
 
+async def _finalize_booking(
+    *,
+    token: str,
+    proposal: dict,
+    selected_tier: str,
+    booked_at_str: str,
+    contact_email: str | None,
+    backup_dates: list | None,
+    selected_color: str | None,
+    color_mode: str,
+    hoa_colors: list | None,
+    custom_color: str | None,
+    stripe_session_id: str | None,
+    settings,
+    db,
+) -> dict:
+    """Shared booking completion — called by redirect path and Stripe webhook."""
+    try:
+        booked_dt = datetime.fromisoformat(booked_at_str.replace("Z", "+00:00"))
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid booked_at datetime")
+
+    parsed_backup_dates: list[str] = []
+    for raw_date in (backup_dates or []):
+        try:
+            parsed_dt = datetime.fromisoformat(raw_date.replace("Z", "+00:00"))
+            parsed_backup_dates.append(parsed_dt.date().isoformat())
+        except ValueError:
+            continue
+    parsed_backup_dates = [d for d in parsed_backup_dates if d != booked_dt.date().isoformat()]
+    parsed_backup_dates = list(dict.fromkeys(parsed_backup_dates))[:3]
+
+    lead_result = db.table("leads").select("*").eq("id", proposal["lead_id"]).single().execute()
+    lead = lead_result.data or {}
+    est_result = db.table("estimates").select("*").eq("id", proposal["estimate_id"]).single().execute()
+    estimate = est_result.data or {}
+    tiers = (estimate.get("inputs") or {}).get("_tiers") or {}
+
+    customer_name = lead.get("contact_name") or "Customer"
+    address = lead.get("address") or ""
+    tier_label = selected_tier.capitalize()
+    tier_price = tiers.get(selected_tier, 0)
+    date_str = booked_dt.strftime("%A, %B %-d at %-I:%M %p")
+
+    color_display = ""
+    if color_mode == "gallery" and selected_color:
+        color_display = selected_color
+    elif color_mode == "hoa_only" and hoa_colors:
+        color_display = f"HOA multi-select: {', '.join(str(c) for c in hoa_colors)}"
+    elif color_mode == "hoa_approved":
+        color_display = f"HOA Approved: {custom_color or 'TBD'}"
+    elif color_mode == "custom":
+        color_display = f"Custom: {custom_color or 'TBD'}"
+
+    inputs_data = estimate.get("inputs") or {}
+    linear_feet = inputs_data.get("linear_feet")
+    fence_height = inputs_data.get("fence_height") or ""
+    fence_desc = f"{int(linear_feet)} linear feet" if linear_feet else "your fence"
+    height_desc = fence_height.split(" ")[0] if fence_height else ""
+    wood_details = (
+        f"Property: {fence_desc}{f', {height_desc} tall' if height_desc else ''}\n"
+        f"Stain system: Ready Seal Exterior Stain & Sealer, applied in two coats\n"
+        f"Surface preparation: Professional soft-wash + pressure rinse before staining\n"
+        f"Color: {color_display or 'To be confirmed with HOA approval'}"
+    )
+
+    backup_dates_text = "None selected"
+    if parsed_backup_dates:
+        backup_dates_text = ", ".join(
+            datetime.fromisoformat(f"{d}T12:00:00").strftime("%A, %B %-d") for d in parsed_backup_dates
+        )
+
+    summary = f"Fence Staining — {customer_name} ({tier_label})"
+    description = (
+        f"Customer: {customer_name}\n"
+        f"Address: {address}\n"
+        f"Package: {tier_label} — ${tier_price:,.2f}\n"
+        f"Color: {color_display or 'Not specified'}\n"
+        f"Backup dates: {backup_dates_text}\n"
+        f"Phone: {lead.get('contact_phone') or 'N/A'}\n"
+        f"Booked via proposal link"
+    )
+    calendar_event_id = create_calendar_event(
+        summary=summary, description=description, location=address,
+        start_dt=booked_dt, duration_hours=4,
+        credentials_json=settings.google_calendar_credentials_json,
+        calendar_id=settings.google_calendar_id,
+    )
+
+    if settings.owner_ghl_contact_id:
+        alan_msg = (
+            f"📅 New Booking!\n"
+            f"Customer: {customer_name}\n"
+            f"Package: {tier_label} (${tier_price:,.0f})\n"
+            f"Color: {color_display or 'Not specified'}\n"
+            f"Date: {date_str}\n"
+            f"Backup: {backup_dates_text}\n"
+            f"Address: {address}"
+        )
+        sent = send_message_to_contact(settings.owner_ghl_contact_id, alan_msg)
+        if not sent:
+            logger.warning("Failed to send booking notification to Alan via GHL")
+    else:
+        logger.warning("OWNER_GHL_CONTACT_ID not set — Alan not notified")
+
+    if contact_email:
+        is_hoa_approval_needed = color_mode in ("hoa_only", "hoa_approved")
+        hoa_color_options = (
+            [str(c) for c in (hoa_colors or [])] if color_mode == "hoa_only"
+            else ([custom_color] if custom_color else [])
+        )
+        send_booking_confirmation_to_customer(
+            to_email=contact_email, customer_name=customer_name,
+            tier_label=tier_label, tier_price=tier_price,
+            color_display=color_display or "Not specified", date_str=date_str,
+            address=address, backup_dates=parsed_backup_dates,
+            is_hoa_approval_needed=is_hoa_approval_needed,
+            hoa_color_mode=color_mode, hoa_color_options=hoa_color_options,
+            wood_details=wood_details,
+        )
+
+    db.table("proposals").update({
+        "status": "booked",
+        "selected_tier": selected_tier,
+        "booked_at": booked_dt.isoformat(),
+        "calendar_event_id": calendar_event_id,
+        "backup_dates": parsed_backup_dates,
+        "selected_color": selected_color,
+        "color_mode": color_mode,
+        "hoa_colors": hoa_colors,
+        "custom_color": custom_color,
+        "stripe_session_id": stripe_session_id,
+        "deposit_paid": bool(stripe_session_id),
+    }).eq("token", token).execute()
+
+    logger.info(f"Proposal {token} booked: {tier_label} on {date_str} for {customer_name}")
+
+    if settings.ghl_booked_stage_id:
+        opp_res = db.table("leads").select("ghl_opportunity_id").eq("id", proposal["lead_id"]).single().execute()
+        opp_id = (opp_res.data or {}).get("ghl_opportunity_id")
+        if opp_id:
+            moved = update_opportunity_stage(opp_id, settings.ghl_booked_stage_id)
+            if not moved:
+                logger.warning(f"Failed to move GHL opportunity {opp_id} to booked stage")
+
+    return {
+        "status": "booked",
+        "booked_at": booked_dt.isoformat(),
+        "selected_tier": selected_tier,
+        "booked_tier_price": float(tier_price or 0),
+        "color_display": color_display or "Not specified",
+        "backup_dates": parsed_backup_dates,
+        "deposit_paid": bool(stripe_session_id),
+        "address": address,
+    }
+
+
 @router.post("/{token}/book")
 async def book_proposal(token: str, body: BookingRequest):
     """Customer submits their tier choice + date. Creates calendar event, notifies Alan."""
@@ -212,160 +369,11 @@ async def book_proposal(token: str, body: BookingRequest):
     if body.selected_tier not in ("essential", "signature", "legacy"):
         raise HTTPException(status_code=400, detail="Invalid tier")
 
-    # Parse booked_at
-    try:
-        booked_dt = datetime.fromisoformat(body.booked_at.replace("Z", "+00:00"))
-    except ValueError:
-        raise HTTPException(status_code=400, detail="Invalid booked_at datetime")
-
-    parsed_backup_dates: list[str] = []
-    for raw_date in (body.backup_dates or []):
-        try:
-            parsed_dt = datetime.fromisoformat(raw_date.replace("Z", "+00:00"))
-            parsed_backup_dates.append(parsed_dt.date().isoformat())
-        except ValueError:
-            continue
-    parsed_backup_dates = [d for d in parsed_backup_dates if d != booked_dt.date().isoformat()]
-    parsed_backup_dates = list(dict.fromkeys(parsed_backup_dates))[:3]
-
-    # Fetch lead + estimate for context
-    lead_result = db.table("leads").select("*").eq("id", proposal["lead_id"]).single().execute()
-    lead = lead_result.data or {}
-    est_result = db.table("estimates").select("*").eq("id", proposal["estimate_id"]).single().execute()
-    estimate = est_result.data or {}
-    tiers = (estimate.get("inputs") or {}).get("_tiers") or {}
-
-    customer_name = lead.get("contact_name") or "Customer"
-    address = lead.get("address") or ""
-    tier_label = body.selected_tier.capitalize()
-    tier_price = tiers.get(body.selected_tier, 0)
-    date_str = booked_dt.strftime("%A, %B %-d at %-I:%M %p")
-
-    # Build color display string for calendar/SMS
-    color_display = ""
-    if body.color_mode == "gallery" and body.selected_color:
-        color_display = body.selected_color
-    elif body.color_mode == "hoa_only" and body.hoa_colors:
-        color_display = f"HOA multi-select: {', '.join(str(c) for c in body.hoa_colors)}"
-    elif body.color_mode == "hoa_approved":
-        color_display = f"HOA Approved: {body.custom_color or 'TBD'}"
-    elif body.color_mode == "custom":
-        color_display = f"Custom: {body.custom_color or 'TBD'}"
-
-    inputs_data = estimate.get("inputs") or {}
-    linear_feet = inputs_data.get("linear_feet")
-    fence_height = inputs_data.get("fence_height") or ""
-    fence_desc = f"{int(linear_feet)} linear feet" if linear_feet else "your fence"
-    height_desc = fence_height.split(" ")[0] if fence_height else ""
-
-    wood_details = (
-        f"Property: {fence_desc}{f', {height_desc} tall' if height_desc else ''}\n"
-        f"Stain system: Ready Seal Exterior Stain & Sealer, applied in two coats\n"
-        f"Surface preparation: Professional soft-wash + pressure rinse before staining\n"
-        f"Color: {color_display or 'To be confirmed with HOA approval'}"
+    return await _finalize_booking(
+        token=token, proposal=proposal,
+        selected_tier=body.selected_tier, booked_at_str=body.booked_at,
+        contact_email=body.contact_email, backup_dates=body.backup_dates,
+        selected_color=body.selected_color, color_mode=body.color_mode,
+        hoa_colors=body.hoa_colors, custom_color=body.custom_color,
+        stripe_session_id=body.stripe_session_id, settings=settings, db=db,
     )
-
-    backup_dates_text = "None selected"
-    if parsed_backup_dates:
-        backup_dates_text = ", ".join(
-            datetime.fromisoformat(f"{d}T12:00:00").strftime("%A, %B %-d") for d in parsed_backup_dates
-        )
-
-    # Create Google Calendar event
-    summary = f"Fence Staining — {customer_name} ({tier_label})"
-    description = (
-        f"Customer: {customer_name}\n"
-        f"Address: {address}\n"
-        f"Package: {tier_label} — ${tier_price:,.2f}\n"
-        f"Color: {color_display or 'Not specified'}\n"
-        f"Backup dates: {backup_dates_text}\n"
-        f"Phone: {lead.get('contact_phone') or 'N/A'}\n"
-        f"Booked via proposal link"
-    )
-    calendar_event_id = create_calendar_event(
-        summary=summary,
-        description=description,
-        location=address,
-        start_dt=booked_dt,
-        duration_hours=4,
-        credentials_json=settings.google_calendar_credentials_json,
-        calendar_id=settings.google_calendar_id,
-    )
-
-    # Notify Alan via GHL SMS
-    if settings.owner_ghl_contact_id:
-        alan_msg = (
-            f"📅 New Booking!\n"
-            f"Customer: {customer_name}\n"
-            f"Package: {tier_label} (${tier_price:,.0f})\n"
-            f"Color: {color_display or 'Not specified'}\n"
-            f"Date: {date_str}\n"
-            f"Backup: {backup_dates_text}\n"
-            f"Address: {address}"
-        )
-        sent = send_message_to_contact(settings.owner_ghl_contact_id, alan_msg)
-        if not sent:
-            logger.warning("Failed to send booking notification to Alan via GHL")
-    else:
-        logger.warning("OWNER_GHL_CONTACT_ID not set — Alan not notified")
-
-    # Send booking confirmation to customer
-    if body.contact_email:
-        is_hoa_approval_needed = body.color_mode in ("hoa_only", "hoa_approved")
-        hoa_color_options = (
-            [str(c) for c in (body.hoa_colors or [])] if body.color_mode == "hoa_only"
-            else ([body.custom_color] if body.custom_color else [])
-        )
-        send_booking_confirmation_to_customer(
-            to_email=body.contact_email,
-            customer_name=customer_name,
-            tier_label=tier_label,
-            tier_price=tier_price,
-            color_display=color_display or "Not specified",
-            date_str=date_str,
-            address=address,
-            backup_dates=parsed_backup_dates,
-            is_hoa_approval_needed=is_hoa_approval_needed,
-            hoa_color_mode=body.color_mode,
-            hoa_color_options=hoa_color_options,
-            wood_details=wood_details,
-        )
-
-    # Update proposal row
-    db.table("proposals").update({
-        "status": "booked",
-        "selected_tier": body.selected_tier,
-        "booked_at": booked_dt.isoformat(),
-        "calendar_event_id": calendar_event_id,
-        "backup_dates": parsed_backup_dates,
-        "selected_color": body.selected_color,
-        "color_mode": body.color_mode,
-        "hoa_colors": body.hoa_colors,
-        "custom_color": body.custom_color,
-        "stripe_session_id": body.stripe_session_id,
-        "deposit_paid": bool(body.stripe_session_id),
-    }).eq("token", token).execute()
-
-    logger.info(f"Proposal {token} booked: {tier_label} on {date_str} for {customer_name}")
-
-    # Move GHL opportunity to "Booked" stage if configured
-    if settings.ghl_booked_stage_id:
-        opp_res = db.table("leads").select("ghl_opportunity_id").eq("id", proposal["lead_id"]).single().execute()
-        opp_id = (opp_res.data or {}).get("ghl_opportunity_id")
-        if opp_id:
-            moved = update_opportunity_stage(opp_id, settings.ghl_booked_stage_id)
-            if not moved:
-                logger.warning(f"Failed to move GHL opportunity {opp_id} to booked stage")
-        else:
-            logger.debug(f"No ghl_opportunity_id for lead {proposal['lead_id']} — skipping stage update")
-
-    return {
-        "status": "booked",
-        "booked_at": booked_dt.isoformat(),
-        "selected_tier": body.selected_tier,
-        "booked_tier_price": float(tier_price or 0),
-        "color_display": color_display or "Not specified",
-        "backup_dates": parsed_backup_dates,
-        "deposit_paid": bool(body.stripe_session_id),
-        "address": address,
-    }
