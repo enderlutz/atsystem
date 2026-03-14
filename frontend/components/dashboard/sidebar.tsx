@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useEffect, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { cn } from "@/lib/utils";
 import { getCurrentUser } from "@/lib/api";
@@ -25,8 +26,12 @@ const navItems = [
 export function Sidebar() {
   const pathname = usePathname();
   const router = useRouter();
-  const user = getCurrentUser();
+  const [user, setUser] = useState<{ sub: string; name: string; role: string } | null>(null);
   const isAdmin = user?.role === "admin";
+
+  useEffect(() => {
+    setUser(getCurrentUser());
+  }, []);
 
   const handleLogout = () => {
     document.cookie = "at_auth=; max-age=0; path=/";
