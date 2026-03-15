@@ -7,7 +7,7 @@ import { formatCurrency, formatDate } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { CheckCircle2 } from "lucide-react";
+import { CheckCircle2, Send } from "lucide-react";
 
 const statusVariant: Record<EstimateStatus, "pending" | "success" | "destructive" | "warning"> = {
   pending: "pending",
@@ -123,13 +123,22 @@ export default function EstimatesPage() {
                         </span>
                       )}
                     </div>
-                    <p className="text-xs text-muted-foreground">{serviceLabel[est.service_type]}</p>
+                    <p className="text-xs text-muted-foreground">
+                      {serviceLabel[est.service_type]}
+                      <span className="ml-2 font-mono text-muted-foreground/60">#{est.id.slice(0, 8)}</span>
+                    </p>
                     <p className="text-sm text-muted-foreground truncate">
                       {est.lead?.address ?? "Address pending"}
                     </p>
                     <p className="text-xs text-muted-foreground">
                       Created {formatDate(est.created_at)}
                       {est.approved_at && ` · Approved ${formatDate(est.approved_at)}`}
+                      {est.send_count > 0 && (
+                        <span className="ml-2 inline-flex items-center gap-1 text-blue-600">
+                          <Send className="h-3 w-3" />
+                          Sent {est.send_count}×
+                        </span>
+                      )}
                     </p>
                   </div>
                   <div className="text-right space-y-2 shrink-0">

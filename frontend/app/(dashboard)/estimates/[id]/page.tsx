@@ -11,7 +11,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
-import { ArrowLeft, CheckCircle, XCircle, Edit2, MapPin, ExternalLink, Eye } from "lucide-react";
+import { ArrowLeft, CheckCircle, XCircle, Edit2, MapPin, ExternalLink, Eye, Send, RotateCcw } from "lucide-react";
 
 const fieldLabels: Record<string, string> = {
   fence_height: "Fence Height",
@@ -86,6 +86,7 @@ export default function EstimateDetailPage() {
   const [notes, setNotes] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [previewLoading, setPreviewLoading] = useState(false);
+  const [resending, setResending] = useState(false);
 
   useEffect(() => {
     api.getEstimate(id).then((e) => {
@@ -148,6 +149,21 @@ export default function EstimateDetailPage() {
     }
   };
 
+  const handleResend = async () => {
+    setResending(true);
+    try {
+      await api.resendEstimate(id);
+      toast.success("Estimate resent to client!");
+      // Refresh to show updated send count
+      const updated = await api.getEstimate(id);
+      setEstimate(updated);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed to resend estimate");
+    } finally {
+      setResending(false);
+    }
+  };
+
   if (loading) {
     return (
       <div className="space-y-4">
@@ -191,14 +207,26 @@ export default function EstimateDetailPage() {
             {estimate.service_type === "fence_staining" ? "Fence Restoration" : "Pressure Washing"} Estimate
           </h1>
           <p className="text-sm text-muted-foreground">
+            <span className="font-mono text-xs mr-2">#{estimate.id.slice(0, 8)}</span>
             Created {formatDate(estimate.created_at)}
           </p>
         </div>
-        <div className="ml-auto flex items-center gap-2">
+        <div className="ml-auto flex items-center gap-2 flex-wrap justify-end">
+          {estimate.send_count > 0 && (
+            <span className="text-xs text-blue-600 flex items-center gap-1">
+              <Send className="h-3 w-3" /> Sent {estimate.send_count}×
+            </span>
+          )}
           <Button size="sm" variant="outline" onClick={handlePreview} disabled={previewLoading} className="gap-1.5">
             <Eye className="h-3.5 w-3.5" />
-            {previewLoading ? "Loading…" : "Preview Proposal"}
+            {previewLoading ? "Loading…" : "Preview"}
           </Button>
+          {isAdmin && (estimate.status === "approved" || estimate.status === "adjusted") && (
+            <Button size="sm" variant="outline" onClick={handleResend} disabled={resending} className="gap-1.5">
+              <RotateCcw className="h-3.5 w-3.5" />
+              {resending ? "Sending…" : "Resend"}
+            </Button>
+          )}
           <Badge variant={
             estimate.status === "approved" ? "success" :
             estimate.status === "rejected" ? "destructive" :

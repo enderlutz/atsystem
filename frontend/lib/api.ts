@@ -111,6 +111,8 @@ export const api = {
       method: "POST",
       body: JSON.stringify(body),
     }),
+  resendEstimate: (id: string) =>
+    request<{ status: string; proposal_url: string }>(`/api/estimates/${id}/resend`, { method: "POST" }),
   getPreviewToken: (estimateId: string) =>
     request<{ token: string }>(`/api/estimates/${estimateId}/preview`, { method: "POST" }),
   markAdditionalServicesSent: (estimateId: string) =>
@@ -244,6 +246,7 @@ export interface Estimate {
   estimate_high: number;
   owner_notes: string | null;
   additional_services_sent: boolean;
+  send_count: number;
   created_at: string;
   approved_at: string | null;
   lead?: Lead;
