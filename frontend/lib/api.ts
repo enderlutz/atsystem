@@ -1,8 +1,4 @@
-const API_URL =
-  process.env.NEXT_PUBLIC_API_URL ||
-  (typeof window !== "undefined" && window.location.hostname !== "localhost"
-    ? "https://atsystem-production.up.railway.app"
-    : "http://localhost:8000");
+const API_URL = process.env.NEXT_PUBLIC_API_URL || "https://atsystem-production.up.railway.app";
 
 function getToken(): string | null {
   if (typeof document === "undefined") return null;
