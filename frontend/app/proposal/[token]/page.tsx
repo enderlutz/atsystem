@@ -266,6 +266,8 @@ export default function ProposalPage() {
           if (data.contact_email) {
             setContactEmail(data.contact_email);
           }
+        } else {
+          trackStage("opened");
         }
       })
       .catch((e) => setError(e.message || "Proposal not found"))
@@ -770,7 +772,7 @@ export default function ProposalPage() {
                       <h2 style={{ color: C.cream, ...headingStyle }} className="text-lg font-semibold">Choose Your Package</h2>
                     </div>
                     <div
-                      className="flex gap-4 overflow-x-auto py-3 -mx-4 px-4 sm:grid sm:grid-cols-3 sm:overflow-visible sm:mx-0 sm:px-0 sm:py-4 sm:gap-5 md:gap-6"
+                      className="flex gap-4 overflow-x-auto py-3 -mx-4 px-4 sm:grid sm:grid-cols-3 sm:overflow-visible sm:mx-0 sm:px-2 sm:py-4 sm:gap-6 md:gap-8"
                       style={{ scrollSnapType: "x mandatory", WebkitOverflowScrolling: "touch", scrollbarWidth: "none" }}>
                       {TIERS.map(({ key, label, badge, features, bg, accentColor, labelColor, disabled, disabledMsg }) => {
                         const price = tiers ? tiers[key] : 0;

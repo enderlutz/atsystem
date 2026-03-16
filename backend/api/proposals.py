@@ -14,7 +14,7 @@ router = APIRouter(prefix="/api/proposal", tags=["proposals"])
 logger = logging.getLogger(__name__)
 
 
-STAGE_ORDER = ["opened", "hoa_selected", "package_selected", "color_selected", "date_selected", "checkout_started", "booked"]
+STAGE_ORDER = ["sent", "opened", "hoa_selected", "package_selected", "color_selected", "date_selected", "checkout_started", "booked"]
 
 
 class StageUpdate(BaseModel):
@@ -113,7 +113,7 @@ async def get_proposal(token: str):
         "color_display": color_display,
         "backup_dates": proposal.get("backup_dates") or [],
         "deposit_paid": bool(proposal.get("deposit_paid")),
-        "funnel_stage": proposal.get("funnel_stage") or "opened",
+        "funnel_stage": proposal.get("funnel_stage") or "sent",
         "fence_sides": inputs.get("fence_sides") or "",
     }
 
@@ -127,7 +127,7 @@ async def update_funnel_stage(token: str, body: StageUpdate):
     result = db.table("proposals").select("funnel_stage").eq("token", token).single().execute()
     if not result.data:
         raise HTTPException(status_code=404, detail="Proposal not found")
-    current = (result.data or {}).get("funnel_stage") or "opened"
+    current = (result.data or {}).get("funnel_stage") or "sent"
     current_idx = STAGE_ORDER.index(current) if current in STAGE_ORDER else 0
     new_idx = STAGE_ORDER.index(body.stage)
     if new_idx > current_idx:

@@ -845,12 +845,12 @@ export default function LeadDetailPage() {
                 </span>
                 {/* Funnel stage indicator */}
                 {(() => {
-                  const STAGES = ["opened", "hoa_selected", "package_selected", "color_selected", "date_selected", "checkout_started", "booked"];
+                  const STAGES = ["sent", "opened", "hoa_selected", "package_selected", "color_selected", "date_selected", "checkout_started", "booked"];
                   const STAGE_LABELS: Record<string, string> = {
-                    opened: "Viewed", hoa_selected: "HOA", package_selected: "Package",
+                    sent: "Sent", opened: "Viewed", hoa_selected: "HOA", package_selected: "Package",
                     color_selected: "Color", date_selected: "Date", checkout_started: "Checkout", booked: "Booked",
                   };
-                  const stage = est?.proposal_funnel_stage || "opened";
+                  const stage = est?.proposal_funnel_stage || "sent";
                   const stageIdx = STAGES.indexOf(stage);
                   return (
                     <div className="rounded-lg border p-2.5 bg-muted/20 w-full">

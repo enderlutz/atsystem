@@ -587,6 +587,7 @@ export default function LeadsPage() {
                               const stage = est?.proposal_funnel_stage;
                               if (!stage || stage === "booked") return null;
                               const STAGE_LABELS: Record<string, string> = {
+                                sent: "Not opened yet",
                                 opened: "Viewed",
                                 hoa_selected: "HOA step",
                                 package_selected: "Package picked",
