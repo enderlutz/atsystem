@@ -769,50 +769,61 @@ export default function ProposalPage() {
                       <span className="shrink-0 w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold" style={{ background: C.gold, color: "#FFFFFF" }}>3</span>
                       <h2 style={{ color: C.cream, ...headingStyle }} className="text-lg font-semibold">Choose Your Package</h2>
                     </div>
-                    {/* Good · Better · Best label row */}
-                    <div className="hidden sm:grid sm:grid-cols-3 gap-3 md:gap-4 mb-1 px-1">
-                      {["Good", "Better", "Best"].map((label) => (
-                        <p key={label} className="text-center text-xs font-semibold uppercase tracking-widest" style={{ color: C.textMuted }}>{label}</p>
-                      ))}
-                    </div>
                     <div
-                      className="flex gap-3 overflow-x-auto pb-2 -mx-4 px-4 sm:grid sm:grid-cols-3 sm:overflow-visible sm:mx-0 sm:px-0"
+                      className="flex gap-3 overflow-x-auto pb-2 -mx-4 px-4 sm:grid sm:grid-cols-3 sm:overflow-visible sm:mx-0 sm:px-0 sm:gap-6 md:gap-8"
                       style={{ scrollSnapType: "x mandatory", WebkitOverflowScrolling: "touch", scrollbarWidth: "none" }}>
                       {TIERS.map(({ key, label, badge, features, bg, accentColor, labelColor, disabled, disabledMsg }) => {
                         const price = tiers ? tiers[key] : 0;
                         const isSelected = pkg === key;
+                        const borderThickness = key === "legacy" ? "2.5px" : key === "signature" ? "2px" : "1px";
                         const unselectedBorder = disabled
                           ? "rgba(229,57,53,0.3)"
                           : key === "legacy"
                           ? C.gold
                           : key === "signature"
-                          ? "rgba(28,34,53,0.3)"
-                          : C.border;
+                          ? "rgba(28,34,53,0.35)"
+                          : "#D1D5DB";
+                        const cardShadow = isSelected
+                          ? `0 6px 28px rgba(28,34,53,0.18)`
+                          : key === "legacy"
+                          ? `0 8px 32px rgba(28,34,53,0.16), 0 2px 8px rgba(28,34,53,0.08)`
+                          : key === "signature"
+                          ? `0 4px 18px rgba(28,34,53,0.10)`
+                          : `0 1px 4px rgba(0,0,0,0.04)`;
+                        const accentBarHeight = key === "legacy" ? 7 : key === "signature" ? 5 : 3;
+                        const cardBg = key === "legacy" ? "#FDFCF9" : bg;
                         return (
                           <button
                             key={key}
                             onClick={() => !disabled && handleSelectPkg(key)}
                             disabled={disabled}
-                            className="text-left rounded-2xl border-2 transition-all overflow-hidden shrink-0 snap-center sm:shrink sm:w-auto"
+                            className="text-left rounded-2xl transition-all overflow-hidden shrink-0 snap-center sm:shrink sm:w-auto"
                             style={{
                               width: "72vw",
                               maxWidth: 280,
-                              background: bg,
-                              borderColor: isSelected ? C.gold : unselectedBorder,
+                              background: cardBg,
+                              border: `${borderThickness} solid ${isSelected ? C.gold : unselectedBorder}`,
                               opacity: disabled ? 0.55 : 1,
                               cursor: disabled ? "not-allowed" : "pointer",
                               padding: 0,
-                              boxShadow: isSelected ? `0 4px 20px rgba(28,34,53,0.12)` : key === "legacy" ? "0 2px 12px rgba(28,34,53,0.08)" : "0 1px 3px rgba(0,0,0,0.06)",
+                              boxShadow: cardShadow,
+                              transform: key === "legacy" && !isSelected ? "translateY(-4px)" : "none",
                             }}>
                             {/* Accent bar */}
-                            <div style={{ height: 4, background: isSelected ? C.gold : accentColor }} />
+                            <div style={{ height: accentBarHeight, background: key === "legacy" || isSelected ? C.gold : key === "signature" ? "rgba(28,34,53,0.55)" : accentColor }} />
                             <div className="p-4">
                               {/* Badges row */}
                               <div className="flex items-start justify-between gap-2 mb-3">
                                 <div className="flex flex-wrap gap-1.5">
                                   {badge && (
-                                    <span className="text-xs font-semibold px-2 py-0.5 rounded-full"
-                                      style={{ background: key === "legacy" ? "rgba(28,34,53,0.1)" : "rgba(28,34,53,0.08)", color: C.gold }}>{badge}</span>
+                                    <span className="text-xs font-semibold px-2.5 py-0.5 rounded-full"
+                                      style={{
+                                        background: C.gold,
+                                        color: "#FFFFFF",
+                                        letterSpacing: "0.02em",
+                                      }}>
+                                      {key === "legacy" ? `★ ${badge}` : badge}
+                                    </span>
                                   )}
                                   {disabled && (
                                     <span className="text-xs px-2 py-0.5 rounded-full"
