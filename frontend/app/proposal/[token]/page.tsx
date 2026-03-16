@@ -659,7 +659,7 @@ export default function ProposalPage() {
           </div>
         ) : (
           /* Steps 1 & 2: responsive 2-col on desktop */
-          <div className="max-w-6xl mx-auto px-4 pt-6 pb-10 lg:grid lg:grid-cols-[minmax(0,1fr)_320px] xl:grid-cols-[minmax(0,1fr)_360px] lg:gap-8 xl:gap-10 lg:items-start">
+          <div className="max-w-6xl mx-auto px-4 pt-6 pb-10 lg:grid lg:grid-cols-[minmax(0,1fr)_260px] xl:grid-cols-[minmax(0,1fr)_300px] lg:gap-10 xl:gap-12 lg:items-start">
 
             {/* ── MAIN CONTENT COLUMN ─────────────────────────────────────── */}
             <div className="min-w-0 space-y-5">
@@ -772,7 +772,7 @@ export default function ProposalPage() {
                       <h2 style={{ color: C.cream, ...headingStyle }} className="text-lg font-semibold">Choose Your Package</h2>
                     </div>
                     <div
-                      className="flex gap-4 overflow-x-auto py-3 -mx-4 px-4 sm:grid sm:grid-cols-3 sm:overflow-visible sm:mx-0 sm:px-2 sm:py-4 sm:gap-6 md:gap-8"
+                      className="flex gap-4 overflow-x-auto py-3 -mx-4 px-4 md:grid md:grid-cols-3 md:overflow-visible md:mx-0 md:px-0 md:py-4 md:gap-8 lg:gap-10"
                       style={{ scrollSnapType: "x mandatory", WebkitOverflowScrolling: "touch", scrollbarWidth: "none" }}>
                       {TIERS.map(({ key, label, badge, features, bg, accentColor, labelColor, disabled, disabledMsg }) => {
                         const price = tiers ? tiers[key] : 0;
@@ -789,7 +789,7 @@ export default function ProposalPage() {
                         const cardShadow = isSelected
                           ? `0 6px 28px rgba(28,34,53,0.18)`
                           : key === "signature"
-                          ? `0 0 0 4px rgba(201,168,76,0.18), 0 6px 24px rgba(201,168,76,0.20)`
+                          ? `0 4px 28px rgba(201,168,76,0.50), 0 1px 8px rgba(201,168,76,0.30)`
                           : key === "legacy"
                           ? `0 4px 20px rgba(28,34,53,0.13), 0 1px 4px rgba(28,34,53,0.06)`
                           : `0 1px 4px rgba(0,0,0,0.04)`;
@@ -803,7 +803,7 @@ export default function ProposalPage() {
                             key={key}
                             onClick={() => !disabled && handleSelectPkg(key)}
                             disabled={disabled}
-                            className="text-left rounded-2xl transition-all overflow-hidden shrink-0 snap-center sm:shrink sm:w-auto"
+                            className="text-left rounded-2xl transition-all overflow-hidden shrink-0 snap-center md:shrink md:w-auto"
                             style={{
                               width: "76vw",
                               maxWidth: 290,
