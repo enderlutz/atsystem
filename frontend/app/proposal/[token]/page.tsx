@@ -1010,7 +1010,7 @@ export default function ProposalPage() {
                                 <p style={{ color: C.cream }} className="text-xs font-semibold">Have a specific brand/color in mind? (Optional)</p>
                                 <input
                                   type="text"
-                                  placeholder='e.g. "Ready Seal Dark Walnut" — we\'ll include it in your HOA submission'
+                                  placeholder="e.g. &quot;Ready Seal Dark Walnut&quot; — we'll include it in your HOA submission"
                                   value={hoaCustomBrand}
                                   onChange={(e) => setHoaCustomBrand(e.target.value)}
                                   className="w-full rounded-lg px-3 py-2 text-sm border outline-none"
