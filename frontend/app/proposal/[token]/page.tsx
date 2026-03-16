@@ -775,23 +775,28 @@ export default function ProposalPage() {
                       {TIERS.map(({ key, label, badge, features, bg, accentColor, labelColor, disabled, disabledMsg }) => {
                         const price = tiers ? tiers[key] : 0;
                         const isSelected = pkg === key;
-                        const borderThickness = key === "legacy" ? "2.5px" : key === "signature" ? "2px" : "1px";
+                        const REAL_GOLD = "#C9A84C";
+                        const borderThickness = key === "signature" ? "2.5px" : key === "legacy" ? "2px" : "1px";
                         const unselectedBorder = disabled
                           ? "rgba(229,57,53,0.3)"
+                          : key === "signature"
+                          ? REAL_GOLD
                           : key === "legacy"
                           ? C.gold
-                          : key === "signature"
-                          ? "rgba(28,34,53,0.35)"
                           : "#D1D5DB";
                         const cardShadow = isSelected
                           ? `0 6px 28px rgba(28,34,53,0.18)`
+                          : key === "signature"
+                          ? `0 0 0 4px rgba(201,168,76,0.18), 0 6px 24px rgba(201,168,76,0.20)`
                           : key === "legacy"
                           ? `0 8px 32px rgba(28,34,53,0.16), 0 2px 8px rgba(28,34,53,0.08)`
-                          : key === "signature"
-                          ? `0 4px 18px rgba(28,34,53,0.10)`
                           : `0 1px 4px rgba(0,0,0,0.04)`;
-                        const accentBarHeight = key === "legacy" ? 7 : key === "signature" ? 5 : 3;
+                        const accentBarHeight = key === "legacy" ? 7 : key === "signature" ? 6 : 3;
+                        const accentBarBg = key === "signature"
+                          ? `linear-gradient(90deg, ${REAL_GOLD}, #E8C76A, ${REAL_GOLD})`
+                          : key === "legacy" || isSelected ? C.gold : accentColor;
                         const cardBg = key === "legacy" ? "#FDFCF9" : bg;
+                        const cardLift = key === "signature" ? "translateY(-6px)" : key === "legacy" ? "translateY(-3px)" : "none";
                         return (
                           <button
                             key={key}
@@ -802,15 +807,15 @@ export default function ProposalPage() {
                               width: "72vw",
                               maxWidth: 280,
                               background: cardBg,
-                              border: `${borderThickness} solid ${isSelected ? C.gold : unselectedBorder}`,
+                              border: `${borderThickness} solid ${isSelected ? (key === "signature" ? REAL_GOLD : C.gold) : unselectedBorder}`,
                               opacity: disabled ? 0.55 : 1,
                               cursor: disabled ? "not-allowed" : "pointer",
                               padding: 0,
                               boxShadow: cardShadow,
-                              transform: key === "legacy" && !isSelected ? "translateY(-4px)" : "none",
+                              transform: cardLift,
                             }}>
                             {/* Accent bar */}
-                            <div style={{ height: accentBarHeight, background: key === "legacy" || isSelected ? C.gold : key === "signature" ? "rgba(28,34,53,0.55)" : accentColor }} />
+                            <div style={{ height: accentBarHeight, background: accentBarBg }} />
                             <div className="p-4">
                               {/* Badges row */}
                               <div className="flex items-start justify-between gap-2 mb-3">
@@ -818,7 +823,7 @@ export default function ProposalPage() {
                                   {badge && (
                                     <span className="text-xs font-semibold px-2.5 py-0.5 rounded-full"
                                       style={{
-                                        background: C.gold,
+                                        background: key === "signature" ? REAL_GOLD : C.gold,
                                         color: "#FFFFFF",
                                         letterSpacing: "0.02em",
                                       }}>
@@ -832,7 +837,7 @@ export default function ProposalPage() {
                                 </div>
                                 {isSelected && (
                                   <div className="h-6 w-6 rounded-full flex items-center justify-center shrink-0"
-                                    style={{ background: C.gold }}>
+                                    style={{ background: key === "signature" ? REAL_GOLD : C.gold }}>
                                     <span className="text-xs font-bold" style={{ color: "#FFFFFF" }}>✓</span>
                                   </div>
                                 )}
