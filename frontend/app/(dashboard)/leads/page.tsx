@@ -582,6 +582,25 @@ export default function LeadsPage() {
                               );
                             })()}
 
+                            {/* Funnel stage (sent column) */}
+                            {col.key === "sent" && (() => {
+                              const stage = est?.proposal_funnel_stage;
+                              if (!stage || stage === "booked") return null;
+                              const STAGE_LABELS: Record<string, string> = {
+                                opened: "Viewed",
+                                hoa_selected: "HOA step",
+                                package_selected: "Package picked",
+                                color_selected: "Color picked",
+                                date_selected: "Date picked",
+                                checkout_started: "At checkout",
+                              };
+                              return (
+                                <span className="text-xs text-blue-600 flex items-center gap-1">
+                                  📊 {STAGE_LABELS[stage] || stage}
+                                </span>
+                              );
+                            })()}
+
                             {/* Review reason (red column) */}
                             {col.key === "red" && reason && (
                               <p className="text-xs text-red-600 leading-tight">{reason}</p>

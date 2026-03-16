@@ -839,9 +839,40 @@ export default function LeadDetailPage() {
 
             {/* Action area — differs by status */}
             {estimateSent ? (
-              <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium bg-green-100 text-green-700">
-                <CheckCircle2 className="h-4 w-4" /> Sent to customer
-              </span>
+              <div className="flex flex-col gap-2 w-full">
+                <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium bg-green-100 text-green-700 w-fit">
+                  <CheckCircle2 className="h-4 w-4" /> Sent to customer
+                </span>
+                {/* Funnel stage indicator */}
+                {(() => {
+                  const STAGES = ["opened", "hoa_selected", "package_selected", "color_selected", "date_selected", "checkout_started", "booked"];
+                  const STAGE_LABELS: Record<string, string> = {
+                    opened: "Viewed", hoa_selected: "HOA", package_selected: "Package",
+                    color_selected: "Color", date_selected: "Date", checkout_started: "Checkout", booked: "Booked",
+                  };
+                  const stage = est?.proposal_funnel_stage || "opened";
+                  const stageIdx = STAGES.indexOf(stage);
+                  return (
+                    <div className="rounded-lg border p-2.5 bg-muted/20 w-full">
+                      <p className="text-xs font-semibold text-muted-foreground mb-1.5">Customer progress</p>
+                      <div className="flex items-center gap-0.5 flex-wrap">
+                        {STAGES.map((s, i) => {
+                          const done = i <= stageIdx;
+                          const isCurrent = i === stageIdx;
+                          return (
+                            <span key={s} className="flex items-center gap-0.5">
+                              <span className={`text-xs px-1.5 py-0.5 rounded font-medium ${done ? "bg-amber-100 text-amber-800" : "bg-muted text-muted-foreground"} ${isCurrent ? "ring-1 ring-amber-400" : ""}`}>
+                                {STAGE_LABELS[s]}
+                              </span>
+                              {i < STAGES.length - 1 && <span className="text-muted-foreground text-[10px]">›</span>}
+                            </span>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  );
+                })()}
+              </div>
             ) : isRed ? (
               <Button variant="outline" asChild>
                 <Link href={`/estimates/${est.id}`}>View Estimate →</Link>

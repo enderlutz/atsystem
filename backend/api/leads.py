@@ -50,13 +50,16 @@ async def get_lead(lead_id: str):
         # Attach proposal token if one exists for this estimate
         prop_res = (
             db.table("proposals")
-            .select("token")
+            .select("token, funnel_stage, status")
             .eq("estimate_id", estimate["id"])
+            .order("created_at", desc=True)
             .limit(1)
             .execute()
         )
         if prop_res.data:
             estimate["proposal_token"] = prop_res.data[0]["token"]
+            estimate["proposal_funnel_stage"] = prop_res.data[0].get("funnel_stage") or "opened"
+            estimate["proposal_status"] = prop_res.data[0].get("status") or "sent"
         lead["estimate"] = estimate
 
     return lead

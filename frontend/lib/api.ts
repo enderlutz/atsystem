@@ -158,10 +158,16 @@ export const api = {
     color_mode?: string;
     hoa_colors?: string[] | null;
     custom_color?: string | null;
+    additional_request?: string | null;
   }) =>
     request<{ checkout_url: string }>(`/api/proposal/${token}/create-checkout`, {
       method: "POST",
       body: JSON.stringify(data),
+    }),
+  updateProposalStage: (token: string, stage: string) =>
+    request<{ status: string }>(`/api/proposal/${token}/stage`, {
+      method: "POST",
+      body: JSON.stringify({ stage }),
     }),
   bookProposal: (token: string, data: {
     selected_tier: string;
@@ -247,6 +253,8 @@ export interface Estimate {
   approved_at: string | null;
   lead?: Lead;
   inputs?: Record<string, unknown>;
+  proposal_funnel_stage?: string;
+  proposal_status?: string;
 }
 
 export interface EstimateDetail extends Estimate {
@@ -351,6 +359,8 @@ export interface ProposalData {
   color_display?: string;
   backup_dates?: string[];
   deposit_paid?: boolean;
+  funnel_stage?: string;
+  fence_sides?: string;
 }
 
 export interface ScheduleSlot {

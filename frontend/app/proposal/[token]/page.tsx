@@ -219,6 +219,7 @@ export default function ProposalPage() {
   const [selectedColor, setSelectedColor] = useState<number | null>(null);
   const [hoaColors, setHoaColors] = useState<number[]>([]);
   const [customColor, setCustomColor] = useState("");
+  const [hoaCustomBrand, setHoaCustomBrand] = useState("");
   const [hoaSendLater, setHoaSendLater] = useState(false);
   const [customSendLater, setCustomSendLater] = useState(false);
 
@@ -236,12 +237,16 @@ export default function ProposalPage() {
   // Contact
   const [contactEmail, setContactEmail] = useState("");
 
+  // Additional services request
+  const [additionalRequest, setAdditionalRequest] = useState("");
+
   // Booking
   const [booking, setBooking] = useState(false);
   const [bookError, setBookError] = useState<string | null>(null);
   const [processingPayment, setProcessingPayment] = useState(false);
 
   const colorRef = useRef<HTMLDivElement>(null);
+  const reportedStages = useRef<Set<string>>(new Set());
 
   useEffect(() => {
     api.getProposal(token)
@@ -256,7 +261,7 @@ export default function ProposalPage() {
             setSelectedDate(data.booked_at.slice(0, 10));
           }
           if (data.backup_dates?.length) {
-            setBackupDates(data.backup_dates.slice(0, 2));
+            setBackupDates(data.backup_dates.slice(0, 1));
           }
           if (data.contact_email) {
             setContactEmail(data.contact_email);
@@ -291,7 +296,7 @@ export default function ProposalPage() {
           setPkg(res.selected_tier);
         }
         setSelectedDate(res.booked_at.slice(0, 10));
-        setBackupDates((res.backup_dates || []).slice(0, 2));
+        setBackupDates((res.backup_dates || []).slice(0, 1));
         setStep(3);
       })
       .catch((e) => {
@@ -299,6 +304,12 @@ export default function ProposalPage() {
       })
       .finally(() => setProcessingPayment(false));
   }, [token]);
+
+  const trackStage = (stage: string) => {
+    if (reportedStages.current.has(stage)) return;
+    reportedStages.current.add(stage);
+    api.updateProposalStage(token, stage).catch(() => {});
+  };
 
   const loadDates = async (month: string) => {
     setDatesLoading(true);
@@ -309,6 +320,12 @@ export default function ProposalPage() {
 
   useEffect(() => { if (step === 2) loadDates(datesMonth); }, [step, datesMonth]);
 
+  // Track color_selected stage when color selection is complete
+  useEffect(() => {
+    if (isColorComplete()) trackStage("color_selected");
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedColor, hoaColors, customColor, hoaSendLater, customSendLater, colorMode, pkg]);
+
   const handleSelectPkg = (p: "essential" | "signature" | "legacy") => {
     setPkg(p);
     setSelectedColor(null);
@@ -318,6 +335,7 @@ export default function ProposalPage() {
       setColorMode("gallery");
       setSelectedColor(0);
     }
+    trackStage("package_selected");
     setTimeout(() => colorRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 100);
   };
 
@@ -326,10 +344,12 @@ export default function ProposalPage() {
   };
 
   const getHoaColorNames = (): string[] => {
-    return hoaColors.map((id) => {
+    const names = hoaColors.map((id) => {
       const color = MAIN_COLORS.find((x) => x.id === id) || PALETTE_COLORS.find((x) => x.id === id);
       return color?.name || String(id);
     });
+    if (hoaCustomBrand.trim()) names.push(hoaCustomBrand.trim());
+    return names;
   };
 
   const isColorComplete = (): boolean => {
@@ -358,6 +378,7 @@ export default function ProposalPage() {
   const handleCheckout = async () => {
     if (!selectedDate || !proposal || !pkg) return;
     setBooking(true); setBookError(null);
+    trackStage("checkout_started");
     const bookedAt = new Date(selectedDate + "T09:00:00");
     const backupDatePayload = backupDates.map((d) => new Date(d + "T09:00:00").toISOString());
     const colorData = pkg === "essential"
@@ -373,6 +394,7 @@ export default function ProposalPage() {
         booked_at: bookedAt.toISOString(),
         contact_email: contactEmail.trim() || null,
         backup_dates: backupDatePayload,
+        additional_request: additionalRequest.trim() || null,
         ...colorData,
       });
       window.location.href = checkout_url;
@@ -409,7 +431,7 @@ export default function ProposalPage() {
   const firstName = proposal.customer_name?.split(" ")[0] || "";
   const previouslyStained = (proposal.previously_stained || "No").toLowerCase().startsWith("y");
   const selectedColorDisplay = proposal.color_display || getColorDisplayName() || "Not specified";
-  const selectedBackupDates = (proposal.backup_dates || backupDates || []).slice(0, 2);
+  const selectedBackupDates = (proposal.backup_dates || backupDates || []).slice(0, 1);
 
 
   const TIERS = [
@@ -569,9 +591,10 @@ export default function ProposalPage() {
                   { label: "Price", value: fmtFull(tierPrice) },
                   { label: "Color", value: selectedColorDisplay },
                   { label: "Date", value: proposal.booked_at ? formatDateDisplay(proposal.booked_at.slice(0, 10)) : "—" },
-                  { label: "Backup Dates", value: selectedBackupDates.length ? selectedBackupDates.map((d) => formatShortDateDisplay(d)).join(" • ") : "None selected" },
-                  { label: "Arrival", value: "We'll confirm exact time beforehand" },
-                  { label: "Deposit Paid", value: "$50.00" },
+                  { label: "Backup Date", value: selectedBackupDates.length ? selectedBackupDates.map((d) => formatShortDateDisplay(d)).join(", ") : "None selected" },
+                  { label: "Crew Arrival", value: "8:00 – 9:00 AM" },
+                  ...(proposal.fence_sides ? [{ label: "Sections", value: proposal.fence_sides }] : []),
+                  { label: "Deposit Paid", value: "$50.00 (applied to balance)" },
                   { label: "Remaining Balance", value: `${fmtFull(tierPrice - 50)} (due day of service)` },
                 ].map(({ label, value }) => (
                   <div key={label} className="flex justify-between items-start px-4 py-3" style={{ borderBottom: `1px solid ${C.border}` }}>
@@ -652,6 +675,11 @@ export default function ProposalPage() {
                         <span>{proposal.address}</span>
                       </p>
                     )}
+                    {proposal.fence_sides && (
+                      <p style={{ color: C.textMuted }} className="text-xs mt-1">
+                        Sections included: {proposal.fence_sides}
+                      </p>
+                    )}
                     <p style={{ color: C.textMuted }} className="text-xs mt-2 leading-relaxed">
                       Pricing calculated using satellite imagery, fence age, and height specifications.
                     </p>
@@ -700,7 +728,7 @@ export default function ProposalPage() {
                         const isActive = colorMode === mode;
                         return (
                           <button key={mode}
-                            onClick={() => setColorMode(mode)}
+                            onClick={() => { setColorMode(mode); trackStage("hoa_selected"); }}
                             className="w-full text-left rounded-xl p-3 border-2 transition-all"
                             style={{
                               background: isActive ? "rgba(28,34,53,0.06)" : C.cardLight,
@@ -735,29 +763,46 @@ export default function ProposalPage() {
                     )}
                   </div>
 
-                  {/* ── Package cards — stack on mobile, 3-col on md+ ── */}
+                  {/* ── Package cards — horizontal swipe on mobile, 3-col on sm+ ── */}
                   <div>
-                    <div className="flex items-center gap-2.5 mb-3">
+                    <div className="flex items-center gap-2.5 mb-1">
                       <span className="shrink-0 w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold" style={{ background: C.gold, color: "#FFFFFF" }}>3</span>
                       <h2 style={{ color: C.cream, ...headingStyle }} className="text-lg font-semibold">Choose Your Package</h2>
                     </div>
-                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 md:gap-4">
+                    {/* Good · Better · Best label row */}
+                    <div className="hidden sm:grid sm:grid-cols-3 gap-3 md:gap-4 mb-1 px-1">
+                      {["Good", "Better", "Best"].map((label) => (
+                        <p key={label} className="text-center text-xs font-semibold uppercase tracking-widest" style={{ color: C.textMuted }}>{label}</p>
+                      ))}
+                    </div>
+                    <div
+                      className="flex gap-3 overflow-x-auto pb-2 -mx-4 px-4 sm:grid sm:grid-cols-3 sm:overflow-visible sm:mx-0 sm:px-0"
+                      style={{ scrollSnapType: "x mandatory", WebkitOverflowScrolling: "touch", scrollbarWidth: "none" }}>
                       {TIERS.map(({ key, label, badge, features, bg, accentColor, labelColor, disabled, disabledMsg }) => {
                         const price = tiers ? tiers[key] : 0;
                         const isSelected = pkg === key;
+                        const unselectedBorder = disabled
+                          ? "rgba(229,57,53,0.3)"
+                          : key === "legacy"
+                          ? C.gold
+                          : key === "signature"
+                          ? "rgba(28,34,53,0.3)"
+                          : C.border;
                         return (
                           <button
                             key={key}
                             onClick={() => !disabled && handleSelectPkg(key)}
                             disabled={disabled}
-                            className="w-full text-left rounded-2xl border-2 transition-all overflow-hidden"
+                            className="text-left rounded-2xl border-2 transition-all overflow-hidden shrink-0 snap-center sm:shrink sm:w-auto"
                             style={{
+                              width: "72vw",
+                              maxWidth: 280,
                               background: bg,
-                              borderColor: isSelected ? C.gold : disabled ? "rgba(229,57,53,0.3)" : C.border,
+                              borderColor: isSelected ? C.gold : unselectedBorder,
                               opacity: disabled ? 0.55 : 1,
                               cursor: disabled ? "not-allowed" : "pointer",
                               padding: 0,
-                              boxShadow: isSelected ? `0 4px 20px rgba(28,34,53,0.12)` : "0 1px 3px rgba(0,0,0,0.06)",
+                              boxShadow: isSelected ? `0 4px 20px rgba(28,34,53,0.12)` : key === "legacy" ? "0 2px 12px rgba(28,34,53,0.08)" : "0 1px 3px rgba(0,0,0,0.06)",
                             }}>
                             {/* Accent bar */}
                             <div style={{ height: 4, background: isSelected ? C.gold : accentColor }} />
@@ -767,7 +812,7 @@ export default function ProposalPage() {
                                 <div className="flex flex-wrap gap-1.5">
                                   {badge && (
                                     <span className="text-xs font-semibold px-2 py-0.5 rounded-full"
-                                      style={{ background: "rgba(28,34,53,0.08)", color: C.gold }}>{badge}</span>
+                                      style={{ background: key === "legacy" ? "rgba(28,34,53,0.1)" : "rgba(28,34,53,0.08)", color: C.gold }}>{badge}</span>
                                   )}
                                   {disabled && (
                                     <span className="text-xs px-2 py-0.5 rounded-full"
@@ -844,7 +889,7 @@ export default function ProposalPage() {
                         <>
                           {colorMode === "gallery" && (
                             <div className="space-y-5">
-                              {/* Featured 6 */}
+                              {/* Featured 6 — no HOA shows only main colors */}
                               <div>
                                 <p className="text-xs font-semibold uppercase tracking-wider mb-2.5" style={{ color: C.textMuted }}>Most Popular</p>
                                 <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
@@ -871,26 +916,6 @@ export default function ProposalPage() {
                                               <span style={{ color: "#FFFFFF" }} className="text-xs font-bold">✓</span>
                                             </span>
                                           )}
-                                        </div>
-                                      </button>
-                                    );
-                                  })}
-                                </div>
-                              </div>
-
-                              {/* Full palette */}
-                              <div>
-                                <p className="text-xs font-semibold uppercase tracking-wider mb-2.5" style={{ color: C.textMuted }}>More Colors</p>
-                                <div className="grid grid-cols-4 sm:grid-cols-5 gap-2">
-                                  {PALETTE_COLORS.map((c) => {
-                                    const isSelected = selectedColor === c.id;
-                                    return (
-                                      <button key={c.id} onClick={() => setSelectedColor(c.id)}
-                                        className="rounded-lg overflow-hidden border-2 transition-all"
-                                        style={{ borderColor: isSelected ? C.gold : C.border, background: C.card }}>
-                                        <div style={{ height: 44, background: c.hex }} />
-                                        <div className="px-1 py-1.5">
-                                          <p style={{ color: isSelected ? C.cream : C.textMuted }} className="text-[10px] leading-tight truncate">{c.name}</p>
                                         </div>
                                       </button>
                                     );
@@ -980,6 +1005,19 @@ export default function ProposalPage() {
                               {hoaColors.length < 2 && (
                                 <p style={{ color: C.textMuted }} className="text-xs text-center">Select at least 2 colors to continue</p>
                               )}
+                              {/* Optional brand/color text input for HOA */}
+                              <div className="rounded-xl p-3 space-y-2" style={{ background: C.cardLight, border: `1px solid ${C.border}` }}>
+                                <p style={{ color: C.cream }} className="text-xs font-semibold">Have a specific brand/color in mind? (Optional)</p>
+                                <input
+                                  type="text"
+                                  placeholder='e.g. "Ready Seal Dark Walnut" — we\'ll include it in your HOA submission'
+                                  value={hoaCustomBrand}
+                                  onChange={(e) => setHoaCustomBrand(e.target.value)}
+                                  className="w-full rounded-lg px-3 py-2 text-sm border outline-none"
+                                  style={{ background: C.card, color: C.cream, borderColor: hoaCustomBrand.trim() ? C.gold : C.border, ...bodyStyle }}
+                                />
+                                <p style={{ color: C.textMuted }} className="text-xs">We&apos;ll add it as a ranked option alongside your gallery selections.</p>
+                              </div>
                               <p style={{ color: C.textMuted }} className="text-xs font-semibold uppercase tracking-wider">Additional Colors, Backup options</p>
                               <div className="grid grid-cols-4 sm:grid-cols-5 gap-2">
                                 {PALETTE_COLORS.map((c) => {
@@ -1065,9 +1103,11 @@ export default function ProposalPage() {
                     <p className="text-center text-xs" style={{ color: C.textMuted }}>
                       Join 1,000+ Houston homeowners who trust A&amp;T&apos;s for fence restoration
                     </p>
-                    <p className="text-center text-xs" style={{ color: C.textMuted }}>
-                      Pricing includes inside + front street-facing side
-                    </p>
+                    {proposal.fence_sides && (
+                      <p className="text-center text-xs" style={{ color: C.textMuted }}>
+                        Sections included: {proposal.fence_sides}
+                      </p>
+                    )}
                   </div>
 
                   {/* Spacer above sticky bar on mobile */}
@@ -1080,14 +1120,14 @@ export default function ProposalPage() {
                 <div className="space-y-5">
                   <div>
                     <h1 style={{ color: C.cream, ...headingStyle }} className="text-2xl md:text-3xl font-bold">Choose Your Dates</h1>
-                    <p style={{ color: C.textMuted }} className="text-sm mt-1">Pick up to 4 dates that work for you, we&apos;ll prioritize your first choice. Our large crew accommodates 90%+ of requests, even in busy months.</p>
+                    <p style={{ color: C.textMuted }} className="text-sm mt-1">Pick up to 2 dates — we&apos;ll prioritize your first choice. Add 1 backup in case of weather or HOA delays.</p>
                   </div>
 
                   {/* Date guidance */}
                   <div className="flex flex-wrap gap-2">
                     <span className="text-xs px-3 py-1.5 rounded-full font-medium"
                       style={{ background: "rgba(28,34,53,0.07)", color: C.gold, border: `1px solid ${C.border}` }}>
-                      1st tap = preferred date
+                      1st tap = preferred · 2nd tap = backup
                     </span>
                     <span className="text-xs px-3 py-1.5 rounded-full font-medium"
                       style={{ background: "rgba(22,163,74,0.10)", color: C.green, border: "1px solid rgba(22,163,74,0.25)" }}>
@@ -1129,8 +1169,8 @@ export default function ProposalPage() {
                               </div>
                             );
                             const backupIndex = backupDates.indexOf(dateStr);
-                            const selectionLabel = isPrimary ? "1st" : backupIndex === 0 ? "2nd" : backupIndex === 1 ? "3rd" : backupIndex === 2 ? "4th" : null;
-                            const atMax = !isPrimary && !isBackup && selectedDate !== null && backupDates.length >= 3;
+                            const selectionLabel = isPrimary ? "1st" : backupIndex === 0 ? "2nd" : null;
+                            const atMax = !isPrimary && !isBackup && selectedDate !== null && backupDates.length >= 1;
                             return (
                               <button
                                 key={i}
@@ -1146,9 +1186,10 @@ export default function ProposalPage() {
                                   }
                                   if (!selectedDate) {
                                     setSelectedDate(dateStr);
+                                    trackStage("date_selected");
                                     return;
                                   }
-                                  if (backupDates.length < 3) {
+                                  if (backupDates.length < 1) {
                                     setBackupDates(prev => [...prev, dateStr]);
                                   }
                                 }}
@@ -1189,25 +1230,26 @@ export default function ProposalPage() {
                           Backups: {backupDates.map((d, i) => `${["2nd","3rd","4th"][i]}, ${formatShortDateDisplay(d)}`).join(" • ")}
                         </p>
                       )}
-                      {backupDates.length < 3 && (
+                      {backupDates.length < 1 && (
                         <p style={{ color: C.textMuted }} className="text-xs mt-1.5">
-                          {backupDates.length === 0
-                            ? "Tap up to 3 more dates as backups for weather or HOA delays."
-                            : `Tap ${3 - backupDates.length} more date${3 - backupDates.length > 1 ? "s" : ""} as backup, or continue below.`}
+                          Tap 1 more date as a backup for weather or HOA delays (optional).
                         </p>
                       )}
                     </div>
                   ) : (
                     <div className="rounded-xl p-3 fade-slide" style={{ background: "rgba(28,34,53,0.04)", border: `1px solid ${C.border}` }}>
-                      <p style={{ color: C.textMuted }} className="text-xs">Tap a date to select your preferred day. Add up to 3 backup dates for flexibility.</p>
+                      <p style={{ color: C.textMuted }} className="text-xs">Tap a date to select your preferred day. Add 1 backup date for flexibility.</p>
                     </div>
                   )}
 
-                  {/* Weather notice */}
+                  {/* Weather notice + arrival time */}
                   <div className="rounded-xl p-3" style={{ background: "rgba(28,34,53,0.04)", borderLeft: `3px solid ${C.gold}` }}>
-                    <p style={{ color: C.gold }} className="text-xs font-semibold">Weather Notice</p>
+                    <p style={{ color: C.gold }} className="text-xs font-semibold">Crew Arrival &amp; Weather</p>
                     <p style={{ color: C.textMuted }} className="text-xs mt-1 leading-relaxed">
-                      Your date may shift due to weather. Your booking transfers at no charge, we always notify you in advance.
+                      Our crew arrives between <strong style={{ color: C.creamDark }}>8:00 – 9:00 AM</strong>. We&apos;ll send a reminder the night before.
+                    </p>
+                    <p style={{ color: C.textMuted }} className="text-xs mt-1 leading-relaxed">
+                      Dates may shift due to weather at no charge — we always notify you in advance.
                     </p>
                   </div>
 
@@ -1221,6 +1263,23 @@ export default function ProposalPage() {
                       value={contactEmail}
                       onChange={(e) => setContactEmail(e.target.value)}
                       className="w-full rounded-xl px-4 py-3 text-sm border outline-none"
+                      style={{ background: C.cardLight, color: C.cream, borderColor: C.border, ...bodyStyle }}
+                    />
+                  </div>
+
+                  {/* Additional services */}
+                  <div className="rounded-xl p-4" style={{ background: "rgba(28,34,53,0.04)", border: `1px solid ${C.border}` }}>
+                    <p className="font-semibold text-sm" style={{ color: C.cream }}>Want a quote for additional services?</p>
+                    <p className="text-xs mt-1" style={{ color: C.textMuted }}>
+                      Pressure washing, deck staining, and other add-ons are quoted separately.
+                      We&apos;ll send you a separate estimate after your fence booking is confirmed.
+                    </p>
+                    <textarea
+                      placeholder="Optional: Describe any additional services you'd like quoted…"
+                      value={additionalRequest}
+                      onChange={(e) => setAdditionalRequest(e.target.value)}
+                      rows={2}
+                      className="w-full mt-2 rounded-xl px-3 py-2.5 text-sm border outline-none resize-none"
                       style={{ background: C.cardLight, color: C.cream, borderColor: C.border, ...bodyStyle }}
                     />
                   </div>
@@ -1242,6 +1301,10 @@ export default function ProposalPage() {
                     }}>
                     {booking ? "Redirecting to payment…" : !selectedDate ? "Select a date first" : !contactEmail.trim() ? "Enter your email first" : "Pay $50 Deposit & Book Date →"}
                   </button>
+                  {/* Deposit note */}
+                  <p className="text-xs text-center" style={{ color: C.textMuted }}>
+                    $50 deposit is applied toward your total balance — only the remaining amount is due day of service.
+                  </p>
 
                   <button onClick={() => setStep(1)} style={{ color: C.textMuted }} className="text-sm underline w-full text-center block">
                     ← Back to package selection
@@ -1352,6 +1415,9 @@ export default function ProposalPage() {
                         }}>
                         {booking ? "Redirecting to payment…" : !selectedDate ? "Select a date first" : !contactEmail.trim() ? "Enter your email" : "Pay $50 Deposit & Book Date →"}
                       </button>
+                      <p className="text-xs text-center mt-1.5" style={{ color: C.textMuted }}>
+                        $50 deposit applied to your total — remaining balance due day of service.
+                      </p>
                     </div>
                   )}
                 </div>

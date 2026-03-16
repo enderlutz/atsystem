@@ -27,7 +27,18 @@ async def list_estimates(
     if service_type:
         q = q.eq("service_type", service_type)
     res = q.execute()
-    return res.data or []
+    estimates = res.data or []
+    # Enrich with proposal funnel stage
+    if estimates:
+        est_ids = [e["id"] for e in estimates]
+        prop_res = db.table("proposals").select("estimate_id, funnel_stage, status").in_("estimate_id", est_ids).execute()
+        prop_map = {p["estimate_id"]: p for p in (prop_res.data or [])}
+        for est in estimates:
+            prop = prop_map.get(est["id"])
+            if prop:
+                est["proposal_funnel_stage"] = prop.get("funnel_stage") or "opened"
+                est["proposal_status"] = prop.get("status") or "sent"
+    return estimates
 
 
 @router.get("/{estimate_id}")

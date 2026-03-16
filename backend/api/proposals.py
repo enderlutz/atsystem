@@ -14,6 +14,13 @@ router = APIRouter(prefix="/api/proposal", tags=["proposals"])
 logger = logging.getLogger(__name__)
 
 
+STAGE_ORDER = ["opened", "hoa_selected", "package_selected", "color_selected", "date_selected", "checkout_started", "booked"]
+
+
+class StageUpdate(BaseModel):
+    stage: str
+
+
 class CheckoutRequest(BaseModel):
     selected_tier: str
     booked_at: str
@@ -23,6 +30,7 @@ class CheckoutRequest(BaseModel):
     color_mode: str = "gallery"
     hoa_colors: list | None = None
     custom_color: str | None = None
+    additional_request: str | None = None
 
 
 class BookingRequest(BaseModel):
@@ -34,6 +42,7 @@ class BookingRequest(BaseModel):
     color_mode: str = "gallery" # gallery | hoa_only | hoa_approved | custom
     hoa_colors: list | None = None
     custom_color: str | None = None
+    additional_request: str | None = None
     stripe_session_id: str | None = None
 
 
@@ -104,7 +113,26 @@ async def get_proposal(token: str):
         "color_display": color_display,
         "backup_dates": proposal.get("backup_dates") or [],
         "deposit_paid": bool(proposal.get("deposit_paid")),
+        "funnel_stage": proposal.get("funnel_stage") or "opened",
+        "fence_sides": inputs.get("fence_sides") or "",
     }
+
+
+@router.post("/{token}/stage")
+async def update_funnel_stage(token: str, body: StageUpdate):
+    """Track customer funnel progress — no auth required."""
+    if body.stage not in STAGE_ORDER:
+        raise HTTPException(status_code=400, detail="Invalid stage")
+    db = get_db()
+    result = db.table("proposals").select("funnel_stage").eq("token", token).single().execute()
+    if not result.data:
+        raise HTTPException(status_code=404, detail="Proposal not found")
+    current = (result.data or {}).get("funnel_stage") or "opened"
+    current_idx = STAGE_ORDER.index(current) if current in STAGE_ORDER else 0
+    new_idx = STAGE_ORDER.index(body.stage)
+    if new_idx > current_idx:
+        db.table("proposals").update({"funnel_stage": body.stage}).eq("token", token).execute()
+    return {"status": "ok"}
 
 
 @router.post("/{token}/create-checkout")
@@ -135,6 +163,7 @@ async def create_checkout(token: str, body: CheckoutRequest):
             "color_mode": body.color_mode,
             "hoa_colors": body.hoa_colors,
             "custom_color": body.custom_color,
+            "additional_request": body.additional_request,
         }
     }).eq("token", token).execute()
 
@@ -151,7 +180,7 @@ async def create_checkout(token: str, body: CheckoutRequest):
             "price_data": {
                 "currency": "usd",
                 "unit_amount": 5000,
-                "product_data": {"name": "Fence Restoration Deposit", "description": "Refundable if we cancel"},
+                "product_data": {"name": "Fence Restoration Deposit", "description": "Applied toward your total balance. Remaining balance due day of service."},
             },
             "quantity": 1,
         }],
@@ -174,6 +203,7 @@ async def _finalize_booking(
     color_mode: str,
     hoa_colors: list | None,
     custom_color: str | None,
+    additional_request: str | None,
     stripe_session_id: str | None,
     settings,
     db,
@@ -192,7 +222,7 @@ async def _finalize_booking(
         except ValueError:
             continue
     parsed_backup_dates = [d for d in parsed_backup_dates if d != booked_dt.date().isoformat()]
-    parsed_backup_dates = list(dict.fromkeys(parsed_backup_dates))[:3]
+    parsed_backup_dates = list(dict.fromkeys(parsed_backup_dates))[:1]
 
     lead_result = db.table("leads").select("*").eq("id", proposal["lead_id"]).single().execute()
     lead = lead_result.data or {}
@@ -261,6 +291,8 @@ async def _finalize_booking(
             f"Backup: {backup_dates_text}\n"
             f"Address: {address}"
         )
+        if additional_request:
+            alan_msg += f"\n\n🔧 Additional services requested: {additional_request}"
         sent = send_message_to_contact(settings.owner_ghl_contact_id, alan_msg)
         if not sent:
             logger.warning("Failed to send booking notification to Alan via GHL")
@@ -285,6 +317,7 @@ async def _finalize_booking(
 
     db.table("proposals").update({
         "status": "booked",
+        "funnel_stage": "booked",
         "selected_tier": selected_tier,
         "booked_at": booked_dt.isoformat(),
         "calendar_event_id": calendar_event_id,
@@ -365,6 +398,7 @@ async def book_proposal(token: str, body: BookingRequest):
         body.color_mode = pending.get("color_mode", "gallery")
         body.hoa_colors = pending.get("hoa_colors")
         body.custom_color = pending.get("custom_color")
+        body.additional_request = pending.get("additional_request")
 
     if body.selected_tier not in ("essential", "signature", "legacy"):
         raise HTTPException(status_code=400, detail="Invalid tier")
@@ -375,5 +409,6 @@ async def book_proposal(token: str, body: BookingRequest):
         contact_email=body.contact_email, backup_dates=body.backup_dates,
         selected_color=body.selected_color, color_mode=body.color_mode,
         hoa_colors=body.hoa_colors, custom_color=body.custom_color,
+        additional_request=body.additional_request,
         stripe_session_id=body.stripe_session_id, settings=settings, db=db,
     )
