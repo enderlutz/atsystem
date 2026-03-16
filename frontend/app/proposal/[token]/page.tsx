@@ -770,7 +770,7 @@ export default function ProposalPage() {
                       <h2 style={{ color: C.cream, ...headingStyle }} className="text-lg font-semibold">Choose Your Package</h2>
                     </div>
                     <div
-                      className="flex gap-3 overflow-x-auto pb-2 -mx-4 px-4 sm:grid sm:grid-cols-3 sm:overflow-visible sm:mx-0 sm:px-0 sm:gap-6 md:gap-8"
+                      className="flex gap-4 overflow-x-auto py-3 -mx-4 px-4 sm:grid sm:grid-cols-3 sm:overflow-visible sm:mx-0 sm:px-0 sm:py-4 sm:gap-5 md:gap-6"
                       style={{ scrollSnapType: "x mandatory", WebkitOverflowScrolling: "touch", scrollbarWidth: "none" }}>
                       {TIERS.map(({ key, label, badge, features, bg, accentColor, labelColor, disabled, disabledMsg }) => {
                         const price = tiers ? tiers[key] : 0;
@@ -789,14 +789,13 @@ export default function ProposalPage() {
                           : key === "signature"
                           ? `0 0 0 4px rgba(201,168,76,0.18), 0 6px 24px rgba(201,168,76,0.20)`
                           : key === "legacy"
-                          ? `0 8px 32px rgba(28,34,53,0.16), 0 2px 8px rgba(28,34,53,0.08)`
+                          ? `0 4px 20px rgba(28,34,53,0.13), 0 1px 4px rgba(28,34,53,0.06)`
                           : `0 1px 4px rgba(0,0,0,0.04)`;
                         const accentBarHeight = key === "legacy" ? 7 : key === "signature" ? 6 : 3;
                         const accentBarBg = key === "signature"
                           ? `linear-gradient(90deg, ${REAL_GOLD}, #E8C76A, ${REAL_GOLD})`
                           : key === "legacy" || isSelected ? C.gold : accentColor;
                         const cardBg = key === "legacy" ? "#FDFCF9" : bg;
-                        const cardLift = key === "signature" ? "translateY(-6px)" : key === "legacy" ? "translateY(-3px)" : "none";
                         return (
                           <button
                             key={key}
@@ -804,15 +803,14 @@ export default function ProposalPage() {
                             disabled={disabled}
                             className="text-left rounded-2xl transition-all overflow-hidden shrink-0 snap-center sm:shrink sm:w-auto"
                             style={{
-                              width: "72vw",
-                              maxWidth: 280,
+                              width: "76vw",
+                              maxWidth: 290,
                               background: cardBg,
                               border: `${borderThickness} solid ${isSelected ? (key === "signature" ? REAL_GOLD : C.gold) : unselectedBorder}`,
                               opacity: disabled ? 0.55 : 1,
                               cursor: disabled ? "not-allowed" : "pointer",
                               padding: 0,
                               boxShadow: cardShadow,
-                              transform: cardLift,
                             }}>
                             {/* Accent bar */}
                             <div style={{ height: accentBarHeight, background: accentBarBg }} />
