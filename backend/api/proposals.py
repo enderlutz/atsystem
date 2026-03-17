@@ -8,7 +8,6 @@ from db import get_db
 from config import get_settings
 from services.ghl import send_message_to_contact, update_opportunity_stage
 from services.google_calendar import create_calendar_event
-from services.notify import send_booking_confirmation_to_customer
 
 router = APIRouter(prefix="/api/proposal", tags=["proposals"])
 logger = logging.getLogger(__name__)
@@ -299,21 +298,29 @@ async def _finalize_booking(
     else:
         logger.warning("OWNER_GHL_CONTACT_ID not set — Alan not notified")
 
-    if contact_email:
-        is_hoa_approval_needed = color_mode in ("hoa_only", "hoa_approved")
-        hoa_color_options = (
-            [str(c) for c in (hoa_colors or [])] if color_mode == "hoa_only"
-            else ([custom_color] if custom_color else [])
+    # Send booking confirmation SMS to customer via GHL
+    customer_ghl_id = lead.get("ghl_contact_id")
+    if customer_ghl_id:
+        first = customer_name.split()[0] if customer_name else "there"
+        color_line = color_display or "HOA color pending approval"
+        backup_line = f"\n📅 Backup: {backup_dates_text}" if parsed_backup_dates else ""
+        customer_sms = (
+            f"Hi {first}! 🎉 Your fence restoration is confirmed.\n\n"
+            f"📦 Package: {tier_label} — ${tier_price:,.0f}\n"
+            f"🎨 Color: {color_line}\n"
+            f"📅 Date: {date_str}{backup_line}\n"
+            f"🏠 Address: {address}\n\n"
+            f"Our crew arrives between 8:00–9:00 AM. "
+            f"We'll send a reminder the night before.\n\n"
+            f"Need to cancel or reschedule? Please let us know "
+            f"at least 48 hours in advance.\n\n"
+            f"— A&T's Fence Restoration"
         )
-        send_booking_confirmation_to_customer(
-            to_email=contact_email, customer_name=customer_name,
-            tier_label=tier_label, tier_price=tier_price,
-            color_display=color_display or "Not specified", date_str=date_str,
-            address=address, backup_dates=parsed_backup_dates,
-            is_hoa_approval_needed=is_hoa_approval_needed,
-            hoa_color_mode=color_mode, hoa_color_options=hoa_color_options,
-            wood_details=wood_details,
-        )
+        sent_cust = send_message_to_contact(customer_ghl_id, customer_sms)
+        if not sent_cust:
+            logger.warning(f"Failed to send booking confirmation SMS to customer {customer_ghl_id}")
+    else:
+        logger.warning(f"No ghl_contact_id on lead {proposal['lead_id']} — skipping customer confirmation SMS")
 
     db.table("proposals").update({
         "status": "booked",

@@ -114,22 +114,26 @@ function TrustCardPrep({ open, onToggle }: { open: boolean; onToggle: () => void
           </div>
           <button onClick={onToggle}
             className="text-xs px-3 py-1.5 rounded-full shrink-0 transition-colors font-medium"
-            style={{ background: open ? C.gold : "rgba(28,34,53,0.08)", color: open ? "#FFFFFF" : C.gold, fontFamily: "'DM Sans', sans-serif" }}>
+            style={{ background: open ? "rgba(201,168,76,0.15)" : "#C9A84C", color: open ? "#C9A84C" : "#FFFFFF", fontFamily: "'DM Sans', sans-serif" }}>
             {open ? "Got it ↑" : "See our process →"}
           </button>
         </div>
       </div>
       {open && (
         <div className="px-4 pb-5 space-y-4 border-t md:px-5" style={{ borderColor: C.border }}>
-          <div className="mt-4 space-y-3">
+          <div className="mt-4 space-y-2">
             {[
-              { step: "Step 1", title: "Biodegradable Chemical Soft Wash", desc: "We apply a specially formulated biodegradable cleaner that breaks down mold, mildew, and oxidation without harming your plants, pets, or yard." },
-              { step: "Step 2", title: "Precision Pressure Wash Follow-Up", desc: "A targeted pressure wash removes all loosened debris, leaving a perfectly clean surface for maximum stain penetration and adhesion." },
-            ].map(({ step, title, desc }) => (
-              <div key={step} className="rounded-xl p-3 md:p-4" style={{ background: C.cardLight }}>
-                <p className="text-xs font-semibold mb-1" style={{ color: C.gold, fontFamily: "'DM Sans', sans-serif" }}>{step}</p>
-                <p className="text-sm font-semibold mb-1" style={{ color: C.cream, fontFamily: "'Playfair Display', serif" }}>{title}</p>
-                <p className="text-xs md:text-sm" style={{ color: C.textMuted, fontFamily: "'DM Sans', sans-serif" }}>{desc}</p>
+              { icon: "🧼", title: "Biodegradable Chemical Soft Wash", desc: "We pre-treat the fence with an eco-safe solution that dissolves mold, mildew, and oxidation — without harming your plants, pets, or yard." },
+              { icon: "💧", title: "Precision Pressure Wash Follow-Up (If Needed)", desc: "A targeted rinse removes all loosened debris, leaving a perfectly clean surface for maximum stain penetration and adhesion." },
+            ].map((s, i) => (
+              <div key={i} className="flex gap-3 p-3 rounded-xl" style={{ background: "rgba(28,34,53,0.06)", border: `1px solid ${C.border}` }}>
+                <div className="w-8 h-8 rounded-full flex items-center justify-center shrink-0 text-base" style={{ background: C.gold, color: "#fff" }}>
+                  {s.icon}
+                </div>
+                <div>
+                  <p className="text-sm font-semibold" style={{ color: C.cream, fontFamily: "'DM Sans', sans-serif" }}>{s.title}</p>
+                  <p className="text-xs mt-0.5" style={{ color: C.textMuted, fontFamily: "'DM Sans', sans-serif" }}>{s.desc}</p>
+                </div>
               </div>
             ))}
           </div>
@@ -175,25 +179,28 @@ function TrustCardGuarantee({ open, onToggle }: { open: boolean; onToggle: () =>
           </div>
           <button onClick={onToggle}
             className="text-xs px-3 py-1.5 rounded-full shrink-0 transition-colors font-medium"
-            style={{ background: open ? C.gold : "rgba(28,34,53,0.08)", color: open ? "#FFFFFF" : C.gold, fontFamily: "'DM Sans', sans-serif" }}>
+            style={{ background: open ? "rgba(201,168,76,0.15)" : "#C9A84C", color: open ? "#C9A84C" : "#FFFFFF", fontFamily: "'DM Sans', sans-serif" }}>
             {open ? "Got it ↑" : "Our guarantees →"}
           </button>
         </div>
       </div>
       {open && (
         <div className="px-4 pb-5 border-t md:px-5" style={{ borderColor: C.border }}>
-          <div className="mt-4 space-y-2">
+          <div className="mt-4">
             {QAS.map(({ q, a }) => (
-              <div key={q} className="rounded-xl p-3 md:p-4" style={{ background: C.cardLight }}>
-                <p className="text-sm font-semibold mb-1" style={{ color: C.cream, fontFamily: "'DM Sans', sans-serif" }}>{q}</p>
-                <p className="text-xs md:text-sm" style={{ color: C.textMuted, fontFamily: "'DM Sans', sans-serif" }}>{a}</p>
+              <div key={q} className="flex gap-2 items-start py-2.5 border-b last:border-b-0" style={{ borderColor: C.border }}>
+                <span className="text-sm shrink-0 mt-0.5">✅</span>
+                <div>
+                  <p className="text-sm font-semibold" style={{ color: C.cream, fontFamily: "'DM Sans', sans-serif" }}>{q}</p>
+                  <p className="text-xs md:text-sm mt-0.5" style={{ color: C.textMuted, fontFamily: "'DM Sans', sans-serif" }}>{a}</p>
+                </div>
               </div>
             ))}
           </div>
           <div className="flex flex-wrap gap-2 mt-4">
             {["Licensed & Insured", "No Hidden Fees", "Satisfaction Guaranteed", "Pet & Yard Safe"].map((b) => (
               <span key={b} className="text-xs px-3 py-1 rounded-full border"
-                style={{ color: C.gold, borderColor: C.border, background: "rgba(28,34,53,0.06)", fontFamily: "'DM Sans', sans-serif" }}>{b}</span>
+                style={{ color: "#C9A84C", borderColor: "rgba(201,168,76,0.4)", background: "rgba(201,168,76,0.10)", fontFamily: "'DM Sans', sans-serif" }}>{b}</span>
             ))}
           </div>
         </div>
@@ -233,6 +240,7 @@ export default function ProposalPage() {
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
 
   const [backupDates, setBackupDates] = useState<string[]>([]);
+  const [showBackupPrompt, setShowBackupPrompt] = useState(false);
 
   // Contact
   const [contactEmail, setContactEmail] = useState("");
@@ -246,6 +254,7 @@ export default function ProposalPage() {
   const [processingPayment, setProcessingPayment] = useState(false);
 
   const colorRef = useRef<HTMLDivElement>(null);
+  const signatureScrollRef = useRef<HTMLButtonElement>(null);
   const reportedStages = useRef<Set<string>>(new Set());
 
   useEffect(() => {
@@ -327,6 +336,15 @@ export default function ProposalPage() {
     if (isColorComplete()) trackStage("color_selected");
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedColor, hoaColors, customColor, hoaSendLater, customSendLater, colorMode, pkg]);
+
+  // Auto-center Signature card on mobile
+  useEffect(() => {
+    if (typeof window !== "undefined" && window.innerWidth < 768) {
+      setTimeout(() => {
+        signatureScrollRef.current?.scrollIntoView({ behavior: "instant", block: "nearest", inline: "center" });
+      }, 150);
+    }
+  }, []);
 
   const handleSelectPkg = (p: "essential" | "signature" | "legacy") => {
     setPkg(p);
@@ -549,20 +567,30 @@ export default function ProposalPage() {
           </div>
         </header>
 
-        {/* ═══ PROGRESS BAR ════════════════════════════════════════════════════ */}
+        {/* ═══ STEP INDICATOR ══════════════════════════════════════════════════ */}
         {step < 3 && (
           <div style={{ background: "#EEF0F5", borderBottom: `1px solid ${C.border}` }}
-            className="px-4 py-2.5">
-            <div className="max-w-6xl mx-auto flex items-center gap-4">
-              <div className="flex gap-1.5 flex-1 max-w-xs">
-                {[1, 2].map((s) => (
-                  <div key={s} className="h-1 flex-1 rounded-full transition-all duration-300"
-                    style={{ background: s <= step ? C.gold : "#D1D5DB" }} />
+            className="px-4 py-3">
+            <div className="max-w-6xl mx-auto flex items-center justify-center">
+              <div className="flex items-center w-48">
+                {[1, 2, 3].map((s) => (
+                  <div key={s} className="flex items-center" style={{ flex: s < 3 ? "1" : "none" }}>
+                    <div
+                      className="w-9 h-9 rounded-full flex items-center justify-center text-sm font-bold shrink-0 transition-all"
+                      style={{
+                        background: s <= step ? C.gold : "#D1D5DB",
+                        color: s <= step ? "#fff" : "#9CA3AF",
+                        fontFamily: "'Cormorant Garamond', serif",
+                      }}>
+                      {s < step ? "✓" : s}
+                    </div>
+                    {s < 3 && (
+                      <div className="h-0.5 flex-1 mx-1 transition-all"
+                        style={{ background: s < step ? C.gold : "#D1D5DB" }} />
+                    )}
+                  </div>
                 ))}
               </div>
-              <p style={{ color: C.textMuted }} className="text-xs">
-                {step === 1 ? "Choose Package & Color" : "Select Your Date"}
-              </p>
             </div>
           </div>
         )}
@@ -611,8 +639,8 @@ export default function ProposalPage() {
                   <p style={{ color: C.gold }} className="text-sm font-semibold">HOA Approval Support</p>
                   <p style={{ color: C.textMuted }} className="text-xs mt-1 leading-relaxed">
                     {proposal.color_mode === "hoa_only"
-                      ? "Your confirmation email includes your color options, fence specs, and a ready-to-send HOA letter, forward it directly to your board."
-                      : "Your HOA approval is confirmed. Your confirmation email includes the full stain product details for your records."}
+                      ? "We've texted you your color options and fence specs. We'll also prepare a ready-to-forward HOA letter — just let us know your board's contact."
+                      : "Your HOA approval is confirmed. We've texted you the full stain product details for your records."}
                   </p>
                 </div>
               )}
@@ -624,8 +652,8 @@ export default function ProposalPage() {
               <div className="text-left space-y-3">
                 <p style={{ color: C.cream }} className="font-semibold text-sm">What happens next:</p>
                 {[
-                  "You'll receive a confirmation email with your job details and selected dates",
-                  "We'll reach out before your date to confirm the exact arrival window",
+                  "We've sent you a text message with your booking details and arrival time",
+                  "We'll reach out before your date to confirm — expect the crew between 8:00–9:00 AM",
                   "Your crew will arrive with your chosen color and prep system ready to go",
                   "After the job, we'd love a quick Google review!",
                 ].map((text, i) => (
@@ -670,21 +698,13 @@ export default function ProposalPage() {
                   {/* Greeting */}
                   <div>
                     <h1 style={{ color: C.cream, ...headingStyle }} className="text-2xl md:text-3xl font-bold leading-tight">
-                      {firstName ? `Hi ${firstName}, here's your custom proposal` : "Your Custom Proposal"}
+                      {firstName ? `Hi ${firstName}, here's your custom proposal!` : "Your Custom Proposal"}
                     </h1>
                     {proposal.address && (
                       <p style={{ color: C.textMuted }} className="text-sm mt-1.5 flex items-center gap-1.5">
                         <span>{proposal.address}</span>
                       </p>
                     )}
-                    {proposal.fence_sides && (
-                      <p style={{ color: C.textMuted }} className="text-xs mt-1">
-                        Sections included: {proposal.fence_sides}
-                      </p>
-                    )}
-                    <p style={{ color: C.textMuted }} className="text-xs mt-2 leading-relaxed">
-                      Pricing calculated using satellite imagery, fence age, and height specifications.
-                    </p>
                   </div>
 
                   {/* Section header + Trust cards + Promo — above packages */}
@@ -704,7 +724,7 @@ export default function ProposalPage() {
                     <div className="rounded-2xl p-4 md:p-5"
                       style={{ background: C.card, border: `1px solid ${C.border}` }}>
                       <div>
-                        <p style={{ color: C.cream, ...headingStyle }} className="font-bold text-xl md:text-2xl">20% OFF Standard Rates</p>
+                        <p style={{ color: "#C9A84C", ...headingStyle }} className="font-bold text-xl md:text-2xl">20% OFF Standard Rates</p>
                         <p style={{ color: C.creamDark }} className="text-sm mt-1">All options include our professional deep cleaning prep.</p>
                         <p style={{ color: C.textMuted }} className="text-xs mt-1.5">
                           Offer expires {getPromoDeadline()} · Lock in your date to keep this discount
@@ -801,6 +821,7 @@ export default function ProposalPage() {
                         return (
                           <button
                             key={key}
+                            ref={key === "signature" ? signatureScrollRef : undefined}
                             onClick={() => !disabled && handleSelectPkg(key)}
                             disabled={disabled}
                             className="text-left rounded-2xl transition-all overflow-hidden shrink-0 snap-center md:shrink md:w-auto"
@@ -1135,15 +1156,19 @@ export default function ProposalPage() {
               {step === 2 && (
                 <div className="space-y-5">
                   <div>
-                    <h1 style={{ color: C.cream, ...headingStyle }} className="text-2xl md:text-3xl font-bold">Choose Your Dates</h1>
-                    <p style={{ color: C.textMuted }} className="text-sm mt-1">Pick up to 2 dates — we&apos;ll prioritize your first choice. Add 1 backup in case of weather or HOA delays.</p>
+                    <h1 style={{ color: C.cream, ...headingStyle }} className="text-2xl md:text-3xl font-bold">Choose Your Date</h1>
+                    <p style={{ color: C.textMuted }} className="text-sm mt-1">
+                      {colorMode === "hoa_only"
+                        ? "Pick your preferred date. We'll prompt you to add a backup since HOA approval can take time."
+                        : "Choose your preferred service date. We'll confirm availability and reach out before your appointment."}
+                    </p>
                   </div>
 
                   {/* Date guidance */}
                   <div className="flex flex-wrap gap-2">
                     <span className="text-xs px-3 py-1.5 rounded-full font-medium"
                       style={{ background: "rgba(28,34,53,0.07)", color: C.gold, border: `1px solid ${C.border}` }}>
-                      1st tap = preferred · 2nd tap = backup
+                      {colorMode === "hoa_only" ? "1st tap = preferred · 2nd tap = backup" : "Tap a date to select"}
                     </span>
                     <span className="text-xs px-3 py-1.5 rounded-full font-medium"
                       style={{ background: "rgba(22,163,74,0.10)", color: C.green, border: "1px solid rgba(22,163,74,0.25)" }}>
@@ -1186,7 +1211,7 @@ export default function ProposalPage() {
                             );
                             const backupIndex = backupDates.indexOf(dateStr);
                             const selectionLabel = isPrimary ? "1st" : backupIndex === 0 ? "2nd" : null;
-                            const atMax = !isPrimary && !isBackup && selectedDate !== null && backupDates.length >= 1;
+                            const atMax = !isPrimary && !isBackup && selectedDate !== null && colorMode === "hoa_only" && backupDates.length >= 1;
                             return (
                               <button
                                 key={i}
@@ -1194,6 +1219,7 @@ export default function ProposalPage() {
                                   if (isPrimary) {
                                     setSelectedDate(null);
                                     setBackupDates([]);
+                                    setShowBackupPrompt(false);
                                     return;
                                   }
                                   if (isBackup) {
@@ -1203,9 +1229,13 @@ export default function ProposalPage() {
                                   if (!selectedDate) {
                                     setSelectedDate(dateStr);
                                     trackStage("date_selected");
+                                    if (colorMode === "hoa_only") {
+                                      setShowBackupPrompt(true);
+                                      setTimeout(() => setShowBackupPrompt(false), 6000);
+                                    }
                                     return;
                                   }
-                                  if (backupDates.length < 1) {
+                                  if (colorMode === "hoa_only" && backupDates.length < 1) {
                                     setBackupDates(prev => [...prev, dateStr]);
                                   }
                                 }}
@@ -1241,20 +1271,27 @@ export default function ProposalPage() {
                   {selectedDate ? (
                     <div className="rounded-xl p-4 fade-slide" style={{ background: "rgba(22,163,74,0.06)", border: "1px solid rgba(22,163,74,0.25)" }}>
                       <p style={{ color: C.green }} className="font-semibold text-sm">✓ Preferred: {formatDateDisplay(selectedDate)}</p>
-                      {backupDates.length > 0 && (
+                      {colorMode === "hoa_only" && backupDates.length > 0 && (
                         <p style={{ color: C.creamDark }} className="text-xs mt-1">
                           Backups: {backupDates.map((d, i) => `${["2nd","3rd","4th"][i]}, ${formatShortDateDisplay(d)}`).join(" • ")}
-                        </p>
-                      )}
-                      {backupDates.length < 1 && (
-                        <p style={{ color: C.textMuted }} className="text-xs mt-1.5">
-                          Tap 1 more date as a backup for weather or HOA delays (optional).
                         </p>
                       )}
                     </div>
                   ) : (
                     <div className="rounded-xl p-3 fade-slide" style={{ background: "rgba(28,34,53,0.04)", border: `1px solid ${C.border}` }}>
-                      <p style={{ color: C.textMuted }} className="text-xs">Tap a date to select your preferred day. Add 1 backup date for flexibility.</p>
+                      <p style={{ color: C.textMuted }} className="text-xs">Tap a date to select your preferred day.</p>
+                    </div>
+                  )}
+
+                  {/* HOA backup date prompt */}
+                  {showBackupPrompt && colorMode === "hoa_only" && (
+                    <div className="rounded-xl p-3 flex gap-2 items-start fade-slide" style={{ background: "rgba(201,168,76,0.12)", border: "1px solid #C9A84C" }}>
+                      <span className="text-base shrink-0">📋</span>
+                      <div className="flex-1">
+                        <p className="text-sm font-semibold" style={{ color: C.cream }}>Pick a backup date</p>
+                        <p className="text-xs mt-0.5" style={{ color: C.textMuted }}>Since you need HOA approval, we&apos;d love a second date in case processing takes extra time.</p>
+                      </div>
+                      <button onClick={() => setShowBackupPrompt(false)} className="text-base shrink-0" style={{ color: C.textMuted }}>✕</button>
                     </div>
                   )}
 
@@ -1267,20 +1304,6 @@ export default function ProposalPage() {
                     <p style={{ color: C.textMuted }} className="text-xs mt-1 leading-relaxed">
                       Dates may shift due to weather at no charge — we always notify you in advance.
                     </p>
-                  </div>
-
-                  {/* Email for confirmation */}
-                  <div className="rounded-2xl p-4" style={{ background: C.card, border: `1px solid ${C.border}` }}>
-                    <p style={{ color: C.cream }} className="font-semibold text-sm mb-1">Where should we send your confirmation?</p>
-                    <p style={{ color: C.textMuted }} className="text-xs mb-3">We&apos;ll email your booking details once you confirm.</p>
-                    <input
-                      type="email"
-                      placeholder="your@email.com"
-                      value={contactEmail}
-                      onChange={(e) => setContactEmail(e.target.value)}
-                      className="w-full rounded-xl px-4 py-3 text-sm border outline-none"
-                      style={{ background: C.cardLight, color: C.cream, borderColor: C.border, ...bodyStyle }}
-                    />
                   </div>
 
                   {/* Additional services */}
@@ -1307,22 +1330,22 @@ export default function ProposalPage() {
                   {/* Book button — mobile/tablet only; desktop uses sidebar */}
                   <button
                     onClick={handleCheckout}
-                    disabled={!selectedDate || !contactEmail.trim() || booking}
+                    disabled={!selectedDate || booking}
                     className="w-full rounded-2xl py-4 font-semibold text-base transition-all border-none lg:hidden dark-btn"
                     style={{
-                      background: selectedDate && contactEmail.trim() && !booking ? C.gold : "#E5E7EB",
-                      color: selectedDate && contactEmail.trim() && !booking ? "#FFFFFF" : C.textMuted,
-                      cursor: selectedDate && contactEmail.trim() && !booking ? "pointer" : "not-allowed",
+                      background: selectedDate && !booking ? C.gold : "#E5E7EB",
+                      color: selectedDate && !booking ? "#FFFFFF" : C.textMuted,
+                      cursor: selectedDate && !booking ? "pointer" : "not-allowed",
                       ...bodyStyle,
                     }}>
-                    {booking ? "Redirecting to payment…" : !selectedDate ? "Select a date first" : !contactEmail.trim() ? "Enter your email first" : "Pay $50 Deposit & Book Date →"}
+                    {booking ? "Redirecting to payment…" : !selectedDate ? "Select a date first" : "Pay $50 Deposit & Book Date →"}
                   </button>
                   {/* Deposit note */}
                   <p className="text-xs text-center" style={{ color: C.textMuted }}>
                     $50 deposit is applied toward your total balance — only the remaining amount is due day of service.
                   </p>
 
-                  <button onClick={() => setStep(1)} style={{ color: C.textMuted }} className="text-sm underline w-full text-center block">
+                  <button onClick={() => { setStep(1); setShowBackupPrompt(false); window.scrollTo({ top: 0, behavior: "instant" }); }} style={{ color: C.textMuted }} className="text-sm underline w-full text-center block">
                     ← Back to package selection
                   </button>
 
@@ -1403,11 +1426,11 @@ export default function ProposalPage() {
                   {step === 1 && (
                     <div className="px-5 pb-5">
                       <button
-                        onClick={() => { if (isColorComplete()) setStep(2); }}
+                        onClick={() => { if (isColorComplete()) { setStep(2); window.scrollTo({ top: 0, behavior: "instant" }); } }}
                         disabled={!isColorComplete()}
-                        className="w-full rounded-xl py-3.5 font-semibold text-base border-none dark-btn"
+                        className="w-full rounded-xl py-4 font-bold text-lg border-none dark-btn"
                         style={{
-                          background: isColorComplete() ? C.gold : "#E5E7EB",
+                          background: isColorComplete() ? "#C9A84C" : "#E5E7EB",
                           color: isColorComplete() ? "#FFFFFF" : C.textMuted,
                           cursor: isColorComplete() ? "pointer" : "not-allowed",
                           ...bodyStyle,
@@ -1421,15 +1444,15 @@ export default function ProposalPage() {
                     <div className="px-5 pb-5">
                       <button
                         onClick={handleCheckout}
-                        disabled={!selectedDate || !contactEmail.trim() || booking}
+                        disabled={!selectedDate || booking}
                         className="w-full rounded-xl py-3.5 font-semibold text-base border-none dark-btn"
                         style={{
-                          background: selectedDate && contactEmail.trim() && !booking ? C.gold : "#E5E7EB",
-                          color: selectedDate && contactEmail.trim() && !booking ? "#FFFFFF" : C.textMuted,
-                          cursor: selectedDate && contactEmail.trim() && !booking ? "pointer" : "not-allowed",
+                          background: selectedDate && !booking ? C.gold : "#E5E7EB",
+                          color: selectedDate && !booking ? "#FFFFFF" : C.textMuted,
+                          cursor: selectedDate && !booking ? "pointer" : "not-allowed",
                           ...bodyStyle,
                         }}>
-                        {booking ? "Redirecting to payment…" : !selectedDate ? "Select a date first" : !contactEmail.trim() ? "Enter your email" : "Pay $50 Deposit & Book Date →"}
+                        {booking ? "Redirecting to payment…" : !selectedDate ? "Select a date first" : "Pay $50 Deposit & Book Date →"}
                       </button>
                       <p className="text-xs text-center mt-1.5" style={{ color: C.textMuted }}>
                         $50 deposit applied to your total — remaining balance due day of service.
@@ -1487,12 +1510,12 @@ export default function ProposalPage() {
                 </span>
               </div>
               <button
-                onClick={() => { if (isColorComplete()) setStep(2); }}
+                onClick={() => { if (isColorComplete()) { setStep(2); window.scrollTo({ top: 0, behavior: "instant" }); } }}
                 disabled={!isColorComplete()}
-                className="w-full rounded-2xl py-3.5 font-semibold text-base border-none dark-btn"
+                className="w-full rounded-2xl py-4 font-bold text-lg border-none dark-btn"
                 style={{
-                  background: isColorComplete() ? "#FFFFFF" : "rgba(255,255,255,0.2)",
-                  color: isColorComplete() ? C.gold : "rgba(255,255,255,0.4)",
+                  background: isColorComplete() ? "#C9A84C" : "rgba(255,255,255,0.2)",
+                  color: isColorComplete() ? "#FFFFFF" : "rgba(255,255,255,0.4)",
                   cursor: isColorComplete() ? "pointer" : "not-allowed",
                   ...bodyStyle,
                 }}>
