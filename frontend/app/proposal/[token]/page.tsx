@@ -100,7 +100,8 @@ function generateICS(customerName: string, address: string, dateStr: string, tie
   return "data:text/calendar;charset=utf8," + encodeURIComponent(ics);
 }
 
-function formatSides(s: string): string {
+function formatSides(s: unknown): string {
+  if (!s || typeof s !== "string") return String(s ?? "");
   return s.split(/\s*,\s*|\s+/).filter(Boolean).join(", ");
 }
 
