@@ -79,6 +79,14 @@ function formatShortDateDisplay(dateStr: string): string {
   return new Date(dateStr + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
 }
 
+function buildGoogleCalUrl(address: string, dateStr: string, tierLabel: string): string {
+  const d = dateStr.replace(/-/g, "");
+  const title = encodeURIComponent(`A&T Fence Staining — ${tierLabel}`);
+  const loc = encodeURIComponent(address);
+  const details = encodeURIComponent("A&T's Fence Restoration crew will arrive between 8–9 AM.");
+  return `https://www.google.com/calendar/render?action=TEMPLATE&text=${title}&dates=${d}T090000/${d}T130000&location=${loc}&details=${details}`;
+}
+
 function generateICS(customerName: string, address: string, dateStr: string, tier: string): string {
   const d = new Date(dateStr + "T09:00:00");
   const end = new Date(dateStr + "T13:00:00");
@@ -90,6 +98,10 @@ function generateICS(customerName: string, address: string, dateStr: string, tie
     `DESCRIPTION:A&T's Pressure Wash fence staining.\\nAddress: ${address}`,
     `LOCATION:${address}`, "END:VEVENT", "END:VCALENDAR"].join("\r\n");
   return "data:text/calendar;charset=utf8," + encodeURIComponent(ics);
+}
+
+function formatSides(s: string): string {
+  return s.split(/\s*,\s*|\s+/).filter(Boolean).join(", ");
 }
 
 const MONTH_NAMES = ["January","February","March","April","May","June","July","August","September","October","November","December"];
@@ -599,31 +611,30 @@ export default function ProposalPage() {
         {/* Step 3 is centered/single-col; Steps 1-2 use responsive 2-col on desktop */}
         {step === 3 ? (
           <div className="max-w-2xl mx-auto px-4 py-8">
-            <div className="text-center space-y-6">
-              <div className="mx-auto h-20 w-20 rounded-full flex items-center justify-center pop-in"
+            <div className="rounded-2xl mb-6 px-6 py-8 text-center"
+              style={{ background: "linear-gradient(135deg, rgba(201,168,76,0.12) 0%, rgba(28,34,53,0.03) 100%)", border: `1px solid rgba(201,168,76,0.25)` }}>
+              <div className="mx-auto h-20 w-20 rounded-full flex items-center justify-center pop-in mb-4"
                 style={{ background: "rgba(76,175,80,0.15)", border: `2px solid ${C.green}` }}>
                 <svg viewBox="0 0 24 24" fill="none" stroke={C.green} strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round" className="h-10 w-10">
                   <path d="M5 13l4 4L19 7" />
                 </svg>
               </div>
-
-              <div>
-                <h1 style={{ color: C.cream, ...headingStyle }} className="text-2xl md:text-3xl font-bold">
-                  Welcome to the A&amp;T&apos;s Family{firstName ? `, ${firstName}` : ""}!
-                </h1>
-                <p style={{ color: C.creamDark }} className="mt-2 text-sm md:text-base">Your fence restoration is confirmed.</p>
-              </div>
-
+              <h1 style={{ color: C.cream, ...headingStyle }} className="text-2xl md:text-3xl font-bold">
+                Welcome to the A&amp;T&apos;s Family{firstName ? `, ${firstName}` : ""}!
+              </h1>
+              <p style={{ color: C.creamDark }} className="mt-2 text-sm md:text-base">Your fence restoration is confirmed.</p>
+            </div>
+            <div className="text-center space-y-6">
               {/* Summary card */}
               <div className="rounded-2xl overflow-hidden text-left" style={{ background: C.card, border: `1px solid ${C.border}` }}>
                 {[
                   { label: "Package", value: bookedTierKey ? `${TIERS.find((t) => t.key === bookedTierKey)?.label}` : "—" },
-                  { label: "Price", value: fmtFull(tierPrice) },
+                  { label: "Total", value: fmtFull(tierPrice) },
                   { label: "Color", value: selectedColorDisplay },
                   { label: "Date", value: proposal.booked_at ? formatDateDisplay(proposal.booked_at.slice(0, 10)) : "—" },
                   { label: "Backup Date", value: selectedBackupDates.length ? selectedBackupDates.map((d) => formatShortDateDisplay(d)).join(", ") : "None selected" },
                   { label: "Crew Arrival", value: "8:00 – 9:00 AM" },
-                  ...(proposal.fence_sides ? [{ label: "Sections", value: proposal.fence_sides }] : []),
+                  ...(proposal.fence_sides ? [{ label: "Sections", value: formatSides(proposal.fence_sides) }] : []),
                   { label: "Deposit Paid", value: "$50.00 (applied to balance)" },
                   { label: "Remaining Balance", value: `${fmtFull(tierPrice - 50)} (due day of service)` },
                 ].map(({ label, value }) => (
@@ -658,21 +669,35 @@ export default function ProposalPage() {
                   "After the job, we'd love a quick Google review!",
                 ].map((text, i) => (
                   <div key={text} className="flex items-start gap-3">
-                    <span className="text-xs font-bold shrink-0 w-5 h-5 rounded-full flex items-center justify-center" style={{ background: C.gold, color: "#FFFFFF", marginTop: 2 }}>{i + 1}</span>
+                    <span className="text-xs font-bold shrink-0 w-5 h-5 rounded-full flex items-center justify-center" style={{ background: "#C9A84C", color: "#FFFFFF", marginTop: 2 }}>{i + 1}</span>
                     <p style={{ color: C.creamDark }} className="text-sm">{text}</p>
                   </div>
                 ))}
               </div>
 
-              {proposal.booked_at && bookedTierKey && (
-                <a
-                  href={generateICS(proposal.customer_name || "", proposal.address || "", proposal.booked_at.slice(0, 10), TIERS.find((t) => t.key === bookedTierKey)?.label || "Fence Staining")}
-                  download="at-fence-staining.ics"
-                  className="block w-full rounded-2xl py-3.5 text-center font-semibold text-sm dark-btn"
-                  style={{ background: "rgba(28,34,53,0.07)", color: C.gold, border: `1px solid ${C.border}`, ...bodyStyle }}>
-                  Add to Calendar
-                </a>
-              )}
+              {proposal.booked_at && bookedTierKey && (() => {
+                const dateStr = proposal.booked_at.slice(0, 10);
+                const tierLabel = TIERS.find((t) => t.key === bookedTierKey)?.label || "Fence Staining";
+                return (
+                  <div className="flex flex-col sm:flex-row gap-2">
+                    <a
+                      href={buildGoogleCalUrl(proposal.address || "", dateStr, tierLabel)}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex-1 rounded-2xl py-3.5 text-center font-semibold text-sm dark-btn"
+                      style={{ background: "#C9A84C", color: "#FFFFFF", border: "none", ...bodyStyle }}>
+                      Add to Google Calendar
+                    </a>
+                    <a
+                      href={generateICS(proposal.customer_name || "", proposal.address || "", dateStr, tierLabel)}
+                      download="at-fence-staining.ics"
+                      className="flex-1 rounded-2xl py-3.5 text-center font-semibold text-sm dark-btn"
+                      style={{ background: "rgba(28,34,53,0.07)", color: C.gold, border: `1px solid ${C.border}`, ...bodyStyle }}>
+                      Apple / Outlook Calendar
+                    </a>
+                  </div>
+                );
+              })()}
 
               <div className="rounded-2xl p-4" style={{ background: C.card, border: `1px solid ${C.border}` }}>
                 <p style={{ color: C.cream }} className="font-semibold text-sm mb-2">Questions? We&apos;re here.</p>
@@ -711,7 +736,7 @@ export default function ProposalPage() {
                   <div className="space-y-4">
                     <div>
                       <div className="flex items-center gap-2.5 mb-1">
-                        <span className="shrink-0 w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold" style={{ background: C.gold, color: "#FFFFFF" }}>1</span>
+                        <span className="shrink-0 w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold" style={{ background: "#C9A84C", color: "#FFFFFF" }}>1</span>
                         <h2 style={{ color: C.cream, ...headingStyle }} className="text-xl font-semibold">What Every Job Includes</h2>
                       </div>
                       <p style={{ color: C.textMuted }} className="text-sm mt-1 pl-8">Before you choose, we want you to know exactly how we show up for you, every step of the way.</p>
@@ -736,7 +761,7 @@ export default function ProposalPage() {
                   {/* ── HOA Requirements section ── */}
                   <div>
                     <div className="flex items-center gap-2.5 mb-1">
-                      <span className="shrink-0 w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold" style={{ background: C.gold, color: "#FFFFFF" }}>2</span>
+                      <span className="shrink-0 w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold" style={{ background: "#C9A84C", color: "#FFFFFF" }}>2</span>
                       <h2 style={{ color: C.cream, ...headingStyle }} className="text-lg font-semibold">Do You Have HOA Color Requirements?</h2>
                     </div>
                     <p style={{ color: C.textMuted }} className="text-sm mt-1 pl-8 mb-3">Let us know now so we can prepare the right documentation for your board.</p>
@@ -788,7 +813,7 @@ export default function ProposalPage() {
                   {/* ── Package cards — horizontal swipe on mobile, 3-col on sm+ ── */}
                   <div>
                     <div className="flex items-center gap-2.5 mb-1">
-                      <span className="shrink-0 w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold" style={{ background: C.gold, color: "#FFFFFF" }}>3</span>
+                      <span className="shrink-0 w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold" style={{ background: "#C9A84C", color: "#FFFFFF" }}>3</span>
                       <h2 style={{ color: C.cream, ...headingStyle }} className="text-lg font-semibold">Choose Your Package</h2>
                     </div>
                     <div
@@ -883,7 +908,7 @@ export default function ProposalPage() {
                                 <div className="mt-4 pt-3" style={{ borderTop: `1px solid ${C.border}` }}>
                                   <p className="text-xs line-through" style={{ color: C.textMuted }}>{strikethrough(price)}</p>
                                   <p style={{ color: C.gold, ...headingStyle }} className="text-2xl font-bold leading-none mt-0.5">{fmt(price)}</p>
-                                  <p className="text-xs mt-1" style={{ color: C.textMuted }}>{fmtMonthly(price)} · 21-mo plan</p>
+                                  <p className="text-sm mt-1 font-semibold" style={{ color: "#C9A84C" }}>{fmtMonthly(price)} <span className="font-normal text-xs" style={{ color: C.textMuted }}>· 21-mo financing</span></p>
                                 </div>
                               )}
                             </div>
@@ -898,7 +923,7 @@ export default function ProposalPage() {
                     <div ref={colorRef} className="space-y-4 fade-slide">
                       <div>
                         <div className="flex items-center gap-2.5 mb-1">
-                          <span className="shrink-0 w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold" style={{ background: C.gold, color: "#FFFFFF" }}>4</span>
+                          <span className="shrink-0 w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold" style={{ background: "#C9A84C", color: "#FFFFFF" }}>4</span>
                           <h2 style={{ color: C.cream, ...headingStyle }} className="text-xl font-semibold">Now, Let&apos;s Choose Your Stain Color</h2>
                         </div>
                         <p style={{ color: C.textMuted }} className="text-sm mt-1 pl-8">
@@ -1142,7 +1167,7 @@ export default function ProposalPage() {
                     </p>
                     {proposal.fence_sides && (
                       <p className="text-center text-xs" style={{ color: C.textMuted }}>
-                        Sections included: {proposal.fence_sides}
+                        Sections included: {formatSides(proposal.fence_sides)}
                       </p>
                     )}
                   </div>
@@ -1241,9 +1266,9 @@ export default function ProposalPage() {
                                 }}
                                 className="rounded-lg text-center py-2 transition-all"
                                 style={{
-                                  background: isPrimary ? C.gold : isBackup ? "rgba(212,166,74,0.12)" : isPreferred ? "rgba(22,163,74,0.08)" : "rgba(28,34,53,0.05)",
-                                  border: `1px solid ${isPrimary ? C.gold : isBackup ? "rgba(212,166,74,0.5)" : isPreferred ? C.green : C.border}`,
-                                  boxShadow: isPrimary ? `0 2px 10px rgba(212,166,74,0.3)` : "none",
+                                  background: isPrimary ? "linear-gradient(135deg, #C9A84C 0%, #E8C96A 100%)" : isBackup ? "rgba(212,166,74,0.12)" : isPreferred ? "rgba(22,163,74,0.08)" : "rgba(28,34,53,0.05)",
+                                  border: `1px solid ${isPrimary ? "#C9A84C" : isBackup ? "rgba(212,166,74,0.5)" : isPreferred ? C.green : C.border}`,
+                                  boxShadow: isPrimary ? `0 2px 8px rgba(201,168,76,0.45)` : "none",
                                   opacity: atMax ? 0.4 : 1,
                                   cursor: atMax ? "not-allowed" : "pointer",
                                 }}>
@@ -1296,31 +1321,14 @@ export default function ProposalPage() {
                   )}
 
                   {/* Weather notice + arrival time */}
-                  <div className="rounded-xl p-3" style={{ background: "rgba(28,34,53,0.04)", borderLeft: `3px solid ${C.gold}` }}>
-                    <p style={{ color: C.gold }} className="text-xs font-semibold">Crew Arrival &amp; Weather</p>
+                  <div className="rounded-xl p-3" style={{ background: "rgba(28,34,53,0.04)", borderLeft: `3px solid #C9A84C` }}>
+                    <p style={{ color: "#C9A84C" }} className="text-xs font-semibold">Crew Arrival &amp; Weather Guarantee</p>
                     <p style={{ color: C.textMuted }} className="text-xs mt-1 leading-relaxed">
                       Our crew arrives between <strong style={{ color: C.creamDark }}>8:00 – 9:00 AM</strong>. We&apos;ll send a reminder the night before.
                     </p>
                     <p style={{ color: C.textMuted }} className="text-xs mt-1 leading-relaxed">
-                      Dates may shift due to weather at no charge — we always notify you in advance.
+                      <span className="font-semibold" style={{ color: C.cream }}>Weather guarantee:</span> If weather becomes an issue, we will work with you to reschedule at no charge — we always notify you in advance.
                     </p>
-                  </div>
-
-                  {/* Additional services */}
-                  <div className="rounded-xl p-4" style={{ background: "rgba(28,34,53,0.04)", border: `1px solid ${C.border}` }}>
-                    <p className="font-semibold text-sm" style={{ color: C.cream }}>Want a quote for additional services?</p>
-                    <p className="text-xs mt-1" style={{ color: C.textMuted }}>
-                      Pressure washing, deck staining, and other add-ons are quoted separately.
-                      We&apos;ll send you a separate estimate after your fence booking is confirmed.
-                    </p>
-                    <textarea
-                      placeholder="Optional: Describe any additional services you'd like quoted…"
-                      value={additionalRequest}
-                      onChange={(e) => setAdditionalRequest(e.target.value)}
-                      rows={2}
-                      className="w-full mt-2 rounded-xl px-3 py-2.5 text-sm border outline-none resize-none"
-                      style={{ background: C.cardLight, color: C.cream, borderColor: C.border, ...bodyStyle }}
-                    />
                   </div>
 
                   {bookError && (
@@ -1338,12 +1346,24 @@ export default function ProposalPage() {
                       cursor: selectedDate && !booking ? "pointer" : "not-allowed",
                       ...bodyStyle,
                     }}>
-                    {booking ? "Redirecting to payment…" : !selectedDate ? "Select a date first" : "Pay $50 Deposit & Book Date →"}
+                    {booking ? "Redirecting to payment…" : !selectedDate ? "Select a date first" : "Confirm & Lock In Your Date →"}
                   </button>
                   {/* Deposit note */}
-                  <p className="text-xs text-center" style={{ color: C.textMuted }}>
-                    $50 deposit is applied toward your total balance — only the remaining amount is due day of service.
-                  </p>
+                  <div className="rounded-xl px-4 py-2.5 text-center mt-1"
+                    style={{ background: "rgba(201,168,76,0.10)", border: "1px solid rgba(201,168,76,0.35)" }}>
+                    <p className="text-sm font-medium" style={{ color: C.cream }}>
+                      Your $50 deposit is applied toward your total — remaining balance due day of service.
+                    </p>
+                  </div>
+                  {/* Cancellation policy */}
+                  <div className="rounded-xl px-4 py-3"
+                    style={{ background: "rgba(28,34,53,0.04)", border: `1px solid ${C.border}` }}>
+                    <p className="text-xs font-semibold mb-0.5" style={{ color: C.cream }}>Cancellation Policy</p>
+                    <p className="text-xs" style={{ color: C.textMuted }}>
+                      Cancel at least 48 hours before your scheduled date to receive your $50 deposit refund.
+                      Cancellations within 48 hours are non-refundable. To cancel or reschedule, simply text us back.
+                    </p>
+                  </div>
 
                   <button onClick={() => { setStep(1); setShowBackupPrompt(false); window.scrollTo({ top: 0, behavior: "instant" }); }} style={{ color: C.textMuted }} className="text-sm underline w-full text-center block">
                     ← Back to package selection
@@ -1376,7 +1396,7 @@ export default function ProposalPage() {
                         {/* Price */}
                         {tiers && (
                           <div>
-                            <p className="text-xs uppercase tracking-wider mb-1" style={{ color: C.textMuted }}>Price</p>
+                            <p className="text-xs uppercase tracking-wider mb-1" style={{ color: C.textMuted }}>Total</p>
                             <div className="flex items-baseline gap-2">
                               <span className="text-xs line-through" style={{ color: C.textMuted }}>{strikethrough(tiers[pkg])}</span>
                               <span className="font-bold text-2xl" style={{ color: C.gold, ...headingStyle }}>{fmt(tiers[pkg])}</span>
@@ -1452,11 +1472,22 @@ export default function ProposalPage() {
                           cursor: selectedDate && !booking ? "pointer" : "not-allowed",
                           ...bodyStyle,
                         }}>
-                        {booking ? "Redirecting to payment…" : !selectedDate ? "Select a date first" : "Pay $50 Deposit & Book Date →"}
+                        {booking ? "Redirecting to payment…" : !selectedDate ? "Select a date first" : "Confirm & Lock In Your Date →"}
                       </button>
-                      <p className="text-xs text-center mt-1.5" style={{ color: C.textMuted }}>
-                        $50 deposit applied to your total — remaining balance due day of service.
-                      </p>
+                      <div className="rounded-xl px-3 py-2.5 text-center mt-2"
+                        style={{ background: "rgba(201,168,76,0.10)", border: "1px solid rgba(201,168,76,0.35)" }}>
+                        <p className="text-sm font-medium" style={{ color: C.cream }}>
+                          Your $50 deposit is applied toward your total — remaining balance due day of service.
+                        </p>
+                      </div>
+                      <div className="rounded-xl px-3 py-2.5 mt-2"
+                        style={{ background: "rgba(28,34,53,0.04)", border: `1px solid ${C.border}` }}>
+                        <p className="text-xs font-semibold mb-0.5" style={{ color: C.cream }}>Cancellation Policy</p>
+                        <p className="text-xs" style={{ color: C.textMuted }}>
+                          Cancel at least 48 hours before your date for a full $50 deposit refund.
+                          To cancel, simply text us back.
+                        </p>
+                      </div>
                     </div>
                   )}
                 </div>

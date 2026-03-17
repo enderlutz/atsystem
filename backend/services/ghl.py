@@ -199,11 +199,8 @@ def format_estimate_for_client(estimate: dict, service_type: str, selected_tier:
     if essential and signature and legacy:
         return (
             f"Hi! Thanks for reaching out about your {service} project. "
-            f"Based on your fence details, here are your package options:\n\n"
-            f"Essential: ${essential:,.0f}\n"
-            f"Signature: ${signature:,.0f}\n"
-            f"Legacy: ${legacy:,.0f}\n\n"
-            f"Our team will be in touch shortly to confirm the details and send your full proposal. "
+            f"Based on your fence details, we've put together a custom proposal with package options "
+            f"tailored to your fence — including our most popular Signature package.\n\n"
             f"Any questions? Reply here anytime!"
         )
     # Fallback for non-fence-staining

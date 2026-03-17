@@ -316,6 +316,12 @@ async def _finalize_booking(
             f"at least 48 hours in advance.\n\n"
             f"— A&T's Fence Restoration"
         )
+        lead_add_svcs = ((lead.get("form_data") or {}).get("additional_services") or "").strip()
+        if lead_add_svcs:
+            customer_sms += (
+                "\n\nOur team will also be in touch to discuss your additional service "
+                "request — we'll reach out shortly to get more details."
+            )
         sent_cust = send_message_to_contact(customer_ghl_id, customer_sms)
         if not sent_cust:
             logger.warning(f"Failed to send booking confirmation SMS to customer {customer_ghl_id}")

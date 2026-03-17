@@ -25,7 +25,7 @@ const LAST_VISIT_KEY = "atSystemLastVisitAt";
 const LEADS_CACHE_KEY = "at_leads_cache";
 const ESTIMATES_CACHE_KEY = "at_estimates_cache";
 
-type KanbanStatus = "gray" | "no_address" | "needs_info" | "green" | "yellow" | "red" | "follow_up" | "sent";
+type KanbanStatus = "gray" | "no_address" | "needs_info" | "green" | "yellow" | "red" | "follow_up" | "sent_addons" | "sent";
 
 // Tags that route a lead into "Needs More Information"
 const NEEDS_INFO_TAGS = new Set(["Needs height", "Age of the Fence", "Needs Info", "needs_info"]);
@@ -41,16 +41,20 @@ const COLUMN_QUEUE_ORDER: Record<KanbanStatus, number> = {
   gray: 4,
   follow_up: 5,
   red: 6,
-  sent: 7,
+  sent_addons: 7,
+  sent: 8,
 };
 
 const PRIORITY_ORDER: Record<string, number> = { HOT: 0, HIGH: 1, MEDIUM: 2, LOW: 3 };
 
 function getKanbanStatus(lead: Lead, estimateMap: Map<string, Estimate>): KanbanStatus {
-  // Sent/approved leads always go to the Estimate Sent column — highest priority override
-  if (lead.status === "sent" || lead.status === "approved") return "sent";
   const est = estimateMap.get(lead.id);
-  if (est?.status === "approved") return "sent";
+  // Sent/approved leads: check for additional services to route to special column
+  if (lead.status === "sent" || lead.status === "approved" || est?.status === "approved") {
+    const addSvcs = ((lead.form_data?.additional_services as string) || "").trim();
+    if (addSvcs) return "sent_addons";
+    return "sent";
+  }
   if (lead.kanban_column) return lead.kanban_column as KanbanStatus;
   if (!lead.address || lead.address.trim() === "") return "no_address";
   if (lead.tags?.some((t) => NEEDS_INFO_TAGS.has(t))) return "needs_info";
@@ -128,6 +132,14 @@ const COLUMNS: {
     dotCls: "bg-sky-500",
   },
   {
+    key: "sent_addons",
+    label: "Sent — Add-Ons Needed",
+    description: "Estimate sent. Additional services requested — follow up for a separate quote.",
+    headerCls: "bg-cyan-100 border-cyan-200",
+    bgCls: "bg-cyan-50",
+    dotCls: "bg-cyan-500",
+  },
+  {
     key: "sent",
     label: "Estimate Sent",
     description: "All 3 packages delivered to the customer",
@@ -145,6 +157,7 @@ const COLUMN_BADGE: Record<KanbanStatus, string> = {
   no_address: "bg-purple-100 text-purple-700",
   needs_info: "bg-orange-100 text-orange-700",
   follow_up: "bg-sky-100 text-sky-700",
+  sent_addons: "bg-cyan-100 text-cyan-700",
   sent: "bg-emerald-100 text-emerald-700",
 };
 
@@ -156,6 +169,7 @@ const COLUMN_LABEL: Record<KanbanStatus, string> = {
   no_address: "No Address",
   needs_info: "Needs Info",
   follow_up: "Follow Up",
+  sent_addons: "Sent — Add-Ons",
   sent: "Estimate Sent",
 };
 
