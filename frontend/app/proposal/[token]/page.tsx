@@ -22,37 +22,25 @@ const C = {
 };
 
 // ─── Color data ───────────────────────────────────────────────────────────────
-const MAIN_COLORS = [
-  { id: 1, name: "Cordovan Brown",  brand: "Ready Seal", hex: "#6B3A2A" },
-  { id: 2, name: "Natural Cedar",   brand: "Ready Seal", hex: "#C4883C" },
-  { id: 3, name: "Dark Walnut",     brand: "Ready Seal", hex: "#3E2723" },
-  { id: 4, name: "Honey Gold",      brand: "Ready Seal", hex: "#D4A64A" },
-  { id: 5, name: "Canyon Brown",    brand: "Ready Seal", hex: "#8B5E3C" },
-  { id: 6, name: "Redwood",         brand: "Ready Seal", hex: "#A52A2A" },
+const SIGNATURE_COLORS = [
+  { id: 1,  name: "Natural Tone",  brand: "Signature", src: "/colors/natural-tone-signature.jpg" },
+  { id: 2,  name: "Simply Cedar",  brand: "Signature", src: "/colors/simply-cedar-signature.jpg" },
+  { id: 3,  name: "Light Grey",    brand: "Signature", src: "/colors/light-grey-signature.jpg"   },
+  { id: 4,  name: "Sandal",        brand: "Signature", src: "/colors/sandal-signature.jpg"       },
+  { id: 5,  name: "Canyon Brown",  brand: "Signature", src: "/colors/canyon-brown-signature.jpg" },
+  { id: 6,  name: "Redwood",       brand: "Signature", src: "/colors/redwood-signature.jpg"      },
 ];
 
-const PALETTE_COLORS = [
-  { id: 101, name: "Sahara Sands",      hex: "#C2A06E" },
-  { id: 102, name: "Autumn Russet",     hex: "#8B3A1A" },
-  { id: 103, name: "October Brown",     hex: "#6E3B1F" },
-  { id: 104, name: "Timber Dust",       hex: "#A08060" },
-  { id: 105, name: "Coffee Gelato",     hex: "#7B5230" },
-  { id: 106, name: "Navajo Horizon",    hex: "#B8905A" },
-  { id: 107, name: "Cowboy Suede",      hex: "#9E7060" },
-  { id: 108, name: "Brickwood",         hex: "#7A3B28" },
-  { id: 109, name: "Heirloom Red",      hex: "#8B2020" },
-  { id: 110, name: "Antique Burgundy",  hex: "#6B1A2A" },
-  { id: 111, name: "Standing Still",    hex: "#A0906A" },
-  { id: 112, name: "Natural Cork",      hex: "#C4A870" },
-  { id: 113, name: "Classic Buff",      hex: "#D4C090" },
-  { id: 114, name: "Desert Sand",       hex: "#D2B48C" },
-  { id: 115, name: "Gallery Grey",      hex: "#9090A0" },
-  { id: 116, name: "Mountain Smoke",    hex: "#7A8090" },
-  { id: 117, name: "Sharkfin",          hex: "#708090" },
-  { id: 118, name: "Forest Canopy",     hex: "#4A6040" },
-  { id: 119, name: "Midnight Shadow",   hex: "#2C2C3A" },
-  { id: 120, name: "Wedgewood Blue",    hex: "#5B7FA6" },
+const LEGACY_COLORS = [
+  { id: 7,  name: "Cedar Solid",   brand: "Legacy", src: "/colors/cedar-solid-legacy.jpg"   },
+  { id: 8,  name: "October Brown", brand: "Legacy", src: "/colors/october-brown-legacy.jpg" },
+  { id: 9,  name: "Black Alder",   brand: "Legacy", src: "/colors/black-alder-legacy.jpg"  },
+  { id: 10, name: "Black",         brand: "Legacy", src: "/colors/black-legacy.jpg"         },
+  { id: 11, name: "Redwood",       brand: "Legacy", src: "/colors/redwood-legacy.jpg"       },
+  { id: 12, name: "Dark Grey",     brand: "Legacy", src: "/colors/dark-grey-legacy.jpg"     },
 ];
+
+const ALL_STAIN_COLORS = [...SIGNATURE_COLORS, ...LEGACY_COLORS];
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 function fmt(n: number) {
@@ -378,7 +366,7 @@ export default function ProposalPage() {
 
   const getHoaColorNames = (): string[] => {
     const names = hoaColors.map((id) => {
-      const color = MAIN_COLORS.find((x) => x.id === id) || PALETTE_COLORS.find((x) => x.id === id);
+      const color = ALL_STAIN_COLORS.find((x) => x.id === id);
       return color?.name || String(id);
     });
     if (hoaCustomBrand.trim()) names.push(hoaCustomBrand.trim());
@@ -399,8 +387,8 @@ export default function ProposalPage() {
     if (!pkg || pkg === "essential") return "Clear Sealant";
     if (colorMode === "gallery") {
       if (selectedColor === -1) return customColor.trim();
-      const c = MAIN_COLORS.find((x) => x.id === selectedColor) || PALETTE_COLORS.find((x) => x.id === selectedColor);
-      return c ? `${c.name} (${(c as typeof MAIN_COLORS[0] & { brand?: string }).brand || ""})`.trim().replace(/\(\)$/, "").trim() : "";
+      const c = ALL_STAIN_COLORS.find((x) => x.id === selectedColor);
+      return c ? `${c.name} (${c.brand})` : "";
     }
     if (colorMode === "hoa_only") return `HOA: ${hoaColors.length} colors ranked`;
     if (colorMode === "hoa_approved") return hoaSendLater ? "HOA Approved (sending later)" : customColor;
@@ -507,8 +495,8 @@ export default function ProposalPage() {
   const colorChip = () => {
     if (!pkg || pkg === "essential") return null;
     if (colorMode === "gallery" && selectedColor && selectedColor !== -1) {
-      const c = MAIN_COLORS.find((x) => x.id === selectedColor) || PALETTE_COLORS.find((x) => x.id === selectedColor);
-      if (c) return <span className="h-3 w-3 rounded-full inline-block shrink-0" style={{ background: (c as { hex: string }).hex }} />;
+      const c = ALL_STAIN_COLORS.find((x) => x.id === selectedColor);
+      if (c) return <img src={c.src} alt={c.name} className="h-4 w-4 rounded-sm shrink-0 object-cover" />;
     }
     return null;
   };
@@ -935,10 +923,9 @@ export default function ProposalPage() {
                       </div>
 
                       {pkg === "essential" ? (
-                        <div className="rounded-2xl p-4 border-2" style={{ background: C.card, borderColor: C.gold }}>
-                          <div className="flex items-center gap-3">
-                            <div className="h-12 w-12 rounded-xl border-2 shrink-0"
-                              style={{ background: "linear-gradient(135deg,#C4A06A,#8B6040)", borderColor: C.gold }} />
+                        <div className="rounded-2xl border-2 overflow-hidden" style={{ background: C.card, borderColor: C.gold }}>
+                          <img src="/colors/clear.jpg" alt="Clear Sealant" className="w-full object-cover" style={{ height: 160 }} />
+                          <div className="flex items-center gap-3 px-4 py-3">
                             <div className="flex-1">
                               <p style={{ color: C.cream }} className="font-semibold">Clear Sealant</p>
                               <p style={{ color: C.textMuted }} className="text-sm">Preserves your fence&apos;s natural wood color</p>
@@ -952,11 +939,13 @@ export default function ProposalPage() {
                         <>
                           {colorMode === "gallery" && (
                             <div className="space-y-5">
-                              {/* Featured 6 — no HOA shows only main colors */}
+                              {/* Color gallery — filtered by selected tier */}
                               <div>
-                                <p className="text-xs font-semibold uppercase tracking-wider mb-2.5" style={{ color: C.textMuted }}>Most Popular</p>
+                                <p className="text-xs font-semibold uppercase tracking-wider mb-2.5" style={{ color: C.textMuted }}>
+                                  {pkg === "signature" ? "Signature Colors" : pkg === "legacy" ? "Legacy Colors" : "Available Colors"}
+                                </p>
                                 <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-                                  {MAIN_COLORS.map((c) => {
+                                  {(pkg === "signature" ? SIGNATURE_COLORS : pkg === "legacy" ? LEGACY_COLORS : ALL_STAIN_COLORS).map((c) => {
                                     const isSelected = selectedColor === c.id;
                                     return (
                                       <button
@@ -968,7 +957,7 @@ export default function ProposalPage() {
                                           background: C.card,
                                           boxShadow: isSelected ? `0 4px 16px rgba(28,34,53,0.10)` : "0 1px 3px rgba(0,0,0,0.05)",
                                         }}>
-                                        <div style={{ height: 80, background: c.hex }} />
+                                        <img src={c.src} alt={c.name} className="w-full object-cover" style={{ height: 110 }} />
                                         <div className="px-3 py-2 flex items-center justify-between gap-2">
                                           <div className="min-w-0">
                                             <p style={{ color: C.cream }} className="text-xs font-semibold truncate">{c.name}</p>
@@ -1031,7 +1020,7 @@ export default function ProposalPage() {
                                 <p style={{ color: C.textMuted }} className="text-xs mt-1">We&apos;ll submit your top choices to your HOA for the best chance of first-try approval.</p>
                               </div>
                               <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-                                {MAIN_COLORS.map((c) => {
+                                {ALL_STAIN_COLORS.map((c) => {
                                   const rank = hoaColors.indexOf(c.id) + 1;
                                   return (
                                     <button key={c.id} onClick={() => toggleHoaColor(c.id)}
@@ -1043,9 +1032,10 @@ export default function ProposalPage() {
                                           <span className="text-xs font-bold" style={{ color: "#FFFFFF" }}>{rank}</span>
                                         </div>
                                       )}
-                                      <div style={{ height: 64, background: c.hex }} />
+                                      <img src={c.src} alt={c.name} className="w-full object-cover" style={{ height: 72 }} />
                                       <div className="px-2 py-1.5">
                                         <p style={{ color: C.cream }} className="text-xs font-semibold">{c.name}</p>
+                                        <p style={{ color: C.textMuted }} className="text-[10px]">{c.brand}</p>
                                       </div>
                                     </button>
                                   );
@@ -1055,7 +1045,7 @@ export default function ProposalPage() {
                                 <div className="rounded-xl p-3 space-y-1.5" style={{ background: C.cardLight }}>
                                   <p style={{ color: C.textMuted }} className="text-xs font-semibold mb-2">Your ranked selections:</p>
                                   {hoaColors.map((id, i) => {
-                                    const c = MAIN_COLORS.find((x) => x.id === id) || PALETTE_COLORS.find((x) => x.id === id);
+                                    const c = ALL_STAIN_COLORS.find((x) => x.id === id);
                                     return (
                                       <div key={id} className="flex items-center justify-between">
                                         <span style={{ color: C.creamDark }} className="text-xs">{i + 1}. {c?.name}</span>
@@ -1080,28 +1070,6 @@ export default function ProposalPage() {
                                   style={{ background: C.card, color: C.cream, borderColor: hoaCustomBrand.trim() ? C.gold : C.border, ...bodyStyle }}
                                 />
                                 <p style={{ color: C.textMuted }} className="text-xs">We&apos;ll add it as a ranked option alongside your gallery selections.</p>
-                              </div>
-                              <p style={{ color: C.textMuted }} className="text-xs font-semibold uppercase tracking-wider">Additional Colors, Backup options</p>
-                              <div className="grid grid-cols-4 sm:grid-cols-5 gap-2">
-                                {PALETTE_COLORS.map((c) => {
-                                  const rank = hoaColors.indexOf(c.id) + 1;
-                                  return (
-                                    <button key={c.id} onClick={() => toggleHoaColor(c.id)}
-                                      className="rounded-lg overflow-hidden border-2 transition-all relative"
-                                      style={{ borderColor: rank > 0 ? C.gold : C.border }}>
-                                      {rank > 0 && (
-                                        <div className="absolute top-1 right-1 h-4 w-4 rounded-full flex items-center justify-center z-10"
-                                          style={{ background: C.gold }}>
-                                          <span className="text-[10px] font-bold" style={{ color: "#FFFFFF" }}>{rank}</span>
-                                        </div>
-                                      )}
-                                      <div style={{ height: 40, background: c.hex }} />
-                                      <div className="px-1 py-1">
-                                        <p style={{ color: C.textMuted }} className="text-[10px] leading-tight truncate">{c.name}</p>
-                                      </div>
-                                    </button>
-                                  );
-                                })}
                               </div>
                             </div>
                           )}
