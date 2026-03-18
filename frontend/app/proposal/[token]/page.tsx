@@ -22,22 +22,24 @@ const C = {
 };
 
 // ─── Color data ───────────────────────────────────────────────────────────────
+const CDN = "https://zmzmfokcafbvrszjwwrq.supabase.co/storage/v1/object/public/fence-colors";
+
 const SIGNATURE_COLORS = [
-  { id: 1,  name: "Natural Tone",  brand: "Signature", src: "/colors/natural-tone-signature.jpg" },
-  { id: 2,  name: "Simply Cedar",  brand: "Signature", src: "/colors/simply-cedar-signature.jpg" },
-  { id: 3,  name: "Light Grey",    brand: "Signature", src: "/colors/light-grey-signature.jpg"   },
-  { id: 4,  name: "Sandal",        brand: "Signature", src: "/colors/sandal-signature.jpg"       },
-  { id: 5,  name: "Canyon Brown",  brand: "Signature", src: "/colors/canyon-brown-signature.jpg" },
-  { id: 6,  name: "Redwood",       brand: "Signature", src: "/colors/redwood-signature.jpg"      },
+  { id: 1,  name: "Natural Tone",  brand: "Signature", src: `${CDN}/natural-tone-signature.jpg` },
+  { id: 2,  name: "Simply Cedar",  brand: "Signature", src: `${CDN}/simply-cedar-signature.jpg` },
+  { id: 3,  name: "Light Grey",    brand: "Signature", src: `${CDN}/light-grey-signature.jpg`   },
+  { id: 4,  name: "Sandal",        brand: "Signature", src: `${CDN}/sandal-signature.jpg`       },
+  { id: 5,  name: "Canyon Brown",  brand: "Signature", src: `${CDN}/canyon-brown-signature.jpg` },
+  { id: 6,  name: "Redwood",       brand: "Signature", src: `${CDN}/redwood-signature.jpg`      },
 ];
 
 const LEGACY_COLORS = [
-  { id: 7,  name: "Cedar Solid",   brand: "Legacy", src: "/colors/cedar-solid-legacy.jpg"   },
-  { id: 8,  name: "October Brown", brand: "Legacy", src: "/colors/october-brown-legacy.jpg" },
-  { id: 9,  name: "Black Alder",   brand: "Legacy", src: "/colors/black-alder-legacy.jpg"  },
-  { id: 10, name: "Black",         brand: "Legacy", src: "/colors/black-legacy.jpg"         },
-  { id: 11, name: "Redwood",       brand: "Legacy", src: "/colors/redwood-legacy.jpg"       },
-  { id: 12, name: "Dark Grey",     brand: "Legacy", src: "/colors/dark-grey-legacy.jpg"     },
+  { id: 7,  name: "Cedar Solid",   brand: "Legacy", src: `${CDN}/cedar-solid-legacy.jpg`   },
+  { id: 8,  name: "October Brown", brand: "Legacy", src: `${CDN}/october-brown-legacy.jpg` },
+  { id: 9,  name: "Black Alder",   brand: "Legacy", src: `${CDN}/black-alder-legacy.jpg`  },
+  { id: 10, name: "Black",         brand: "Legacy", src: `${CDN}/black-legacy.jpg`         },
+  { id: 11, name: "Redwood",       brand: "Legacy", src: `${CDN}/redwood-legacy.jpg`       },
+  { id: 12, name: "Dark Grey",     brand: "Legacy", src: `${CDN}/dark-grey-legacy.jpg`     },
 ];
 
 const ALL_STAIN_COLORS = [...SIGNATURE_COLORS, ...LEGACY_COLORS];
@@ -924,7 +926,7 @@ export default function ProposalPage() {
 
                       {pkg === "essential" ? (
                         <div className="rounded-2xl border-2 overflow-hidden" style={{ background: C.card, borderColor: C.gold }}>
-                          <img src="/colors/clear.jpg" alt="Clear Sealant" className="w-full object-cover" style={{ height: 160 }} />
+                          <img src={`${CDN}/clear.jpg`} alt="Clear Sealant" className="w-full object-cover" style={{ height: 160 }} />
                           <div className="flex items-center gap-3 px-4 py-3">
                             <div className="flex-1">
                               <p style={{ color: C.cream }} className="font-semibold">Clear Sealant</p>
