@@ -273,6 +273,20 @@ async def reject_estimate(estimate_id: str, body: EstimateReject, _: dict = Depe
     return {"status": "rejected", "estimate_id": estimate_id}
 
 
+@router.post("/{estimate_id}/request-review")
+async def request_review(estimate_id: str):
+    """VA flags an estimate for Alan's review — sets approval status to red."""
+    db = get_db()
+    res = db.table("estimates").select("*").eq("id", estimate_id).single().execute()
+    if not res.data:
+        raise HTTPException(status_code=404, detail="Estimate not found")
+    inputs = dict(res.data.get("inputs") or {})
+    inputs["_approval_status"] = "red"
+    inputs["_approval_reason"] = "Flagged for owner review by VA"
+    db.table("estimates").update({"inputs": inputs}).eq("id", estimate_id).execute()
+    return {"status": "flagged_for_review", "estimate_id": estimate_id}
+
+
 @router.post("/{estimate_id}/resend")
 async def resend_estimate(estimate_id: str, _: dict = Depends(require_admin)):
     """Resend the proposal SMS to the client. Only valid for approved/adjusted estimates."""

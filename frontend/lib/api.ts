@@ -107,6 +107,8 @@ export const api = {
       method: "POST",
       body: JSON.stringify(body),
     }),
+  requestEstimateReview: (id: string) =>
+    request<{ status: string; estimate_id: string }>(`/api/estimates/${id}/request-review`, { method: "POST" }),
   resendEstimate: (id: string) =>
     request<{ status: string; proposal_url: string }>(`/api/estimates/${id}/resend`, { method: "POST" }),
   getPreviewToken: (estimateId: string) =>

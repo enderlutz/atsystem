@@ -101,6 +101,8 @@ export default function LeadDetailPage() {
   const [estimateSent, setEstimateSent] = useState(false);
   const [approveError, setApproveError] = useState<string | null>(null);
   const [forceSend, setForceSend] = useState(false);
+  const [requestingReview, setRequestingReview] = useState(false);
+  const [reviewRequested, setReviewRequested] = useState(false);
 
   // GHL Messages state
   const [messages, setMessages] = useState<GHLMessage[]>([]);
@@ -227,6 +229,19 @@ export default function LeadDetailPage() {
       setApproveError(e instanceof Error ? e.message : "Failed to send estimate");
     } finally {
       setApprovingEstimate(false);
+    }
+  };
+
+  const handleRequestReview = async () => {
+    if (!lead?.estimate) return;
+    setRequestingReview(true);
+    try {
+      await api.requestEstimateReview(lead.estimate.id);
+      setReviewRequested(true);
+    } catch (e: unknown) {
+      setApproveError(e instanceof Error ? e.message : "Failed to flag for review");
+    } finally {
+      setRequestingReview(false);
     }
   };
 
@@ -808,33 +823,56 @@ export default function LeadDetailPage() {
               </p>
             )}
 
-            {/* Preview Estimate button */}
+            {/* Preview Estimate + quick actions */}
             {tiers && (
-              <button
-                onClick={async () => {
-                  const token = est?.proposal_token;
-                  if (token) {
-                    setPreviewToken(token);
-                    setShowPreview(true);
-                    return;
-                  }
-                  if (!est?.id) return;
-                  setLoadingPreview(true);
-                  try {
-                    const { token: t } = await api.getPreviewToken(est.id);
-                    setPreviewToken(t);
-                    setShowPreview(true);
-                  } catch (e) {
-                    console.error(e);
-                  } finally {
-                    setLoadingPreview(false);
-                  }
-                }}
-                disabled={loadingPreview}
-                className="text-sm text-blue-600 hover:text-blue-700 underline underline-offset-2 disabled:opacity-50"
-              >
-                {loadingPreview ? "Loading…" : "Preview estimate →"}
-              </button>
+              <div className="flex flex-wrap items-center gap-3">
+                <button
+                  onClick={async () => {
+                    const token = est?.proposal_token;
+                    if (token) {
+                      setPreviewToken(token);
+                      setShowPreview(true);
+                      return;
+                    }
+                    if (!est?.id) return;
+                    setLoadingPreview(true);
+                    try {
+                      const { token: t } = await api.getPreviewToken(est.id);
+                      setPreviewToken(t);
+                      setShowPreview(true);
+                    } catch (e) {
+                      console.error(e);
+                    } finally {
+                      setLoadingPreview(false);
+                    }
+                  }}
+                  disabled={loadingPreview}
+                  className="text-sm text-blue-600 hover:text-blue-700 underline underline-offset-2 disabled:opacity-50"
+                >
+                  {loadingPreview ? "Loading…" : "Preview estimate →"}
+                </button>
+                {est?.id && (
+                  <Button size="sm" variant="outline" asChild>
+                    <Link href={`/estimates/${est.id}`}>Edit Custom Price</Link>
+                  </Button>
+                )}
+                {est?.id && !estimateSent && !reviewRequested && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={handleRequestReview}
+                    disabled={requestingReview}
+                    className="border-amber-300 text-amber-700 hover:bg-amber-50"
+                  >
+                    {requestingReview ? "Flagging…" : "Send for Alan's Approval"}
+                  </Button>
+                )}
+                {reviewRequested && (
+                  <span className="text-xs font-medium text-amber-700 bg-amber-50 border border-amber-200 rounded-full px-2.5 py-1">
+                    Sent for Alan&apos;s review
+                  </span>
+                )}
+              </div>
             )}
 
             {/* Action area — differs by status */}
