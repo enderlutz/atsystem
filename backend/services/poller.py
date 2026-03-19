@@ -67,10 +67,10 @@ def _send_proposal_follow_ups():
     # Find proposals that are "viewed" (not booked), updated > 2 hours ago, no follow-up sent yet
     res = (
         db.table("proposals")
-        .select("token, lead_id, updated_at")
+        .select("token, lead_id, created_at")
         .eq("status", "viewed")
         .is_("follow_up_sent_at", "null")
-        .lt("updated_at", cutoff)
+        .lt("created_at", cutoff)
         .execute()
     )
 

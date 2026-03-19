@@ -151,14 +151,15 @@ export default function LeadDetailPage() {
       setContactName(data.contact_name || "");
       setContactPhone(data.contact_phone || "");
       setContactAddress(data.address || "");
-    }).catch(console.error).finally(() => setLoading(false));
-
-    // Auto-load messages on page open
-    api.getLeadMessages(id).then((result) => {
-      setMessages(result.messages || []);
-      setMessagesLoaded(true);
-    }).catch(() => {
-      setMessagesLoaded(true);
+    }).catch(console.error).finally(() => {
+      setLoading(false);
+      // Load messages after lead renders — avoids competing with the main render request
+      api.getLeadMessages(id).then((result) => {
+        setMessages(result.messages || []);
+        setMessagesLoaded(true);
+      }).catch(() => {
+        setMessagesLoaded(true);
+      });
     });
   }, [id]);
 
