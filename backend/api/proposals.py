@@ -12,6 +12,31 @@ from services.google_calendar import create_calendar_event
 router = APIRouter(prefix="/api/proposal", tags=["proposals"])
 logger = logging.getLogger(__name__)
 
+# Hex codes for HOA color swatches — used in the HOA approval SMS
+HOA_COLOR_HEX: dict[str, str] = {
+    "Adobe": "#9A6B4F", "Antique Burgundy": "#5A2E36", "Autumn Fog": "#AEB6B7",
+    "Autumn Russet": "#A45B3B", "Brickwood": "#8B3D32", "Brown": "#6B4F3A",
+    "Cedar": "#9C6A3D", "Cedar Naturaltone": "#A66B3E", "Cilantro": "#666944",
+    "Classic Buff": "#E1D2B6", "Clay Angel": "#CBB8A8", "Coffee Gelato": "#B8896B",
+    "Corner Café": "#B88654", "Cowboy Boots": "#65534A", "Cowboy Suede": "#76422D",
+    "Desert Sand": "#D7C3AA", "Dust Bunny": "#CCB9AC", "Filtered Shade": "#CBC9C4",
+    "Forest Canopy": "#2F3837", "Frappe": "#BDB6AA", "Gallery Grey": "#C2B5A7",
+    "Garden Ochre": "#B9803C", "Gravity": "#C3C6C7", "Gray Brook": "#AEBABD",
+    "Greige": "#B7AD9F", "Hazy Stratus": "#A1A09B", "Heirloom Red": "#7B2E2E",
+    "High-Speed Steel": "#616467", "Honey Gold": "#C8A15A", "Hopsack": "#D1BEAA",
+    "Khaki": "#A39274", "King's Canyon": "#7A5B47", "Midnight Shadow": "#33353A",
+    "Monticello Tan": "#9B8F7B", "Mountain Smoke": "#8A867F", "Mudslide": "#6A5A4F",
+    "Natural Cork": "#895C3D", "Navajo Horizon": "#A08173", "Notre Dame": "#7F8587",
+    "Nuance": "#C3BEB6", "Pale Powder": "#CDAB92", "Pitch Cobalt": "#293944",
+    "Porcelain Shale": "#C0C0BB", "Quail Egg": "#EAE2D5", "Redwood": "#8B3F2B",
+    "Reindeer": "#8B8061", "Riverbed's Edge": "#7F7A73", "Rusticanna": "#8A523D",
+    "Safari Brown": "#5C4A3A", "Sahara Sands": "#E0C6AE", "Savannah Red": "#8A3C2E",
+    "Scented Candle": "#846B59", "Seafoam Storm": "#939A91", "Sharkfin": "#7C878B",
+    "Stampede": "#6C5A47", "Standing Still": "#8C6343", "Timber Dust": "#BAA693",
+    "Universal Umber": "#9A7E65", "Very Black": "#2F3238", "Warm Buff": "#D1B390",
+    "Wedgwood Blue": "#7A92A8",
+}
+
 
 STAGE_ORDER = ["sent", "opened", "hoa_selected", "package_selected", "color_selected", "date_selected", "checkout_started", "booked"]
 
@@ -325,6 +350,26 @@ async def _finalize_booking(
         sent_cust = send_message_to_contact(customer_ghl_id, customer_sms)
         if not sent_cust:
             logger.warning(f"Failed to send booking confirmation SMS to customer {customer_ghl_id}")
+
+        # HOA-specific follow-up SMS with ranked color choices and hex codes
+        if color_mode == "hoa_only" and hoa_colors:
+            color_lines = []
+            for i, name in enumerate(hoa_colors, 1):
+                hex_code = HOA_COLOR_HEX.get(str(name), "")
+                if hex_code:
+                    color_lines.append(f"{i}. {name} ({hex_code})")
+                else:
+                    color_lines.append(f"{i}. {name}")
+            hoa_sms = (
+                f"Here are your ranked color choices for your HOA submission:\n\n"
+                + "\n".join(color_lines)
+                + "\n\nAll colors are from the Ready Seal Exterior Stain & Sealer line."
+                "\n\nWe'll prepare a full HOA approval packet — spec sheets, color swatches,"
+                " and a pre-written letter. Reply with your HOA board's email and we'll"
+                " send it directly."
+                "\n\n— A&T's Fence Restoration"
+            )
+            send_message_to_contact(customer_ghl_id, hoa_sms)
     else:
         logger.warning(f"No ghl_contact_id on lead {proposal['lead_id']} — skipping customer confirmation SMS")
 

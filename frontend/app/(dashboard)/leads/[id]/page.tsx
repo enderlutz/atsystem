@@ -135,7 +135,9 @@ export default function LeadDetailPage() {
       setPreviouslyStained(String(fd.previously_stained || "No"));
       setTimeline(String(fd.service_timeline || fd.timeframe || ""));
       setAdditionalServices(String(fd.additional_services || ""));
-      setZipCode(String(fd.zip_code || ""));
+      // Fallback: extract zip from address for leads predating the form_data fix
+      const addressZip = (data.address || "").match(/\b(\d{5})\b/)?.[1] || "";
+      setZipCode(String(fd.zip_code || addressZip || ""));
       const storedPct = Number(fd.confident_pct ?? 100);
       setConfidencePct(storedPct >= 90 ? "100" : storedPct >= 75 ? "80" : "60");
       const rawSides = fd.fence_sides;

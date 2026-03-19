@@ -384,6 +384,10 @@ def parse_webhook_payload(payload: dict, field_map: dict[str, str] | None = None
     if not zip_code:
         zip_code = str(form_data.get("zip_code", "") or "").strip()[:5]
 
+    # Always write zip_code into form_data so the VA dashboard can autofill it
+    if zip_code and not form_data.get("zip_code"):
+        form_data["zip_code"] = zip_code
+
     first = payload.get("firstName", "") or payload.get("first_name", "")
     last  = payload.get("lastName", "")  or payload.get("last_name", "")
 
