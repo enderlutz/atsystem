@@ -1108,53 +1108,85 @@ export default function ProposalPage() {
                           )}
 
                           {colorMode === "hoa_only" && (() => {
-                            const filteredHoaColors = pkg === "signature"
+                            const extraHoaColors = pkg === "signature"
                               ? HOA_COLORS.filter(c => c.available_in.includes("semi-transparent"))
                               : pkg === "legacy"
                               ? HOA_COLORS.filter(c => c.available_in.includes("solid"))
                               : HOA_COLORS;
-                            const finishLabel = pkg === "signature" ? "Semi-Transparent" : pkg === "legacy" ? "Solid" : null;
                             return (
                               <div className="space-y-4 fade-slide">
                                 <div className="rounded-xl p-3" style={{ background: C.cardLight, borderLeft: `3px solid ${C.gold}` }}>
-                                  <p style={{ color: C.cream }} className="text-sm font-semibold">
-                                    Pick 2–5 colors (ranked by preference)
-                                    {finishLabel && <span className="ml-2 text-xs font-normal px-1.5 py-0.5 rounded" style={{ background: "rgba(201,168,76,0.15)", color: "#C9A84C" }}>{finishLabel}</span>}
-                                  </p>
+                                  <p style={{ color: C.cream }} className="text-sm font-semibold">Pick 2–5 colors (ranked by preference)</p>
                                   <p style={{ color: C.textMuted }} className="text-xs mt-1">We&apos;ll submit your top choices to your HOA for the best chance of first-try approval.</p>
                                 </div>
-                                <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
-                                  {filteredHoaColors.map((c) => {
+
+                                {/* Photo cards — standard gallery */}
+                                <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                                  {ALL_STAIN_COLORS.map((c) => {
                                     const rank = hoaColors.indexOf(c.name) + 1;
                                     return (
-                                      <button key={c.name} onClick={() => toggleHoaColor(c.name)}
-                                        className="flex flex-col items-center rounded-xl border-2 transition-all relative p-2"
-                                        style={{ borderColor: rank > 0 ? C.gold : C.border, background: C.card,
-                                          boxShadow: rank > 0 ? `0 2px 8px rgba(201,168,76,0.30)` : "none" }}>
+                                      <button key={c.id} onClick={() => toggleHoaColor(c.name)}
+                                        className="rounded-xl overflow-hidden border-2 text-left transition-all relative"
+                                        style={{ borderColor: rank > 0 ? C.gold : C.border, background: C.card }}>
                                         {rank > 0 && (
-                                          <div className="absolute top-1.5 right-1.5 h-5 w-5 rounded-full flex items-center justify-center z-10"
+                                          <div className="absolute top-2 right-2 h-6 w-6 rounded-full flex items-center justify-center z-10"
                                             style={{ background: C.gold }}>
-                                            <span className="text-[10px] font-bold" style={{ color: "#FFFFFF" }}>{rank}</span>
+                                            <span className="text-xs font-bold" style={{ color: "#FFFFFF" }}>{rank}</span>
                                           </div>
                                         )}
-                                        <div className="w-full rounded-md" style={{ height: 52, background: c.hex }} />
-                                        <p style={{ color: C.cream }} className="text-[10px] font-medium text-center mt-1.5 leading-tight">{c.name}</p>
+                                        <img src={c.src} alt={c.name} className="w-full object-cover" style={{ height: 72 }} />
+                                        <div className="px-2 py-1.5">
+                                          <p style={{ color: C.cream }} className="text-xs font-semibold">{c.name}</p>
+                                          <p style={{ color: C.textMuted }} className="text-[10px]">{c.brand}</p>
+                                        </div>
                                       </button>
                                     );
                                   })}
                                 </div>
+
+                                {/* Hex swatches — additional HOA colors */}
+                                <div>
+                                  <p className="text-xs font-semibold uppercase tracking-wider mb-2" style={{ color: C.textMuted }}>More Color Options</p>
+                                  <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
+                                    {extraHoaColors.map((c) => {
+                                      const rank = hoaColors.indexOf(c.name) + 1;
+                                      return (
+                                        <button key={c.name} onClick={() => toggleHoaColor(c.name)}
+                                          className="flex flex-col items-center rounded-xl border-2 transition-all relative p-2"
+                                          style={{ borderColor: rank > 0 ? C.gold : C.border, background: C.card,
+                                            boxShadow: rank > 0 ? `0 2px 8px rgba(201,168,76,0.30)` : "none" }}>
+                                          {rank > 0 && (
+                                            <div className="absolute top-1.5 right-1.5 h-5 w-5 rounded-full flex items-center justify-center z-10"
+                                              style={{ background: C.gold }}>
+                                              <span className="text-[10px] font-bold" style={{ color: "#FFFFFF" }}>{rank}</span>
+                                            </div>
+                                          )}
+                                          <div className="w-full rounded-md" style={{ height: 52, background: c.hex }} />
+                                          <p style={{ color: C.cream }} className="text-[10px] font-medium text-center mt-1.5 leading-tight">{c.name}</p>
+                                        </button>
+                                      );
+                                    })}
+                                  </div>
+                                </div>
+
                                 {hoaColors.length > 0 && (
                                   <div className="rounded-xl p-3 space-y-1.5" style={{ background: C.cardLight }}>
                                     <p style={{ color: C.textMuted }} className="text-xs font-semibold mb-2">Your ranked selections:</p>
-                                    {hoaColors.map((name, i) => (
-                                      <div key={name} className="flex items-center justify-between">
-                                        <div className="flex items-center gap-2">
-                                          <div className="h-4 w-4 rounded shrink-0" style={{ background: HOA_COLORS.find(x => x.name === name)?.hex || "#ccc" }} />
-                                          <span style={{ color: C.creamDark }} className="text-xs">{i + 1}. {name}</span>
+                                    {hoaColors.map((name, i) => {
+                                      const hoaHex = HOA_COLORS.find(x => x.name === name)?.hex;
+                                      return (
+                                        <div key={name} className="flex items-center justify-between">
+                                          <div className="flex items-center gap-2">
+                                            {hoaHex
+                                              ? <div className="h-4 w-4 rounded shrink-0" style={{ background: hoaHex }} />
+                                              : <div className="h-4 w-4 rounded shrink-0 border" style={{ background: ALL_STAIN_COLORS.find(x => x.name === name)?.src ? "transparent" : "#ccc", borderColor: C.border }} />
+                                            }
+                                            <span style={{ color: C.creamDark }} className="text-xs">{i + 1}. {name}</span>
+                                          </div>
+                                          <button onClick={() => toggleHoaColor(name)} style={{ color: C.textMuted }} className="text-xs hover:text-red-400 transition-colors">Remove</button>
                                         </div>
-                                        <button onClick={() => toggleHoaColor(name)} style={{ color: C.textMuted }} className="text-xs hover:text-red-400 transition-colors">Remove</button>
-                                      </div>
-                                    ))}
+                                      );
+                                    })}
                                   </div>
                                 )}
                                 {hoaColors.length < 2 && (
@@ -1162,7 +1194,7 @@ export default function ProposalPage() {
                                 )}
                                 {/* Optional brand/color text input for HOA */}
                                 <div className="rounded-xl p-3 space-y-2" style={{ background: C.cardLight, border: `1px solid ${C.border}` }}>
-                                  <p style={{ color: C.cream }} className="text-xs font-semibold">Have a specific color in mind? (Optional)</p>
+                                  <p style={{ color: C.cream }} className="text-xs font-semibold">Have a specific brand/color in mind? (Optional)</p>
                                   <input
                                     type="text"
                                     placeholder="e.g. &quot;Ready Seal Dark Walnut&quot; — we'll include it in your HOA submission"
@@ -1171,7 +1203,7 @@ export default function ProposalPage() {
                                     className="w-full rounded-lg px-3 py-2 text-sm border outline-none"
                                     style={{ background: C.card, color: C.cream, borderColor: hoaCustomBrand.trim() ? C.gold : C.border, ...bodyStyle }}
                                   />
-                                  <p style={{ color: C.textMuted }} className="text-xs">We&apos;ll add it as a ranked option alongside your selections.</p>
+                                  <p style={{ color: C.textMuted }} className="text-xs">We&apos;ll add it as a ranked option alongside your gallery selections.</p>
                                 </div>
                               </div>
                             );
