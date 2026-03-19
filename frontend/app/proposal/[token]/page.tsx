@@ -333,6 +333,7 @@ export default function ProposalPage() {
 
   const colorRef = useRef<HTMLDivElement>(null);
   const signatureScrollRef = useRef<HTMLButtonElement>(null);
+  const confirmBtnRef = useRef<HTMLButtonElement>(null);
   const reportedStages = useRef<Set<string>>(new Set());
 
   useEffect(() => {
@@ -1353,6 +1354,7 @@ export default function ProposalPage() {
                                   if (!selectedDate) {
                                     setSelectedDate(dateStr);
                                     trackStage("date_selected");
+                                    setTimeout(() => confirmBtnRef.current?.scrollIntoView({ behavior: "smooth", block: "center" }), 150);
                                     if (colorMode === "hoa_only") {
                                       setShowBackupPrompt(true);
                                       setTimeout(() => setShowBackupPrompt(false), 6000);
@@ -1436,11 +1438,12 @@ export default function ProposalPage() {
 
                   {/* Book button — mobile/tablet only; desktop uses sidebar */}
                   <button
+                    ref={confirmBtnRef}
                     onClick={handleCheckout}
                     disabled={!selectedDate || booking}
                     className="w-full rounded-2xl py-4 font-semibold text-base transition-all border-none lg:hidden dark-btn"
                     style={{
-                      background: selectedDate && !booking ? C.gold : "#E5E7EB",
+                      background: selectedDate && !booking ? "#C9A84C" : "#E5E7EB",
                       color: selectedDate && !booking ? "#FFFFFF" : C.textMuted,
                       cursor: selectedDate && !booking ? "pointer" : "not-allowed",
                       ...bodyStyle,
@@ -1468,7 +1471,8 @@ export default function ProposalPage() {
                     ← Back to package selection
                   </button>
 
-                  <div className="h-4" />
+                  {/* Spacer for sticky bar on mobile */}
+                  <div className={selectedDate ? "h-28 lg:h-4" : "h-4"} />
                 </div>
               )}
             </div>
@@ -1566,7 +1570,7 @@ export default function ProposalPage() {
                         disabled={!selectedDate || booking}
                         className="w-full rounded-xl py-3.5 font-semibold text-base border-none dark-btn"
                         style={{
-                          background: selectedDate && !booking ? C.gold : "#E5E7EB",
+                          background: selectedDate && !booking ? "#C9A84C" : "#E5E7EB",
                           color: selectedDate && !booking ? "#FFFFFF" : C.textMuted,
                           cursor: selectedDate && !booking ? "pointer" : "not-allowed",
                           ...bodyStyle,
@@ -1650,6 +1654,43 @@ export default function ProposalPage() {
                   ...bodyStyle,
                 }}>
                 {isColorComplete() ? "Secure Your Date →" : "Select a color to continue"}
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* ═══ STEP 2 MOBILE STICKY BAR ════════════════════════════════════ */}
+        {step === 2 && selectedDate && (
+          <div
+            className="fixed bottom-0 left-0 right-0 z-50 px-4 lg:hidden"
+            style={{
+              background: "#4C4C4C",
+              borderTop: "1px solid rgba(255,255,255,0.1)",
+              backdropFilter: "blur(16px)",
+              WebkitBackdropFilter: "blur(16px)",
+              paddingBottom: "max(16px, env(safe-area-inset-bottom))",
+            }}>
+            <div className="max-w-lg mx-auto pt-3 pb-1">
+              <div className="flex items-center justify-between gap-3 mb-2.5">
+                <div className="min-w-0 flex-1">
+                  <p style={{ color: "rgba(255,255,255,0.6)" }} className="text-xs">Selected Date</p>
+                  <p style={{ color: "#FFFFFF", ...headingStyle }} className="font-bold text-base leading-tight truncate">{formatDateDisplay(selectedDate)}</p>
+                </div>
+                {tiers && pkg && (
+                  <p style={{ color: "rgba(255,255,255,0.85)", ...headingStyle }} className="font-bold text-xl shrink-0">{fmt(tiers[pkg])}</p>
+                )}
+              </div>
+              <button
+                onClick={handleCheckout}
+                disabled={booking}
+                className="w-full rounded-2xl py-4 font-bold text-lg border-none dark-btn"
+                style={{
+                  background: "#C9A84C",
+                  color: "#FFFFFF",
+                  cursor: booking ? "not-allowed" : "pointer",
+                  ...bodyStyle,
+                }}>
+                {booking ? "Redirecting to payment…" : "Confirm & Lock In Your Date →"}
               </button>
             </div>
           </div>
