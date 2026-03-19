@@ -80,11 +80,14 @@ export default function EstimateDetailPage() {
   const router = useRouter();
   const [estimate, setEstimate] = useState<EstimateDetail | null>(null);
   const [loading, setLoading] = useState(true);
-  const [mode, setMode] = useState<"view" | "adjust" | "reject">("view");
+  const [mode, setMode] = useState<"view" | "adjust" | "reject" | "custom">("view");
   const [forceSend, setForceSend] = useState(false);
   const [adjustPrice, setAdjustPrice] = useState("");
   const [notes, setNotes] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [customEssential, setCustomEssential] = useState("");
+  const [customSignature, setCustomSignature] = useState("");
+  const [customLegacy, setCustomLegacy] = useState("");
   const [previewLoading, setPreviewLoading] = useState(false);
   const [resending, setResending] = useState(false);
 
@@ -93,6 +96,9 @@ export default function EstimateDetailPage() {
       setEstimate(e);
       const t = parseTiers(e.inputs);
       setAdjustPrice(String(t.signature || e.estimate_low));
+      if (t.essential) setCustomEssential(String(t.essential));
+      if (t.signature) setCustomSignature(String(t.signature));
+      if (t.legacy) setCustomLegacy(String(t.legacy));
       setLoading(false);
     }).catch(console.error);
   }, [id]);
@@ -132,6 +138,22 @@ export default function EstimateDetailPage() {
       router.push("/estimates");
     } catch (e) {
       toast.error("Failed to reject estimate");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleCustomApprove = async () => {
+    setSubmitting(true);
+    try {
+      const essential = customEssential ? Number(customEssential) : undefined;
+      const signature = customSignature ? Number(customSignature) : undefined;
+      const legacy = customLegacy ? Number(customLegacy) : undefined;
+      await api.adminApproveEstimate(id, { essential, signature, legacy, notes: notes || undefined, force_send: forceSend });
+      toast.success("Custom prices set & all packages sent to client!");
+      router.push("/estimates");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed to approve with custom pricing");
     } finally {
       setSubmitting(false);
     }
@@ -410,6 +432,10 @@ export default function EstimateDetailPage() {
                     <CheckCircle className="h-4 w-4" />
                     {submitting ? "Sending..." : "Approve & Send All Packages"}
                   </Button>
+                  <Button variant="outline" onClick={() => setMode("custom")} className="gap-2">
+                    <Edit2 className="h-4 w-4" />
+                    Custom Pricing
+                  </Button>
                   <Button variant="outline" onClick={() => setMode("adjust")} className="gap-2">
                     <Edit2 className="h-4 w-4" />
                     Adjust Amount
@@ -447,6 +473,41 @@ export default function EstimateDetailPage() {
                 <div className="flex gap-2">
                   <Button onClick={handleAdjust} disabled={submitting}>
                     Save & Approve
+                  </Button>
+                  <Button variant="ghost" onClick={() => setMode("view")}>Cancel</Button>
+                </div>
+              </div>
+            )}
+
+            {mode === "custom" && (
+              <div className="space-y-4">
+                <p className="text-sm text-muted-foreground">Override the auto-calculated prices for each tier. All 3 packages will be sent to the client with your custom prices.</p>
+                <div className="grid grid-cols-3 gap-3">
+                  <div>
+                    <label className="text-xs font-medium mb-1 block text-muted-foreground">Essential ($)</label>
+                    <Input type="number" value={customEssential} onChange={(e) => setCustomEssential(e.target.value)} placeholder="e.g. 650" />
+                  </div>
+                  <div>
+                    <label className="text-xs font-medium mb-1 block text-primary">Signature ★ ($)</label>
+                    <Input type="number" value={customSignature} onChange={(e) => setCustomSignature(e.target.value)} placeholder="e.g. 850" className="border-primary" />
+                  </div>
+                  <div>
+                    <label className="text-xs font-medium mb-1 block text-muted-foreground">Legacy ($)</label>
+                    <Input type="number" value={customLegacy} onChange={(e) => setCustomLegacy(e.target.value)} placeholder="e.g. 1050" />
+                  </div>
+                </div>
+                <div>
+                  <label className="text-sm font-medium mb-1 block">Notes (optional)</label>
+                  <Textarea placeholder="Reason for custom pricing..." value={notes} onChange={(e) => setNotes(e.target.value)} />
+                </div>
+                <label className="flex items-center gap-2 text-sm cursor-pointer select-none">
+                  <input type="checkbox" className="h-3.5 w-3.5 rounded" checked={forceSend} onChange={(e) => setForceSend(e.target.checked)} />
+                  <span className="text-muted-foreground">Send even if no text back</span>
+                </label>
+                <div className="flex gap-2">
+                  <Button onClick={handleCustomApprove} disabled={submitting || (!customSignature)} className="bg-green-600 hover:bg-green-700">
+                    <CheckCircle className="h-4 w-4 mr-2" />
+                    {submitting ? "Sending..." : "Set Custom Prices & Send"}
                   </Button>
                   <Button variant="ghost" onClick={() => setMode("view")}>Cancel</Button>
                 </div>

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "next/navigation";
 import { api, type ProposalData, type ScheduleSlot } from "@/lib/api";
 
@@ -212,6 +212,11 @@ function TrustCardGuarantee({ open, onToggle }: { open: boolean; onToggle: () =>
   );
 }
 
+const HOUSTON_BURBS = ["Katy", "Sugar Land", "The Woodlands", "Pearland", "Friendswood",
+  "League City", "Cypress", "Humble", "Conroe", "Missouri City", "Spring", "Tomball"];
+const PROOF_TIMES = ["12 minutes ago", "27 minutes ago", "43 minutes ago", "1 hour ago",
+  "2 hours ago", "3 hours ago", "Earlier today"];
+
 // ─── Main ─────────────────────────────────────────────────────────────────────
 export default function ProposalPage() {
   const { token } = useParams<{ token: string }>();
@@ -232,6 +237,11 @@ export default function ProposalPage() {
   const [hoaCustomBrand, setHoaCustomBrand] = useState("");
   const [hoaSendLater, setHoaSendLater] = useState(false);
   const [customSendLater, setCustomSendLater] = useState(false);
+
+  const socialProof = useMemo(() => ({
+    city: HOUSTON_BURBS[Math.floor(Math.random() * HOUSTON_BURBS.length)],
+    time: PROOF_TIMES[Math.floor(Math.random() * PROOF_TIMES.length)],
+  }), []);
 
   // Step 2
   const [availableDates, setAvailableDates] = useState<ScheduleSlot[]>([]);
@@ -736,6 +746,16 @@ export default function ProposalPage() {
                     <TrustCardPrep open={openTrust === "prep"} onToggle={() => setOpenTrust(openTrust === "prep" ? null : "prep")} />
                     <TrustCardGuarantee open={openTrust === "guarantee"} onToggle={() => setOpenTrust(openTrust === "guarantee" ? null : "guarantee")} />
 
+                    {/* Social proof notification */}
+                    <div className="rounded-xl px-4 py-2.5 flex items-center gap-2.5"
+                      style={{ background: "rgba(76,175,80,0.07)", border: "1px solid rgba(76,175,80,0.30)" }}>
+                      <div className="h-2 w-2 rounded-full shrink-0 animate-pulse" style={{ background: "#4CAF50" }} />
+                      <p className="text-xs" style={{ color: C.creamDark }}>
+                        A homeowner in <strong>{socialProof.city}</strong> just booked their fence restoration{" "}
+                        <span style={{ color: C.textMuted }}>{socialProof.time}</span>
+                      </p>
+                    </div>
+
                     {/* Promo banner */}
                     <div className="rounded-2xl p-4 md:p-5"
                       style={{ background: C.card, border: `1px solid ${C.border}` }}>
@@ -743,7 +763,9 @@ export default function ProposalPage() {
                         <p style={{ color: "#C9A84C", ...headingStyle }} className="font-bold text-xl md:text-2xl">20% OFF Standard Rates</p>
                         <p style={{ color: C.creamDark }} className="text-sm mt-1">All options include our professional deep cleaning prep.</p>
                         <p style={{ color: C.textMuted }} className="text-xs mt-1.5">
-                          Offer expires {getPromoDeadline()} · Lock in your date to keep this discount
+                          Lock in your date before{" "}
+                          <strong style={{ color: "#C9A84C" }}>{getPromoDeadline()}</strong>
+                          {" "}to redeem your 20% discount — offer ends at the end of the month.
                         </p>
                       </div>
                     </div>
@@ -786,17 +808,18 @@ export default function ProposalPage() {
                       })}
                     </div>
 
-                    {(colorMode === "hoa_only" || colorMode === "hoa_approved") && (
+                    {colorMode === "hoa_only" && (
                       <div className="mt-3 rounded-xl p-4 fade-slide" style={{ background: "rgba(212,166,74,0.07)", border: "1px solid rgba(212,166,74,0.35)" }}>
                         <p style={{ color: "#92701A" }} className="text-sm font-semibold mb-1">About HOA Color Approval</p>
                         <p style={{ color: C.textMuted }} className="text-xs leading-relaxed">
                           HOA boards typically take <strong style={{ color: C.creamDark }}>2–6 weeks</strong> to review color requests, but we make the process easy. Once you book, we&apos;ll send you a ready-to-forward submission packet that includes product spec sheets, color swatches, and a pre-written approval letter drafted specifically for your HOA board. Most of our customers get first-try approval.
                         </p>
-                        {colorMode === "hoa_only" && (
-                          <p style={{ color: C.textMuted }} className="text-xs mt-2 leading-relaxed">
-                            <strong style={{ color: C.creamDark }}>Next:</strong> After picking your package, you&apos;ll rank 2–5 color options from our gallery. We&apos;ll submit your top choices to give your HOA the best selection to approve from.
-                          </p>
-                        )}
+                        <p style={{ color: C.textMuted }} className="text-xs mt-2 leading-relaxed">
+                          <strong style={{ color: C.creamDark }}>Next:</strong> After picking your package, you&apos;ll rank 2–5 color options from our gallery. We&apos;ll submit your top choices to give your HOA the best selection to approve from.
+                        </p>
+                        <p style={{ color: C.textMuted }} className="text-xs mt-2 leading-relaxed">
+                          After booking, you&apos;ll also be able to choose backup dates in case HOA approval takes extra time — we&apos;ll coordinate the final schedule once your board approves.
+                        </p>
                       </div>
                     )}
                   </div>
@@ -807,6 +830,13 @@ export default function ProposalPage() {
                       <span className="shrink-0 w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold" style={{ background: "#C9A84C", color: "#FFFFFF" }}>3</span>
                       <h2 style={{ color: C.cream, ...headingStyle }} className="text-lg font-semibold">Choose Your Package</h2>
                     </div>
+                    {proposal.fence_sides && (
+                      <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full mb-2"
+                        style={{ background: "rgba(76,175,80,0.07)", border: "1px solid rgba(76,175,80,0.35)" }}>
+                        <span className="text-xs font-semibold" style={{ color: "#4CAF50" }}>Quote Includes:</span>
+                        <span className="text-xs" style={{ color: C.creamDark }}>{formatSides(proposal.fence_sides)}</span>
+                      </div>
+                    )}
                     <div
                       className="flex gap-4 overflow-x-auto py-3 -mx-4 px-4 md:grid md:grid-cols-3 md:overflow-visible md:mx-0 md:px-0 md:py-4 md:gap-8 lg:gap-10"
                       style={{ scrollSnapType: "x mandatory", WebkitOverflowScrolling: "touch", scrollbarWidth: "none" }}>
@@ -992,8 +1022,8 @@ export default function ProposalPage() {
                                       {selectedColor === -1 && <div className="h-2 w-2 rounded-full" style={{ background: C.gold }} />}
                                     </div>
                                     <div>
-                                      <p style={{ color: C.cream }} className="text-sm font-semibold">Other / Custom Color</p>
-                                      <p style={{ color: C.textMuted }} className="text-xs mt-0.5">Describe the color or enter a brand + color name</p>
+                                      <p style={{ color: C.cream }} className="text-sm font-semibold">Have another color in mind?</p>
+                                      <p style={{ color: C.textMuted }} className="text-xs mt-0.5">Tell us the brand and color name — we&apos;ll confirm the exact shade.</p>
                                     </div>
                                   </div>
                                 </button>
@@ -1078,10 +1108,6 @@ export default function ProposalPage() {
 
                           {colorMode === "hoa_approved" && (
                             <div className="space-y-3 fade-slide">
-                              <div className="rounded-xl p-4" style={{ background: "rgba(76,175,80,0.08)", border: "1px solid rgba(76,175,80,0.25)" }}>
-                                <p style={{ color: C.green }} className="font-semibold text-sm">HOA-Approved Color</p>
-                                <p style={{ color: C.textMuted }} className="text-xs mt-1">Enter your HOA-approved color (brand + name), or check the box if you&apos;ll send it later.</p>
-                              </div>
                               {!hoaSendLater && (
                                 <input
                                   type="text"
@@ -1089,7 +1115,8 @@ export default function ProposalPage() {
                                   value={customColor}
                                   onChange={(e) => setCustomColor(e.target.value)}
                                   className="w-full rounded-xl px-4 py-3 text-sm border outline-none"
-                                  style={{ background: C.cardLight, color: C.cream, borderColor: C.border, ...bodyStyle }} />
+                                  style={{ background: C.cardLight, color: C.cream, borderColor: customColor.trim() ? C.gold : C.border, ...bodyStyle }}
+                                  autoFocus />
                               )}
                               <label className="flex items-center gap-2 text-sm cursor-pointer" style={{ color: C.textMuted }}>
                                 <input type="checkbox" checked={hoaSendLater} onChange={(e) => setHoaSendLater(e.target.checked)} className="h-4 w-4 rounded" />
@@ -1126,6 +1153,9 @@ export default function ProposalPage() {
                               ← Back to standard color gallery
                             </button>
                           )}
+                          <p className="text-xs text-center mt-2" style={{ color: C.textMuted }}>
+                            We&apos;ll confirm the exact color name with you before your appointment.
+                          </p>
                         </>
                       )}
                     </div>
@@ -1136,11 +1166,6 @@ export default function ProposalPage() {
                     <p className="text-center text-xs" style={{ color: C.textMuted }}>
                       Join 1,000+ Houston homeowners who trust A&amp;T&apos;s for fence restoration
                     </p>
-                    {proposal.fence_sides && (
-                      <p className="text-center text-xs" style={{ color: C.textMuted }}>
-                        Sections included: {formatSides(proposal.fence_sides)}
-                      </p>
-                    )}
                   </div>
 
                   {/* Spacer above sticky bar on mobile */}
