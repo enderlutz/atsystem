@@ -243,6 +243,12 @@ export default function EstimateDetailPage() {
             <Eye className="h-3.5 w-3.5" />
             {previewLoading ? "Loading…" : "Preview"}
           </Button>
+          {isPending && isAdmin && (
+            <Button size="sm" variant="outline" onClick={() => setMode("custom")} className="gap-1.5">
+              <Edit2 className="h-3.5 w-3.5" />
+              Edit Custom Price
+            </Button>
+          )}
           {isAdmin && (estimate.status === "approved" || estimate.status === "adjusted") && (
             <Button size="sm" variant="outline" onClick={handleResend} disabled={resending} className="gap-1.5">
               <RotateCcw className="h-3.5 w-3.5" />
