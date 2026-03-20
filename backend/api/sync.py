@@ -13,7 +13,7 @@ from db import get_db
 from config import get_settings
 from services.ghl import (
     get_contacts, get_contact, get_custom_fields, parse_webhook_payload,
-    get_pipelines, get_opportunities,
+    get_pipelines, get_opportunities, update_opportunity_stage,
 )
 from api.webhooks import get_pricing_config, process_lead, get_field_map, recalculate_estimate_for_lead
 
@@ -113,6 +113,27 @@ TARGET_STAGES = {
     "HOT LEAD_SEND ESTIMATE": "HOT",
 }
 
+INTERACTIVE_PIPELINE_NAME = "Interactive Proposal"
+IP_STAGE_NEW_LEAD   = "New lead (waiting for automation response)"
+IP_STAGE_HOT_LEAD   = "Hot lead (send proposal)"
+IP_STAGE_NO_ADDRESS = "Asking For address/zip"
+
+
+def _resolve_ip_stage(
+    stage_name: str,
+    address: str,
+    zip_code: str,
+    ip_stage_map: dict[str, str],
+) -> str | None:
+    """Return the Interactive Proposal stage ID to move this opp to, or None."""
+    if not ip_stage_map:
+        return None
+    if not address.strip() or not zip_code.strip():
+        return ip_stage_map.get(IP_STAGE_NO_ADDRESS)
+    if stage_name == "HOT LEAD_SEND ESTIMATE":
+        return ip_stage_map.get(IP_STAGE_HOT_LEAD)
+    return ip_stage_map.get(IP_STAGE_NEW_LEAD)
+
 
 async def run_pipeline_sync(background_tasks: BackgroundTasks | None = None) -> dict:
     """
@@ -140,6 +161,16 @@ async def run_pipeline_sync(background_tasks: BackgroundTasks | None = None) -> 
 
     pipeline_id = pipeline["id"]
     stage_map = {s["name"]: s["id"] for s in pipeline.get("stages", [])}
+
+    # Discover Interactive Proposal stage IDs from the same pipelines fetch
+    ip_stage_map: dict[str, str] = {}
+    for pl in pipelines:
+        if pl.get("name", "").strip().lower() == INTERACTIVE_PIPELINE_NAME.lower():
+            for stage in pl.get("stages", []):
+                ip_stage_map[stage["name"].strip()] = stage["id"]
+            break
+    if not ip_stage_map:
+        logger.warning("'Interactive Proposal' pipeline not found — GHL stage moves will be skipped")
     matched_stages = {name: stage_map[name] for name in TARGET_STAGES if name in stage_map}
 
     if not matched_stages:
@@ -239,6 +270,16 @@ async def run_pipeline_sync(background_tasks: BackgroundTasks | None = None) -> 
                     else:
                         asyncio.create_task(recalculate_estimate_for_lead(lead_id, merged_lead_data))
 
+                # Move GHL opportunity to Interactive Proposal
+                opp_id = opp.get("id")
+                if opp_id:
+                    target_stage_id = _resolve_ip_stage(
+                        stage_name, lead_data.get("address", ""), lead_data.get("zip_code", ""), ip_stage_map,
+                    )
+                    if target_stage_id:
+                        if not update_opportunity_stage(opp_id, target_stage_id):
+                            logger.warning(f"Failed to move opp {opp_id} to Interactive Proposal")
+
                 updated += 1
                 continue
 
@@ -269,6 +310,15 @@ async def run_pipeline_sync(background_tasks: BackgroundTasks | None = None) -> 
                 existing_ids.add(contact_id)
                 imported += 1
                 logger.info(f"Pipeline sync: imported contact {contact_id} from '{stage_name}'")
+                # Move GHL opportunity to Interactive Proposal
+                opp_id = opp.get("id")
+                if opp_id:
+                    target_stage_id = _resolve_ip_stage(
+                        stage_name, lead_data.get("address", ""), lead_data.get("zip_code", ""), ip_stage_map,
+                    )
+                    if target_stage_id:
+                        if not update_opportunity_stage(opp_id, target_stage_id):
+                            logger.warning(f"Failed to move opp {opp_id} to Interactive Proposal")
             except Exception as e:
                 logger.error(f"Pipeline sync: failed to import contact {contact_id}: {e}")
                 errors += 1
