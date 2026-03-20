@@ -698,7 +698,7 @@ export default function ProposalPage() {
                   { label: "Date", value: proposal.booked_at ? formatDateDisplay(proposal.booked_at.slice(0, 10)) : "—" },
                   { label: "Backup Date", value: selectedBackupDates.length ? selectedBackupDates.map((d) => formatShortDateDisplay(d)).join(", ") : "None selected" },
                   { label: "Crew Arrival", value: "8:00 – 9:00 AM" },
-                  ...(proposal.fence_sides ? [{ label: "Sections", value: formatSides(proposal.fence_sides) }] : []),
+                  ...((proposal.fence_sides || proposal.custom_fence_sides) ? [{ label: "Sections", value: [proposal.fence_sides ? formatSides(proposal.fence_sides) : "", proposal.custom_fence_sides || ""].filter(Boolean).join(", ") }] : []),
                   { label: "Deposit Paid", value: "$50.00 (applied to balance)" },
                   { label: "Remaining Balance", value: `${fmtFull(tierPrice - 50)} (due day of service)` },
                 ].map(({ label, value }) => (
@@ -893,11 +893,11 @@ export default function ProposalPage() {
                       <span className="shrink-0 w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold" style={{ background: "#C9A84C", color: "#FFFFFF" }}>3</span>
                       <h2 style={{ color: C.cream, ...headingStyle }} className="text-lg font-semibold">Choose Your Package</h2>
                     </div>
-                    {proposal.fence_sides && (
+                    {(proposal.fence_sides || proposal.custom_fence_sides) && (
                       <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full mb-2"
                         style={{ background: "rgba(76,175,80,0.07)", border: "1px solid rgba(76,175,80,0.35)" }}>
                         <span className="text-xs font-semibold" style={{ color: "#4CAF50" }}>Quote Includes:</span>
-                        <span className="text-xs" style={{ color: C.creamDark }}>{formatSides(proposal.fence_sides)}</span>
+                        <span className="text-xs" style={{ color: C.creamDark }}>{[proposal.fence_sides ? formatSides(proposal.fence_sides) : "", proposal.custom_fence_sides || ""].filter(Boolean).join(", ")}</span>
                       </div>
                     )}
                     <div

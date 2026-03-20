@@ -28,7 +28,7 @@ FORM_FIELD_KEYS = {
 
 # Fields entered by the VA in the dashboard — must NEVER be overwritten by a GHL sync.
 # GHL doesn't know about these; they're measured/set by the VA.
-VA_OWNED_FIELDS = {"linear_feet", "zip_code", "confident_pct", "fence_sides"}
+VA_OWNED_FIELDS = {"linear_feet", "zip_code", "confident_pct", "fence_sides", "contact_edited", "address_confirmed"}
 
 # Expected field names we try to auto-map
 EXPECTED_FIELDS = {
@@ -245,17 +245,22 @@ async def run_pipeline_sync(background_tasks: BackgroundTasks | None = None) -> 
                     if field in old_form_data:
                         merged_form_data[field] = old_form_data[field]
 
-                db.table("leads").update({
+                # Only overwrite contact fields if VA hasn't manually edited them
+                update_fields = {
                     "priority":           priority,
                     "last_synced_at":     now,
                     "tags":               current_tags,
-                    "contact_name":       lead_data.get("contact_name", ""),
-                    "address":            lead_data.get("address", ""),
-                    "contact_phone":      lead_data.get("contact_phone", ""),
                     "contact_email":      lead_data.get("contact_email", ""),
                     "form_data":          merged_form_data,
                     "ghl_opportunity_id": opp.get("id"),
-                }).eq("id", lead_id).execute()
+                }
+                if not old_form_data.get("contact_edited"):
+                    update_fields["contact_name"]  = lead_data.get("contact_name", "")
+                    update_fields["contact_phone"] = lead_data.get("contact_phone", "")
+                if not old_form_data.get("address_confirmed"):
+                    update_fields["address"] = lead_data.get("address", "")
+
+                db.table("leads").update(update_fields).eq("id", lead_id).execute()
 
                 # Re-run estimator only if GHL-sourced fields changed (not VA fields)
                 ghl_fields_changed = any(

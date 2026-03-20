@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { api, leadDetailCache, type LeadDetail, type GHLMessage, type Estimate } from "@/lib/api";
+import { api, leadDetailCache, getCurrentUser, type LeadDetail, type GHLMessage, type Estimate } from "@/lib/api";
 import { formatDate, formatCurrency } from "@/lib/utils";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -91,10 +91,22 @@ export default function LeadDetailPage() {
   const [savingContact, setSavingContact] = useState(false);
   const [confidencePct, setConfidencePct] = useState("100");
   const [fenceSides, setFenceSides] = useState<string[]>([]);
+  const [customFenceSides, setCustomFenceSides] = useState("");
+  const [showCustomFenceSides, setShowCustomFenceSides] = useState(false);
   const [savingEstimate, setSavingEstimate] = useState(false);
   const [estimateSaved, setEstimateSaved] = useState(false);
   const [additionalServicesSent, setAdditionalServicesSent] = useState(false);
   const [markingAddons, setMarkingAddons] = useState(false);
+
+  // Role detection
+  const isAdmin = getCurrentUser()?.role === "admin";
+
+  // Admin inline actions for RED estimates
+  const [adminMode, setAdminMode] = useState<"view" | "custom" | "reject">("view");
+  const [adminCustomEssential, setAdminCustomEssential] = useState("");
+  const [adminCustomSignature, setAdminCustomSignature] = useState("");
+  const [adminCustomLegacy, setAdminCustomLegacy] = useState("");
+  const [adminNotes, setAdminNotes] = useState("");
 
   // Inline approve state
   const [approvingEstimate, setApprovingEstimate] = useState(false);
@@ -103,6 +115,11 @@ export default function LeadDetailPage() {
   const [forceSend, setForceSend] = useState(false);
   const [requestingReview, setRequestingReview] = useState(false);
   const [reviewRequested, setReviewRequested] = useState(false);
+  const [notifyingOwner, setNotifyingOwner] = useState(false);
+  const [ownerNotified, setOwnerNotified] = useState(false);
+  const [bypassApproval, setBypassApproval] = useState(false);
+  const [bypassPassword, setBypassPassword] = useState("");
+  const [bypassError, setBypassError] = useState<string | null>(null);
 
   // GHL Messages state
   const [messages, setMessages] = useState<GHLMessage[]>([]);
@@ -145,7 +162,19 @@ export default function LeadDetailPage() {
       if (Array.isArray(rawSides)) setFenceSides(rawSides);
       else if (typeof rawSides === "string" && rawSides) setFenceSides(rawSides.split(",").map((s: string) => s.trim()));
       else setFenceSides([]);
+      if (fd.custom_fence_sides) {
+        setCustomFenceSides(String(fd.custom_fence_sides));
+        setShowCustomFenceSides(true);
+      }
       setAdditionalServicesSent(data.estimate?.additional_services_sent ?? false);
+      // Pre-fill admin custom tier inputs from existing tiers
+      const t = data.estimate?.inputs?._tiers as Record<string, number> | undefined;
+      if (t?.essential) setAdminCustomEssential(String(t.essential));
+      if (t?.signature) setAdminCustomSignature(String(t.signature));
+      if (t?.legacy) setAdminCustomLegacy(String(t.legacy));
+      if (data.estimate?.inputs?._owner_notified) {
+        setOwnerNotified(true);
+      }
       if (data.status === "sent" || data.estimate?.status === "approved") {
         setEstimateSent(true);
       }
@@ -258,6 +287,109 @@ export default function LeadDetailPage() {
     }
   };
 
+  const handleNotifyOwner = async () => {
+    if (!lead?.estimate) return;
+    setNotifyingOwner(true);
+    setApproveError(null);
+    try {
+      await api.notifyOwnerForApproval(lead.estimate.id);
+      setOwnerNotified(true);
+    } catch (e: unknown) {
+      setApproveError(e instanceof Error ? e.message : "Failed to notify Alan");
+    } finally {
+      setNotifyingOwner(false);
+    }
+  };
+
+  const handleBypassApprove = async () => {
+    if (!lead?.estimate || !bypassPassword) return;
+    setApprovingEstimate(true);
+    setApproveError(null);
+    setBypassError(null);
+    try {
+      await api.approveEstimate(lead.estimate.id, "signature", forceSend, true, bypassPassword);
+      setEstimateSent(true);
+      setLead({ ...lead, status: "sent" });
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : "Failed to send estimate";
+      if (msg.toLowerCase().includes("password") || msg.toLowerCase().includes("bypass denied")) {
+        setBypassError(msg);
+      } else {
+        setApproveError(msg);
+      }
+    } finally {
+      setApprovingEstimate(false);
+    }
+  };
+
+  const handleAdminApprove = async () => {
+    if (!est?.id) return;
+    setApprovingEstimate(true);
+    setApproveError(null);
+    try {
+      await api.adminApproveEstimate(est.id, { force_send: forceSend });
+      setEstimateSent(true);
+    } catch (e: unknown) {
+      setApproveError(e instanceof Error ? e.message : "Failed to approve");
+    } finally {
+      setApprovingEstimate(false);
+    }
+  };
+
+  const handleAdminCustomApprove = async () => {
+    if (!est?.id) return;
+    setApprovingEstimate(true);
+    setApproveError(null);
+    try {
+      const essential = adminCustomEssential ? Number(adminCustomEssential) : undefined;
+      const signature = adminCustomSignature ? Number(adminCustomSignature) : undefined;
+      const legacy = adminCustomLegacy ? Number(adminCustomLegacy) : undefined;
+      await api.adminApproveEstimate(est.id, { essential, signature, legacy, notes: adminNotes || undefined, force_send: forceSend });
+      setEstimateSent(true);
+      setAdminMode("view");
+    } catch (e: unknown) {
+      setApproveError(e instanceof Error ? e.message : "Failed to approve with custom pricing");
+    } finally {
+      setApprovingEstimate(false);
+    }
+  };
+
+  const handleAdminSaveCustomTiers = async () => {
+    if (!est?.id) return;
+    setApprovingEstimate(true);
+    setApproveError(null);
+    try {
+      const essential = adminCustomEssential ? Number(adminCustomEssential) : undefined;
+      const signature = adminCustomSignature ? Number(adminCustomSignature) : undefined;
+      const legacy = adminCustomLegacy ? Number(adminCustomLegacy) : undefined;
+      const result = await api.saveCustomTiers(est.id, { essential, signature, legacy, notes: adminNotes || undefined });
+      // Refresh lead data to get updated tiers
+      const refreshed = await api.getLead(lead!.id);
+      leadDetailCache.set(id, refreshed);
+      setLead(refreshed);
+      setAdminMode("view");
+    } catch (e: unknown) {
+      setApproveError(e instanceof Error ? e.message : "Failed to save custom prices");
+    } finally {
+      setApprovingEstimate(false);
+    }
+  };
+
+  const handleAdminReject = async () => {
+    if (!est?.id) return;
+    setApprovingEstimate(true);
+    setApproveError(null);
+    try {
+      await api.rejectEstimate(est.id, adminNotes || "");
+      if (lead) setLead({ ...lead, status: "rejected" });
+      setAdminMode("view");
+    } catch (e: unknown) {
+      setApproveError(e instanceof Error ? e.message : "Failed to reject");
+    } finally {
+      setApprovingEstimate(false);
+    }
+  };
+
   const handleConfirmAddress = async () => {
     if (!lead) return;
     setConfirmingAddress(true);
@@ -328,6 +460,8 @@ export default function LeadDetailPage() {
       if (linearFeet) formData.linear_feet = Number(linearFeet);
       if (timeline) formData.service_timeline = timeline;
       if (zipCode) formData.zip_code = zipCode;
+      if (customFenceSides.trim()) formData.custom_fence_sides = customFenceSides.trim();
+      else formData.custom_fence_sides = "";
 
       const updated = await api.updateLeadFormData(lead.id, formData);
       setLead(updated);
@@ -742,6 +876,26 @@ export default function LeadDetailPage() {
                 </div>
               ))}
             </div>
+            <label className="flex items-center gap-2 text-sm cursor-pointer select-none mt-2">
+              <input
+                type="checkbox"
+                className="h-3.5 w-3.5 rounded"
+                checked={showCustomFenceSides}
+                onChange={(e) => {
+                  setShowCustomFenceSides(e.target.checked);
+                  if (!e.target.checked) setCustomFenceSides("");
+                }}
+              />
+              Custom fence input
+            </label>
+            {showCustomFenceSides && (
+              <Input
+                placeholder="e.g. Outside fence facing Highway 66, Outside fence facing Highway 56"
+                value={customFenceSides}
+                onChange={(e) => setCustomFenceSides(e.target.value)}
+                className="mt-1"
+              />
+            )}
           </div>
 
           <div className="space-y-1">
@@ -804,7 +958,11 @@ export default function LeadDetailPage() {
                   <p className="font-semibold text-sm">{approvalCfg.label}</p>
                   {approvalReason && <p className="text-xs mt-0.5 opacity-80">{approvalReason}</p>}
                   {isRed && (
-                    <p className="text-xs mt-1 opacity-70">VA action: None needed — Alan will review this estimate.</p>
+                    <p className="text-xs mt-1 opacity-70">
+                      {isAdmin
+                        ? "This estimate requires your approval before sending."
+                        : "You can notify Alan for approval or bypass and send with password confirmation."}
+                    </p>
                   )}
                 </div>
               </div>
@@ -833,6 +991,12 @@ export default function LeadDetailPage() {
             ) : (
               <p className="text-3xl font-bold">
                 {est.estimate_low > 0 ? formatCurrency(est.estimate_low) : "—"}
+              </p>
+            )}
+
+            {est.status === "pending" && est.owner_notes && (
+              <p className="text-xs text-amber-600 bg-amber-50 border border-amber-200 rounded px-2 py-1">
+                Custom prices saved — not yet sent to customer
               </p>
             )}
 
@@ -869,20 +1033,20 @@ export default function LeadDetailPage() {
                     <Link href={`/estimates/${est.id}`}>Edit Custom Price</Link>
                   </Button>
                 )}
-                {est?.id && !estimateSent && !reviewRequested && (
+                {est?.id && !estimateSent && isRed && !isAdmin && !ownerNotified && (
                   <Button
                     size="sm"
                     variant="outline"
-                    onClick={handleRequestReview}
-                    disabled={requestingReview}
+                    onClick={handleNotifyOwner}
+                    disabled={notifyingOwner}
                     className="border-amber-300 text-amber-700 hover:bg-amber-50"
                   >
-                    {requestingReview ? "Flagging…" : "Send for Alan's Approval"}
+                    {notifyingOwner ? "Notifying…" : "Notify Alan"}
                   </Button>
                 )}
-                {reviewRequested && (
-                  <span className="text-xs font-medium text-amber-700 bg-amber-50 border border-amber-200 rounded-full px-2.5 py-1">
-                    Sent for Alan&apos;s review
+                {ownerNotified && !isAdmin && (
+                  <span className="text-xs font-medium text-green-700 bg-green-50 border border-green-200 rounded-full px-2.5 py-1">
+                    Alan notified
                   </span>
                 )}
               </div>
@@ -925,9 +1089,150 @@ export default function LeadDetailPage() {
                 })()}
               </div>
             ) : isRed ? (
-              <Button variant="outline" asChild>
-                <Link href={`/estimates/${est.id}`}>View Estimate →</Link>
-              </Button>
+              isAdmin ? (
+                <div className="space-y-3 w-full">
+                  {adminMode === "view" && (
+                    <>
+                      {!lead.customer_responded && !customerRespondedFromMessages && (
+                        <label className="flex items-center gap-2 text-sm cursor-pointer select-none">
+                          <input type="checkbox" className="h-3.5 w-3.5 rounded" checked={forceSend} onChange={(e) => setForceSend(e.target.checked)} />
+                          <span className="text-muted-foreground">Send even if no text back</span>
+                        </label>
+                      )}
+                      <div className="flex gap-2 flex-wrap">
+                        <Button
+                          className="gap-2 bg-green-600 hover:bg-green-700"
+                          onClick={handleAdminApprove}
+                          disabled={approvingEstimate || (!lead.customer_responded && !customerRespondedFromMessages && !forceSend)}
+                        >
+                          <Send className="h-4 w-4" />
+                          {approvingEstimate ? "Sending..." : "Approve & Send All Packages"}
+                        </Button>
+                        <Button variant="outline" onClick={() => setAdminMode("custom")}>Custom Pricing</Button>
+                        <Button variant="destructive" onClick={() => setAdminMode("reject")}>Reject</Button>
+                      </div>
+                    </>
+                  )}
+                  {adminMode === "custom" && (
+                    <div className="space-y-3">
+                      <p className="text-sm text-muted-foreground">Override tier prices:</p>
+                      <div className="grid grid-cols-3 gap-2">
+                        <div>
+                          <label className="text-xs font-medium mb-1 block text-muted-foreground">Essential ($)</label>
+                          <Input type="number" value={adminCustomEssential} onChange={(e) => setAdminCustomEssential(e.target.value)} placeholder="e.g. 650" />
+                        </div>
+                        <div>
+                          <label className="text-xs font-medium mb-1 block font-semibold">Signature ★ ($)</label>
+                          <Input type="number" value={adminCustomSignature} onChange={(e) => setAdminCustomSignature(e.target.value)} placeholder="e.g. 850" />
+                        </div>
+                        <div>
+                          <label className="text-xs font-medium mb-1 block text-muted-foreground">Legacy ($)</label>
+                          <Input type="number" value={adminCustomLegacy} onChange={(e) => setAdminCustomLegacy(e.target.value)} placeholder="e.g. 1050" />
+                        </div>
+                      </div>
+                      <Textarea placeholder="Notes (optional)" value={adminNotes} onChange={(e) => setAdminNotes(e.target.value)} />
+                      <label className="flex items-center gap-2 text-sm cursor-pointer select-none">
+                        <input type="checkbox" className="h-3.5 w-3.5 rounded" checked={forceSend} onChange={(e) => setForceSend(e.target.checked)} />
+                        <span className="text-muted-foreground">Send even if no text back</span>
+                      </label>
+                      <div className="flex gap-2">
+                        <Button variant="outline" onClick={handleAdminSaveCustomTiers} disabled={approvingEstimate || !adminCustomSignature}>
+                          {approvingEstimate ? "Saving..." : "Save Custom Prices"}
+                        </Button>
+                        <Button
+                          className="bg-green-600 hover:bg-green-700"
+                          onClick={handleAdminCustomApprove}
+                          disabled={approvingEstimate || !adminCustomSignature || (!lead.customer_responded && !customerRespondedFromMessages && !forceSend)}
+                        >
+                          <Send className="h-4 w-4 mr-2" />
+                          {approvingEstimate ? "Sending..." : "Save & Send All Packages"}
+                        </Button>
+                        <Button variant="ghost" onClick={() => setAdminMode("view")}>Cancel</Button>
+                      </div>
+                    </div>
+                  )}
+                  {adminMode === "reject" && (
+                    <div className="space-y-3">
+                      <Textarea placeholder="Rejection reason (optional)" value={adminNotes} onChange={(e) => setAdminNotes(e.target.value)} />
+                      <div className="flex gap-2">
+                        <Button variant="destructive" onClick={handleAdminReject} disabled={approvingEstimate}>
+                          {approvingEstimate ? "Rejecting..." : "Confirm Reject"}
+                        </Button>
+                        <Button variant="ghost" onClick={() => setAdminMode("view")}>Cancel</Button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                /* VA view for RED estimates — Notify Alan + bypass flow */
+                <div className="space-y-3 w-full">
+                  <div className="flex gap-2 flex-wrap">
+                    <Button
+                      variant="outline"
+                      className="border-amber-300 text-amber-700 hover:bg-amber-50 gap-2"
+                      onClick={handleNotifyOwner}
+                      disabled={notifyingOwner || ownerNotified}
+                    >
+                      <MessageSquare className="h-4 w-4" />
+                      {notifyingOwner ? "Notifying..." : ownerNotified ? "Alan Notified" : "Notify Alan"}
+                    </Button>
+                    {ownerNotified && (
+                      <span className="text-xs font-medium text-green-700 bg-green-50 border border-green-200 rounded-full px-2.5 py-1 self-center">
+                        Alan has been texted for approval
+                      </span>
+                    )}
+                  </div>
+
+                  <div className="border rounded-lg p-3 space-y-3 bg-muted/30">
+                    <label className="flex items-start gap-2 text-sm cursor-pointer select-none">
+                      <input
+                        type="checkbox"
+                        className="h-4 w-4 rounded mt-0.5"
+                        checked={bypassApproval}
+                        onChange={(e) => {
+                          setBypassApproval(e.target.checked);
+                          if (!e.target.checked) { setBypassPassword(""); setBypassError(null); }
+                        }}
+                      />
+                      <div>
+                        <span className="font-medium">Send even if it might require Alan&apos;s approval</span>
+                        <p className="text-xs text-muted-foreground mt-0.5">
+                          Reason flagged: {approvalReason || "Requires owner review"}
+                        </p>
+                      </div>
+                    </label>
+
+                    {bypassApproval && (
+                      <div className="space-y-2 pl-6">
+                        {!lead.customer_responded && !customerRespondedFromMessages && (
+                          <label className="flex items-center gap-2 text-sm cursor-pointer select-none">
+                            <input type="checkbox" className="h-3.5 w-3.5 rounded" checked={forceSend} onChange={(e) => setForceSend(e.target.checked)} />
+                            <span className="text-muted-foreground">Send even if no text back</span>
+                          </label>
+                        )}
+                        <div className="max-w-xs">
+                          <label className="text-xs font-medium mb-1 block">Enter your password to confirm</label>
+                          <Input
+                            type="password"
+                            value={bypassPassword}
+                            onChange={(e) => { setBypassPassword(e.target.value); setBypassError(null); }}
+                            placeholder="Your account password"
+                          />
+                          {bypassError && <p className="text-xs text-red-600 mt-1">{bypassError}</p>}
+                        </div>
+                        <Button
+                          className="gap-2 bg-green-600 hover:bg-green-700"
+                          onClick={handleBypassApprove}
+                          disabled={approvingEstimate || !bypassPassword || (!lead.customer_responded && !customerRespondedFromMessages && !forceSend)}
+                        >
+                          <Send className="h-4 w-4" />
+                          {approvingEstimate ? "Sending..." : "Confirm & Send All Packages"}
+                        </Button>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )
             ) : canApproveInline ? (
               <div className="flex flex-col gap-2 w-full">
                 {!lead.customer_responded && !customerRespondedFromMessages && (

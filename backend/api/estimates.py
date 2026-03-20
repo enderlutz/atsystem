@@ -5,11 +5,13 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from typing import Optional
 from datetime import datetime, timezone
 
+import bcrypt
+
 from db import get_db
 from config import get_settings
 from models.estimate import AdminApproveRequest, EstimateAdjust, EstimateApprove, EstimateReject
 from services.ghl import send_message_to_contact, format_estimate_for_client, add_contact_note
-from api.auth import require_admin
+from api.auth import require_admin, get_current_user
 
 router = APIRouter(prefix="/api/estimates", tags=["estimates"])
 
@@ -57,7 +59,7 @@ async def get_estimate(estimate_id: str):
 
 
 @router.post("/{estimate_id}/approve")
-async def approve_estimate(estimate_id: str, body: EstimateApprove = EstimateApprove(), _: dict = Depends(require_admin)):
+async def approve_estimate(estimate_id: str, body: EstimateApprove = EstimateApprove(), user: dict = Depends(get_current_user)):
     db = get_db()
     res = db.table("estimates").select("*, lead:leads(*)").eq("id", estimate_id).single().execute()
     if not res.data:
@@ -65,6 +67,22 @@ async def approve_estimate(estimate_id: str, body: EstimateApprove = EstimateApp
 
     estimate = res.data
     lead = estimate.get("lead") or {}
+    is_admin = user.get("role") == "admin"
+    approval_status = ((estimate.get("inputs") or {}).get("_approval_status") or "").lower()
+
+    # RED estimates require admin OR VA bypass with password confirmation
+    if approval_status == "red" and not is_admin:
+        if not body.bypass_approval or not body.bypass_password:
+            raise HTTPException(
+                status_code=403,
+                detail="This estimate requires Alan's approval. Use bypass with password to override."
+            )
+        # Verify VA password
+        username = user.get("sub")
+        user_res = db.table("users").select("password_hash").eq("username", username).execute()
+        user_row = (user_res.data or [None])[0]
+        if not user_row or not bcrypt.checkpw(body.bypass_password.encode(), user_row["password_hash"].encode()):
+            raise HTTPException(status_code=403, detail="Incorrect password — bypass denied")
 
     # Guardrail: VA may only send estimate after customer has responded (bypass with force_send)
     if not lead.get("customer_responded") and not body.force_send:
@@ -82,7 +100,9 @@ async def approve_estimate(estimate_id: str, body: EstimateApprove = EstimateApp
         "approved_at": now,
         "estimate_low": signature_price,
         "estimate_high": signature_price,
-        "owner_notes": "All 3 packages sent" + (" (force-sent without customer reply)" if body.force_send and not lead.get("customer_responded") else ""),
+        "owner_notes": "All 3 packages sent"
+            + (" (force-sent without customer reply)" if body.force_send and not lead.get("customer_responded") else "")
+            + (f" (VA bypass by {user.get('name', user.get('sub'))})" if body.bypass_approval and not is_admin else ""),
     }).eq("id", estimate_id).execute()
 
     db.table("leads").update({"status": "approved"}).eq("id", estimate["lead_id"]).execute()
@@ -287,6 +307,33 @@ async def request_review(estimate_id: str):
     return {"status": "flagged_for_review", "estimate_id": estimate_id}
 
 
+@router.put("/{estimate_id}/custom-tiers")
+async def save_custom_tiers(estimate_id: str, body: dict):
+    """Save custom tier prices without approving or sending. Both VA and admin can use."""
+    db = get_db()
+    res = db.table("estimates").select("*").eq("id", estimate_id).single().execute()
+    if not res.data:
+        raise HTTPException(status_code=404, detail="Estimate not found")
+
+    inputs = dict(res.data.get("inputs") or {})
+    tiers = dict(inputs.get("_tiers") or {})
+
+    if body.get("essential") is not None:
+        tiers["essential"] = float(body["essential"])
+    if body.get("signature") is not None:
+        tiers["signature"] = float(body["signature"])
+    if body.get("legacy") is not None:
+        tiers["legacy"] = float(body["legacy"])
+    inputs["_tiers"] = tiers
+
+    update_data: dict = {"inputs": inputs}
+    if body.get("notes"):
+        update_data["owner_notes"] = body["notes"]
+
+    db.table("estimates").update(update_data).eq("id", estimate_id).execute()
+    return {"status": "saved", "tiers": tiers}
+
+
 @router.post("/{estimate_id}/resend")
 async def resend_estimate(estimate_id: str, _: dict = Depends(require_admin)):
     """Resend the proposal SMS to the client. Only valid for approved/adjusted estimates."""
@@ -325,6 +372,57 @@ async def resend_estimate(estimate_id: str, _: dict = Depends(require_admin)):
             add_contact_note(contact_id, f"[ATSystem] Estimate re-sent (send #{send_count})\nProposal link: {proposal_url}")
 
     return {"status": "resent", "estimate_id": estimate_id, "proposal_token": token, "proposal_url": proposal_url}
+
+
+@router.post("/{estimate_id}/notify-owner")
+async def notify_owner_for_approval(estimate_id: str, user: dict = Depends(get_current_user)):
+    """VA notifies Alan via GHL SMS that an estimate needs his approval."""
+    db = get_db()
+    res = db.table("estimates").select("*, lead:leads(*)").eq("id", estimate_id).single().execute()
+    if not res.data:
+        raise HTTPException(status_code=404, detail="Estimate not found")
+
+    estimate = res.data
+    lead = estimate.get("lead") or {}
+    inputs = estimate.get("inputs") or {}
+    approval_reason = inputs.get("_approval_reason") or "Flagged for review"
+    tiers = inputs.get("_tiers") or {}
+
+    contact_name = lead.get("contact_name") or "Unknown"
+    address = lead.get("address") or ""
+    signature_price = float(tiers.get("signature") or estimate.get("estimate_low") or 0)
+    essential_price = float(tiers.get("essential") or 0)
+    legacy_price = float(tiers.get("legacy") or 0)
+
+    settings = get_settings()
+    owner_contact_id = settings.owner_ghl_contact_id
+    if not owner_contact_id:
+        raise HTTPException(status_code=500, detail="OWNER_GHL_CONTACT_ID not configured")
+
+    va_name = user.get("name", user.get("sub", "VA"))
+    msg = (
+        f"[ATSystem] Estimate needs your approval\n\n"
+        f"Lead: {contact_name}\n"
+        f"Address: {address}\n"
+        f"Essential: ${essential_price:,.0f} | Signature: ${signature_price:,.0f} | Legacy: ${legacy_price:,.0f}\n"
+        f"Reason: {approval_reason}\n\n"
+        f"Flagged by: {va_name}\n"
+        f"Review at: {settings.frontend_url}/leads/{lead.get('id', '')}"
+    )
+
+    sent = send_message_to_contact(owner_contact_id, msg)
+    if not sent:
+        raise HTTPException(status_code=500, detail="Failed to send notification to Alan")
+
+    # Also mark as flagged for review in the inputs
+    inputs_copy = dict(inputs)
+    inputs_copy["_approval_status"] = "red"
+    inputs_copy["_approval_reason"] = approval_reason
+    inputs_copy["_owner_notified"] = True
+    inputs_copy["_owner_notified_by"] = va_name
+    db.table("estimates").update({"inputs": inputs_copy}).eq("id", estimate_id).execute()
+
+    return {"status": "notified", "estimate_id": estimate_id}
 
 
 @router.post("/{estimate_id}/preview")

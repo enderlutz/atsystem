@@ -139,6 +139,7 @@ async def get_proposal(token: str):
         "deposit_paid": bool(proposal.get("deposit_paid")),
         "funnel_stage": proposal.get("funnel_stage") or "sent",
         "fence_sides": inputs.get("fence_sides") or "",
+        "custom_fence_sides": inputs.get("custom_fence_sides") or "",
     }
 
 

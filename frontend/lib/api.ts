@@ -48,6 +48,8 @@ export const api = {
   // Leads
   getLeads: (params?: string) =>
     request<Lead[]>(`/api/leads${params ? `?${params}` : ""}`),
+  getLatestLead: () =>
+    request<{ id: string | null; contact_name: string | null; created_at: string | null }>("/api/leads/latest"),
   getLead: (id: string) => request<LeadDetail>(`/api/leads/${id}`),
   checkResponse: (leadId: string) =>
     request<ResponseCheck>(`/api/leads/${leadId}/check-response`, { method: "POST" }),
@@ -87,10 +89,10 @@ export const api = {
   getEstimates: (params?: string) =>
     request<Estimate[]>(`/api/estimates${params ? `?${params}` : ""}`),
   getEstimate: (id: string) => request<EstimateDetail>(`/api/estimates/${id}`),
-  approveEstimate: (id: string, selectedTier = "signature", forceSend = false) =>
+  approveEstimate: (id: string, selectedTier = "signature", forceSend = false, bypassApproval = false, bypassPassword?: string) =>
     request<Estimate>(`/api/estimates/${id}/approve`, {
       method: "POST",
-      body: JSON.stringify({ selected_tier: selectedTier, force_send: forceSend }),
+      body: JSON.stringify({ selected_tier: selectedTier, force_send: forceSend, bypass_approval: bypassApproval, bypass_password: bypassPassword }),
     }),
   rejectEstimate: (id: string, notes: string) =>
     request<Estimate>(`/api/estimates/${id}/reject`, {
@@ -107,8 +109,15 @@ export const api = {
       method: "POST",
       body: JSON.stringify(body),
     }),
+  saveCustomTiers: (id: string, body: { essential?: number; signature?: number; legacy?: number; notes?: string }) =>
+    request<{ status: string; tiers: Record<string, number> }>(`/api/estimates/${id}/custom-tiers`, {
+      method: "PUT",
+      body: JSON.stringify(body),
+    }),
   requestEstimateReview: (id: string) =>
     request<{ status: string; estimate_id: string }>(`/api/estimates/${id}/request-review`, { method: "POST" }),
+  notifyOwnerForApproval: (id: string) =>
+    request<{ status: string; estimate_id: string }>(`/api/estimates/${id}/notify-owner`, { method: "POST" }),
   resendEstimate: (id: string) =>
     request<{ status: string; proposal_url: string }>(`/api/estimates/${id}/resend`, { method: "POST" }),
   getPreviewToken: (estimateId: string) =>
@@ -363,6 +372,7 @@ export interface ProposalData {
   deposit_paid?: boolean;
   funnel_stage?: string;
   fence_sides?: string;
+  custom_fence_sides?: string;
 }
 
 export interface ScheduleSlot {

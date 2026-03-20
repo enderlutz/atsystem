@@ -53,6 +53,8 @@ class EstimateReject(BaseModel):
 class EstimateApprove(BaseModel):
     selected_tier: str = "signature"
     force_send: bool = False  # bypass the customer-responded guardrail
+    bypass_approval: bool = False  # VA bypass for RED estimates
+    bypass_password: str | None = None  # VA must enter password to confirm bypass
 
 
 class AdminApproveRequest(BaseModel):

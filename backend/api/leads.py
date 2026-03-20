@@ -32,6 +32,17 @@ async def list_leads(
     return res.data or []
 
 
+@router.get("/latest")
+async def get_latest_lead():
+    """Return the most recent lead's id, name, and timestamp — used by frontend polling for new-lead notifications."""
+    db = get_db()
+    res = db.table("leads").select("id,contact_name,created_at").eq("archived", False).order("created_at", desc=True).limit(1).execute()
+    if not res.data:
+        return {"id": None, "contact_name": None, "created_at": None}
+    row = res.data[0]
+    return {"id": row["id"], "contact_name": row.get("contact_name", ""), "created_at": row["created_at"]}
+
+
 @router.get("/{lead_id}")
 async def get_lead(lead_id: str):
     db = get_db()
@@ -139,15 +150,23 @@ async def update_lead_contact(lead_id: str, body: dict):
     if "contact_phone" in body:
         update["contact_phone"] = body["contact_phone"]
 
+    # Mark contact as VA-edited so the 5-min GHL sync won't overwrite it
+    existing_fd = lead.get("form_data") or {}
+    if "contact_name" in body or "contact_phone" in body:
+        if "form_data" not in update:
+            update["form_data"] = {**existing_fd, "contact_edited": True}
+        else:
+            update["form_data"]["contact_edited"] = True
+
     reestimate = False
     if "address" in body and body["address"] != lead.get("address", ""):
         update["address"] = body["address"]
         # Extract 5-digit zip from new address and sync it into form_data
         # Also clear the autocomplete flag since Alan is manually setting the address
         zip_match = re.search(r"\b(\d{5})\b", body["address"])
-        existing_fd = lead.get("form_data") or {}
+        base_fd = update.get("form_data") or {**existing_fd}
         merged_form_data = {
-            **existing_fd,
+            **base_fd,
             "address_autocompleted": False,
             "address_confirmed": True,
         }

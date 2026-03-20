@@ -11,7 +11,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
-import { ArrowLeft, CheckCircle, XCircle, Edit2, MapPin, ExternalLink, Eye, Send, RotateCcw } from "lucide-react";
+import { ArrowLeft, CheckCircle, XCircle, Edit2, MapPin, ExternalLink, Eye, Send, RotateCcw, MessageSquare } from "lucide-react";
 
 const fieldLabels: Record<string, string> = {
   fence_height: "Fence Height",
@@ -90,6 +90,12 @@ export default function EstimateDetailPage() {
   const [customLegacy, setCustomLegacy] = useState("");
   const [previewLoading, setPreviewLoading] = useState(false);
   const [resending, setResending] = useState(false);
+  // VA bypass state
+  const [notifyingOwner, setNotifyingOwner] = useState(false);
+  const [ownerNotified, setOwnerNotified] = useState(false);
+  const [bypassApproval, setBypassApproval] = useState(false);
+  const [bypassPassword, setBypassPassword] = useState("");
+  const [bypassError, setBypassError] = useState<string | null>(null);
 
   useEffect(() => {
     api.getEstimate(id).then((e) => {
@@ -99,6 +105,7 @@ export default function EstimateDetailPage() {
       if (t.essential) setCustomEssential(String(t.essential));
       if (t.signature) setCustomSignature(String(t.signature));
       if (t.legacy) setCustomLegacy(String(t.legacy));
+      if ((e.inputs as Record<string, unknown>)?._owner_notified) setOwnerNotified(true);
       setLoading(false);
     }).catch(console.error);
   }, [id]);
@@ -159,6 +166,24 @@ export default function EstimateDetailPage() {
     }
   };
 
+  const handleSaveCustomTiers = async () => {
+    setSubmitting(true);
+    try {
+      const essential = customEssential ? Number(customEssential) : undefined;
+      const signature = customSignature ? Number(customSignature) : undefined;
+      const legacy = customLegacy ? Number(customLegacy) : undefined;
+      await api.saveCustomTiers(id, { essential, signature, legacy, notes: notes || undefined });
+      toast.success("Custom prices saved (not sent yet).");
+      const updated = await api.getEstimate(id);
+      setEstimate(updated);
+      setMode("view");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed to save custom prices");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
   const handlePreview = async () => {
     setPreviewLoading(true);
     try {
@@ -183,6 +208,39 @@ export default function EstimateDetailPage() {
       toast.error(e instanceof Error ? e.message : "Failed to resend estimate");
     } finally {
       setResending(false);
+    }
+  };
+
+  const handleNotifyOwner = async () => {
+    setNotifyingOwner(true);
+    try {
+      await api.notifyOwnerForApproval(id);
+      setOwnerNotified(true);
+      toast.success("Alan has been notified via text");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed to notify Alan");
+    } finally {
+      setNotifyingOwner(false);
+    }
+  };
+
+  const handleBypassApprove = async () => {
+    if (!bypassPassword) return;
+    setSubmitting(true);
+    setBypassError(null);
+    try {
+      await api.approveEstimate(id, "signature", forceSend, true, bypassPassword);
+      toast.success("All packages sent to client (bypass approved)!");
+      router.push("/estimates");
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "Failed to send estimate";
+      if (msg.toLowerCase().includes("password") || msg.toLowerCase().includes("bypass denied")) {
+        setBypassError(msg);
+      } else {
+        toast.error(msg);
+      }
+    } finally {
+      setSubmitting(false);
     }
   };
 
@@ -243,7 +301,7 @@ export default function EstimateDetailPage() {
             <Eye className="h-3.5 w-3.5" />
             {previewLoading ? "Loading…" : "Preview"}
           </Button>
-          {isPending && isAdmin && (
+          {isPending && (
             <Button size="sm" variant="outline" onClick={() => setMode("custom")} className="gap-1.5">
               <Edit2 className="h-3.5 w-3.5" />
               Edit Custom Price
@@ -404,28 +462,23 @@ export default function EstimateDetailPage() {
         </Card>
       </div>
 
-      {/* VA info banner when pending and not admin */}
-      {isPending && !isAdmin && (
-        <Card className="border-blue-200 bg-blue-50">
-          <CardContent className="py-4">
-            <p className="text-sm text-blue-700 font-medium">Estimate ready for admin review</p>
-            <p className="text-xs text-blue-600 mt-0.5">Alan or Thomas will review and send this estimate from the Admin Approval queue.</p>
-          </CardContent>
-        </Card>
-      )}
-
-      {/* Approval Actions (admin-only, pending estimates) */}
-      {isPending && isAdmin && (
+      {/* Approval Actions (pending estimates — both admin and VA) */}
+      {isPending && (
         <Card>
           <CardHeader>
-            <CardTitle className="text-base">Owner Action</CardTitle>
+            <CardTitle className="text-base">{isAdmin ? "Owner Action" : "Send Estimate"}</CardTitle>
           </CardHeader>
           <CardContent className="space-y-4">
             {mode === "view" && (
               <div className="space-y-3">
-                {approvalStatus === "red" && (
+                {approvalStatus === "red" && isAdmin && (
                   <p className="text-sm text-red-700 bg-red-50 border border-red-200 rounded-md px-3 py-2">
                     This estimate requires Alan&apos;s review before sending. Approval is blocked.
+                  </p>
+                )}
+                {approvalStatus === "red" && !isAdmin && (
+                  <p className="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-md px-3 py-2">
+                    This estimate is flagged for review: {approvalReason || "Requires owner review"}. You can notify Alan or bypass with password confirmation below.
                   </p>
                 )}
                 {tiers.signature === 0 && approvalStatus !== "red" && (
@@ -433,35 +486,128 @@ export default function EstimateDetailPage() {
                     Estimate price is $0 — recalculate before approving.
                   </p>
                 )}
-                <div className="flex gap-3 flex-wrap">
-                  <Button onClick={handleApprove} disabled={submitting || approvalStatus === "red" || tiers.signature === 0 || (!estimate.lead?.customer_responded && !forceSend)} className="gap-2 bg-green-600 hover:bg-green-700">
-                    <CheckCircle className="h-4 w-4" />
-                    {submitting ? "Sending..." : "Approve & Send All Packages"}
-                  </Button>
-                  <Button variant="outline" onClick={() => setMode("custom")} className="gap-2">
-                    <Edit2 className="h-4 w-4" />
-                    Custom Pricing
-                  </Button>
-                  <Button variant="outline" onClick={() => setMode("adjust")} className="gap-2">
-                    <Edit2 className="h-4 w-4" />
-                    Adjust Amount
-                  </Button>
-                  <Button variant="destructive" onClick={() => setMode("reject")} className="gap-2">
-                    <XCircle className="h-4 w-4" />
-                    Reject
-                  </Button>
-                </div>
-                <label className="flex items-center gap-2 text-sm cursor-pointer select-none">
-                  <input
-                    type="checkbox"
-                    className="h-3.5 w-3.5 rounded"
-                    checked={forceSend}
-                    onChange={(e) => setForceSend(e.target.checked)}
-                  />
-                  <span className="text-muted-foreground">
-                    Send packages even though there has been no text back
-                  </span>
-                </label>
+
+                {/* Admin: full controls */}
+                {isAdmin && (
+                  <>
+                    <div className="flex gap-3 flex-wrap">
+                      <Button onClick={handleApprove} disabled={submitting || approvalStatus === "red" || tiers.signature === 0 || (!estimate.lead?.customer_responded && !forceSend)} className="gap-2 bg-green-600 hover:bg-green-700">
+                        <CheckCircle className="h-4 w-4" />
+                        {submitting ? "Sending..." : "Approve & Send All Packages"}
+                      </Button>
+                      <Button variant="outline" onClick={() => setMode("custom")} className="gap-2">
+                        <Edit2 className="h-4 w-4" />
+                        Custom Pricing
+                      </Button>
+                      <Button variant="outline" onClick={() => setMode("adjust")} className="gap-2">
+                        <Edit2 className="h-4 w-4" />
+                        Adjust Amount
+                      </Button>
+                      <Button variant="destructive" onClick={() => setMode("reject")} className="gap-2">
+                        <XCircle className="h-4 w-4" />
+                        Reject
+                      </Button>
+                    </div>
+                    <label className="flex items-center gap-2 text-sm cursor-pointer select-none">
+                      <input
+                        type="checkbox"
+                        className="h-3.5 w-3.5 rounded"
+                        checked={forceSend}
+                        onChange={(e) => setForceSend(e.target.checked)}
+                      />
+                      <span className="text-muted-foreground">
+                        Send packages even though there has been no text back
+                      </span>
+                    </label>
+                  </>
+                )}
+
+                {/* VA: GREEN/YELLOW — direct send */}
+                {!isAdmin && approvalStatus !== "red" && (
+                  <>
+                    {!estimate.lead?.customer_responded && (
+                      <label className="flex items-center gap-2 text-sm cursor-pointer select-none">
+                        <input type="checkbox" className="h-3.5 w-3.5 rounded" checked={forceSend} onChange={(e) => setForceSend(e.target.checked)} />
+                        <span className="text-muted-foreground">Send even if no text back</span>
+                      </label>
+                    )}
+                    <Button onClick={handleApprove} disabled={submitting || tiers.signature === 0 || (!estimate.lead?.customer_responded && !forceSend)} className="gap-2 bg-green-600 hover:bg-green-700">
+                      <Send className="h-4 w-4" />
+                      {submitting ? "Sending..." : "Approve & Send All Packages"}
+                    </Button>
+                  </>
+                )}
+
+                {/* VA: RED — notify Alan + bypass flow */}
+                {!isAdmin && approvalStatus === "red" && (
+                  <>
+                    <div className="flex gap-2 flex-wrap">
+                      <Button
+                        variant="outline"
+                        className="border-amber-300 text-amber-700 hover:bg-amber-50 gap-2"
+                        onClick={handleNotifyOwner}
+                        disabled={notifyingOwner || ownerNotified}
+                      >
+                        <MessageSquare className="h-4 w-4" />
+                        {notifyingOwner ? "Notifying..." : ownerNotified ? "Alan Notified" : "Notify Alan"}
+                      </Button>
+                      {ownerNotified && (
+                        <span className="text-xs font-medium text-green-700 bg-green-50 border border-green-200 rounded-full px-2.5 py-1 self-center">
+                          Alan has been texted for approval
+                        </span>
+                      )}
+                    </div>
+
+                    <div className="border rounded-lg p-3 space-y-3 bg-muted/30">
+                      <label className="flex items-start gap-2 text-sm cursor-pointer select-none">
+                        <input
+                          type="checkbox"
+                          className="h-4 w-4 rounded mt-0.5"
+                          checked={bypassApproval}
+                          onChange={(e) => {
+                            setBypassApproval(e.target.checked);
+                            if (!e.target.checked) { setBypassPassword(""); setBypassError(null); }
+                          }}
+                        />
+                        <div>
+                          <span className="font-medium">Send even if it might require Alan&apos;s approval</span>
+                          <p className="text-xs text-muted-foreground mt-0.5">
+                            Reason flagged: {approvalReason || "Requires owner review"}
+                          </p>
+                        </div>
+                      </label>
+
+                      {bypassApproval && (
+                        <div className="space-y-2 pl-6">
+                          {!estimate.lead?.customer_responded && (
+                            <label className="flex items-center gap-2 text-sm cursor-pointer select-none">
+                              <input type="checkbox" className="h-3.5 w-3.5 rounded" checked={forceSend} onChange={(e) => setForceSend(e.target.checked)} />
+                              <span className="text-muted-foreground">Send even if no text back</span>
+                            </label>
+                          )}
+                          <div className="max-w-xs">
+                            <label className="text-xs font-medium mb-1 block">Enter your password to confirm</label>
+                            <Input
+                              type="password"
+                              value={bypassPassword}
+                              onChange={(e) => { setBypassPassword(e.target.value); setBypassError(null); }}
+                              placeholder="Your account password"
+                            />
+                            {bypassError && <p className="text-xs text-red-600 mt-1">{bypassError}</p>}
+                          </div>
+                          <Button
+                            className="gap-2 bg-green-600 hover:bg-green-700"
+                            onClick={handleBypassApprove}
+                            disabled={submitting || !bypassPassword || (!estimate.lead?.customer_responded && !forceSend)}
+                          >
+                            <Send className="h-4 w-4" />
+                            {submitting ? "Sending..." : "Confirm & Send All Packages"}
+                          </Button>
+                        </div>
+                      )}
+                    </div>
+                  </>
+                )}
               </div>
             )}
 
@@ -511,9 +657,12 @@ export default function EstimateDetailPage() {
                   <span className="text-muted-foreground">Send even if no text back</span>
                 </label>
                 <div className="flex gap-2">
-                  <Button onClick={handleCustomApprove} disabled={submitting || (!customSignature)} className="bg-green-600 hover:bg-green-700">
+                  <Button variant="outline" onClick={handleSaveCustomTiers} disabled={submitting || !customSignature}>
+                    {submitting ? "Saving..." : "Save Custom Prices"}
+                  </Button>
+                  <Button onClick={handleCustomApprove} disabled={submitting || !customSignature} className="bg-green-600 hover:bg-green-700">
                     <CheckCircle className="h-4 w-4 mr-2" />
-                    {submitting ? "Sending..." : "Set Custom Prices & Send"}
+                    {submitting ? "Sending..." : "Save & Send All Packages"}
                   </Button>
                   <Button variant="ghost" onClick={() => setMode("view")}>Cancel</Button>
                 </div>
