@@ -22,7 +22,7 @@ async def list_leads(
 ):
     db = get_db()
     # Exclude va_notes (long text not needed for kanban cards) to reduce payload size
-    list_fields = "id,ghl_contact_id,service_type,status,address,zip_code,contact_name,contact_phone,contact_email,form_data,priority,urgency_level,kanban_column,customer_responded,customer_response_text,tags,created_at,archived"
+    list_fields = "id,ghl_contact_id,service_type,status,address,contact_name,contact_phone,contact_email,form_data,priority,urgency_level,kanban_column,customer_responded,customer_response_text,tags,created_at,archived"
     q = db.table("leads").select(list_fields).eq("archived", False).order("created_at", desc=True).limit(limit)
     if service_type:
         q = q.eq("service_type", service_type)
