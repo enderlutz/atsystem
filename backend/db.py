@@ -12,6 +12,7 @@ from functools import lru_cache
 
 import psycopg2
 import psycopg2.extras
+import psycopg2.pool
 from config import get_settings
 
 logger = logging.getLogger(__name__)
@@ -25,9 +26,22 @@ def _dsn() -> str:
     return s.database_url
 
 
+# Persistent connection pool — connections stay open and are reused across requests.
+# Eliminates TCP handshake + SSL + auth overhead on every query.
+_pool: psycopg2.pool.ThreadedConnectionPool | None = None
+
+
+def _get_pool() -> psycopg2.pool.ThreadedConnectionPool:
+    global _pool
+    if _pool is None:
+        _pool = psycopg2.pool.ThreadedConnectionPool(minconn=1, maxconn=8, dsn=_dsn())
+    return _pool
+
+
 @contextmanager
 def get_conn():
-    conn = psycopg2.connect(_dsn())
+    p = _get_pool()
+    conn = p.getconn()
     try:
         yield conn
         conn.commit()
@@ -35,7 +49,7 @@ def get_conn():
         conn.rollback()
         raise
     finally:
-        conn.close()
+        p.putconn(conn)
 
 
 class QueryResult:
