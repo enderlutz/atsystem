@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { api, type LeadDetail, type GHLMessage, type Estimate } from "@/lib/api";
+import { api, leadDetailCache, type LeadDetail, type GHLMessage, type Estimate } from "@/lib/api";
 import { formatDate, formatCurrency } from "@/lib/utils";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -125,7 +125,8 @@ export default function LeadDetailPage() {
   const [loadingPreview, setLoadingPreview] = useState(false);
 
   useEffect(() => {
-    api.getLead(id).then((data) => {
+    const applyData = (data: LeadDetail) => {
+      leadDetailCache.set(id, data); // Keep cache fresh
       setLead(data);
       setVaNotes(data.va_notes || "");
       const fd = data.form_data || {};
@@ -151,7 +152,16 @@ export default function LeadDetailPage() {
       setContactName(data.contact_name || "");
       setContactPhone(data.contact_phone || "");
       setContactAddress(data.address || "");
-    }).catch(console.error).finally(() => {
+    };
+
+    // If prefetched, show instantly — then refresh in background
+    const cached = leadDetailCache.get(id);
+    if (cached) {
+      applyData(cached);
+      setLoading(false);
+    }
+
+    api.getLead(id).then(applyData).catch(console.error).finally(() => {
       setLoading(false);
       // Load messages after lead renders — avoids competing with the main render request
       api.getLeadMessages(id).then((result) => {

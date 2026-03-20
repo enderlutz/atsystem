@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import asyncio
 from fastapi import APIRouter, Depends, HTTPException, Query
+from starlette.concurrency import run_in_threadpool
 from typing import Optional
 from datetime import datetime, timezone
 
@@ -19,7 +21,9 @@ async def list_leads(
     limit: int = Query(50, le=200),
 ):
     db = get_db()
-    q = db.table("leads").select("*").eq("archived", False).order("created_at", desc=True).limit(limit)
+    # Exclude va_notes (long text not needed for kanban cards) to reduce payload size
+    list_fields = "id,ghl_contact_id,service_type,status,address,zip_code,contact_name,contact_phone,contact_email,form_data,priority,urgency_level,kanban_column,customer_responded,customer_response_text,tags,created_at,archived"
+    q = db.table("leads").select(list_fields).eq("archived", False).order("created_at", desc=True).limit(limit)
     if service_type:
         q = q.eq("service_type", service_type)
     if status:
@@ -31,31 +35,29 @@ async def list_leads(
 @router.get("/{lead_id}")
 async def get_lead(lead_id: str):
     db = get_db()
-    res = db.table("leads").select("*").eq("id", lead_id).single().execute()
-    if not res.data:
+
+    # Run lead + estimate queries in parallel
+    lead_res, est_res = await asyncio.gather(
+        run_in_threadpool(lambda: db.table("leads").select("*").eq("id", lead_id).single().execute()),
+        run_in_threadpool(lambda: db.table("estimates").select("*").eq("lead_id", lead_id).order("created_at", desc=True).limit(1).execute()),
+    )
+
+    if not lead_res.data:
         raise HTTPException(status_code=404, detail="Lead not found")
 
-    lead = res.data
+    lead = lead_res.data
 
-    est_res = (
-        db.table("estimates")
-        .select("*")
-        .eq("lead_id", lead_id)
-        .order("created_at", desc=True)
-        .limit(1)
-        .execute()
-    )
     if est_res.data:
         estimate = est_res.data[0]
         # Attach proposal token if one exists for this estimate
-        prop_res = (
+        prop_res = await run_in_threadpool(lambda: (
             db.table("proposals")
             .select("token, funnel_stage, status")
             .eq("estimate_id", estimate["id"])
             .order("created_at", desc=True)
             .limit(1)
             .execute()
-        )
+        ))
         if prop_res.data:
             estimate["proposal_token"] = prop_res.data[0]["token"]
             estimate["proposal_funnel_stage"] = prop_res.data[0].get("funnel_stage") or "opened"
@@ -273,9 +275,9 @@ async def get_lead_messages(lead_id: str):
             ]
         }
 
-    # Fallback: fetch from GHL and persist so subsequent loads are free
+    # Fallback: fetch from GHL in a thread so we don't block the event loop
     try:
-        msgs = get_all_messages(contact_id)
+        msgs = await run_in_threadpool(get_all_messages, contact_id)
     except PermissionError as e:
         raise HTTPException(status_code=403, detail=str(e))
     for m in msgs:

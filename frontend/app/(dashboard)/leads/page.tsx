@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback, type ReactNode } from "react";
 import Link from "next/link";
-import { api, type Lead, type Estimate } from "@/lib/api";
+import { api, leadDetailCache, type Lead, type Estimate } from "@/lib/api";
 import { formatDate } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -22,6 +22,11 @@ import {
 import { CSS } from "@dnd-kit/utilities";
 
 const LAST_VISIT_KEY = "atSystemLastVisitAt";
+
+function prefetchLead(id: string) {
+  if (leadDetailCache.has(id)) return;
+  api.getLead(id).then((data) => leadDetailCache.set(id, data)).catch(() => {});
+}
 const LEADS_CACHE_KEY = "at_leads_cache";
 const ESTIMATES_CACHE_KEY = "at_estimates_cache";
 
@@ -652,7 +657,7 @@ export default function LeadsPage() {
                                   </>
                                 )}
                               </div>
-                              <Button size="sm" variant="outline" className="h-6 text-xs px-2" asChild>
+                              <Button size="sm" variant="outline" className="h-6 text-xs px-2" asChild onMouseEnter={() => prefetchLead(lead.id)}>
                                 <Link href={`/leads/${lead.id}`}>View</Link>
                               </Button>
                             </div>
@@ -792,7 +797,7 @@ export default function LeadsPage() {
                     ) : (kanbanStatus === "green" || kanbanStatus === "yellow") && !lead.customer_responded ? (
                       <span className="text-xs text-muted-foreground shrink-0">Awaiting reply</span>
                     ) : null}
-                    <Button size="sm" variant="outline" className="h-7 text-xs px-2.5" asChild>
+                    <Button size="sm" variant="outline" className="h-7 text-xs px-2.5" asChild onMouseEnter={() => prefetchLead(lead.id)}>
                       <Link href={`/leads/${lead.id}`}>View</Link>
                     </Button>
                   </div>

@@ -378,3 +378,6 @@ export interface AdminScheduleSlot {
   max_bookings: number;
   booked_count: number;
 }
+
+// Module-level cache for prefetched lead detail data — persists across client-side navigations
+export const leadDetailCache = new Map<string, LeadDetail>();

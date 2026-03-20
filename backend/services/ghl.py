@@ -13,6 +13,9 @@ from config import get_settings
 logger = logging.getLogger(__name__)
 GHL_BASE = "https://services.leadconnectorhq.com"
 
+# Persistent client — reuses TCP connections across all GHL API calls
+_client = httpx.Client(timeout=30, limits=httpx.Limits(max_keepalive_connections=10, max_connections=20))
+
 
 def _headers() -> dict:
     settings = get_settings()
@@ -33,7 +36,7 @@ def get_contacts(location_id: str, max_contacts: int = 500) -> list[dict]:
 
     while len(all_contacts) < max_contacts:
         try:
-            r = httpx.get(
+            r = _client.get(
                 f"{GHL_BASE}/contacts/",
                 headers=_headers(),
                 params=params,
@@ -66,7 +69,7 @@ def get_contacts(location_id: str, max_contacts: int = 500) -> list[dict]:
 
 def get_contact(contact_id: str) -> dict | None:
     try:
-        r = httpx.get(f"{GHL_BASE}/contacts/{contact_id}", headers=_headers(), timeout=10)
+        r = _client.get(f"{GHL_BASE}/contacts/{contact_id}", headers=_headers(), timeout=10)
         r.raise_for_status()
         return r.json().get("contact")
     except Exception as e:
@@ -79,7 +82,7 @@ def get_contact(contact_id: str) -> dict | None:
 def get_pipelines(location_id: str) -> list[dict]:
     """Fetch all opportunity pipelines (with stages) for a location."""
     try:
-        r = httpx.get(
+        r = _client.get(
             f"{GHL_BASE}/opportunities/pipelines",
             headers=_headers(),
             params={"locationId": location_id},
@@ -108,7 +111,7 @@ def get_opportunities(location_id: str, pipeline_id: str, stage_id: str | None =
             params["pipeline_stage_id"] = stage_id
 
         try:
-            r = httpx.get(
+            r = _client.get(
                 f"{GHL_BASE}/opportunities/search",
                 headers=_headers(),
                 params=params,
@@ -136,7 +139,7 @@ def get_opportunities(location_id: str, pipeline_id: str, stage_id: str | None =
 def get_custom_fields(location_id: str) -> list[dict]:
     """Fetch all custom fields defined in the GHL location."""
     try:
-        r = httpx.get(
+        r = _client.get(
             f"{GHL_BASE}/locations/{location_id}/customFields",
             headers=_headers(),
             timeout=15,
@@ -153,7 +156,7 @@ def get_custom_fields(location_id: str) -> list[dict]:
 def update_opportunity_stage(opportunity_id: str, stage_id: str) -> bool:
     """Move a GHL opportunity to a different pipeline stage."""
     try:
-        r = httpx.put(
+        r = _client.put(
             f"{GHL_BASE}/opportunities/{opportunity_id}",
             headers=_headers(),
             json={"pipelineStageId": stage_id},
@@ -178,7 +181,7 @@ def send_message_to_contact(contact_id: str, message: str) -> bool:
             "message": message,
             "locationId": settings.ghl_location_id,
         }
-        r = httpx.post(f"{GHL_BASE}/conversations/messages", headers=_headers(),
+        r = _client.post(f"{GHL_BASE}/conversations/messages", headers=_headers(),
                        json=payload, timeout=10)
         r.raise_for_status()
         logger.info(f"GHL message sent to contact {contact_id}")
@@ -217,7 +220,7 @@ def format_estimate_for_client(estimate: dict, service_type: str, selected_tier:
 
 def _fetch_messages_for_contact(contact_id: str) -> list[dict]:
     """Shared helper: fetch all messages from GHL for a contact (any direction)."""
-    r = httpx.get(
+    r = _client.get(
         f"{GHL_BASE}/conversations/search",
         headers=_headers(),
         params={"contactId": contact_id},
@@ -230,7 +233,7 @@ def _fetch_messages_for_contact(contact_id: str) -> list[dict]:
 
     conv_id = conversations[0]["id"]
 
-    r2 = httpx.get(
+    r2 = _client.get(
         f"{GHL_BASE}/conversations/{conv_id}/messages",
         headers=_headers(),
         timeout=15,
@@ -287,7 +290,7 @@ def get_all_messages(contact_id: str) -> list[dict]:
 def add_contact_note(contact_id: str, body: str) -> bool:
     """POST a note to a GHL contact."""
     try:
-        r = httpx.post(
+        r = _client.post(
             f"{GHL_BASE}/contacts/{contact_id}/notes",
             headers=_headers(),
             json={"body": body},
