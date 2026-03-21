@@ -87,9 +87,13 @@ export default function AutomationsPage() {
     setSaving(key);
     try {
       await api.updateWorkflowConfig(key, value);
-      setConfig((prev) =>
-        prev.map((c) => (c.key === key ? { ...c, value } : c))
-      );
+      setConfig((prev) => {
+        const exists = prev.some((c) => c.key === key);
+        if (exists) {
+          return prev.map((c) => (c.key === key ? { ...c, value } : c));
+        }
+        return [...prev, { key, value, updated_at: new Date().toISOString() }];
+      });
       setEditingConfig((prev) => {
         const next = { ...prev };
         delete next[key];
