@@ -373,10 +373,37 @@ export default function AutomationsPage() {
         </CardHeader>
         <CardContent>
           {ghlPipelines.length === 0 ? (
-            <div className="space-y-2">
-              <p className="text-sm text-muted-foreground">
-                Connect your GHL pipeline stages so the workflow engine can sync opportunity stages automatically.
-              </p>
+            <div className="space-y-3">
+              {(() => {
+                const savedMappings = config.filter((c) => c.key.startsWith("ghl_stage_") && c.value);
+                if (savedMappings.length > 0) {
+                  return (
+                    <div className="space-y-2">
+                      <p className="text-sm text-muted-foreground">
+                        {savedMappings.length} stage{savedMappings.length === 1 ? "" : "s"} mapped to GHL.
+                      </p>
+                      <div className="space-y-1">
+                        {savedMappings.map((m) => {
+                          const stageName = m.key.replace("ghl_stage_", "");
+                          const wfStage = WORKFLOW_STAGES.find((s) => s.value === stageName);
+                          return (
+                            <div key={m.key} className="flex items-center gap-2 text-sm">
+                              <div className={`w-2 h-2 rounded-full ${STAGE_COLORS[stageName] || "bg-gray-400"}`} />
+                              <span className="text-muted-foreground">{wfStage?.label || stageName}</span>
+                              <Check className="h-3 w-3 text-green-500" />
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  );
+                }
+                return (
+                  <p className="text-sm text-muted-foreground">
+                    Connect your GHL pipeline stages so the workflow engine can sync opportunity stages automatically.
+                  </p>
+                );
+              })()}
               <Button
                 variant="outline"
                 size="sm"
@@ -385,6 +412,8 @@ export default function AutomationsPage() {
               >
                 {loadingPipelines ? (
                   <><Loader2 className="h-3 w-3 mr-2 animate-spin" /> Loading...</>
+                ) : config.some((c) => c.key.startsWith("ghl_stage_") && c.value) ? (
+                  "Edit Mapping"
                 ) : (
                   "Load GHL Pipelines"
                 )}
