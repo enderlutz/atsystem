@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { api, leadDetailCache, getCurrentUser, type LeadDetail, type GHLMessage, type Estimate } from "@/lib/api";
+import { api, leadDetailCache, getCurrentUser, type LeadDetail, type GHLMessage, type Estimate, type WorkflowStatus } from "@/lib/api";
 import { formatDate, formatCurrency } from "@/lib/utils";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -13,7 +13,7 @@ import { Input } from "@/components/ui/input";
 import {
   ArrowLeft, MapPin, ExternalLink, Phone, Mail, User,
   CheckCircle2, MessageSquare, Tag, Calculator, RefreshCw,
-  Send, AlertTriangle, History,
+  Send, AlertTriangle, History, Zap, Pause, Play, Clock,
 } from "lucide-react";
 
 const GOOGLE_MAPS_KEY = process.env.NEXT_PUBLIC_GOOGLE_MAPS_KEY || "";
@@ -1109,6 +1109,10 @@ export default function LeadDetailPage() {
                     </div>
                   );
                 })()}
+                {/* Workflow automation status */}
+                {lead.workflow_stage && (
+                  <WorkflowSection leadId={lead.id} workflowStage={lead.workflow_stage} workflowPaused={lead.workflow_paused || false} />
+                )}
               </div>
             ) : isRed ? (
               isAdmin ? (
@@ -1450,6 +1454,120 @@ export default function LeadDetailPage() {
               title="Customer Proposal Preview"
             />
           </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function WorkflowSection({ leadId, workflowStage, workflowPaused }: { leadId: string; workflowStage: string; workflowPaused: boolean }) {
+  const [status, setStatus] = useState<WorkflowStatus | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [paused, setPaused] = useState(workflowPaused);
+
+  useEffect(() => {
+    api.getWorkflowStatus(leadId).then(setStatus).catch(console.error).finally(() => setLoading(false));
+  }, [leadId]);
+
+  const STAGE_COLORS: Record<string, string> = {
+    new_lead: "bg-blue-100 text-blue-800",
+    asking_address: "bg-orange-100 text-orange-800",
+    hot_lead: "bg-red-100 text-red-800",
+    proposal_sent: "bg-teal-100 text-teal-800",
+    no_package_selection: "bg-yellow-100 text-yellow-800",
+    package_selected: "bg-cyan-100 text-cyan-800",
+    no_date_selected: "bg-indigo-100 text-indigo-800",
+    date_selected: "bg-blue-100 text-blue-900",
+    deposit_paid: "bg-green-100 text-green-800",
+    additional_service: "bg-purple-100 text-purple-800",
+    job_complete: "bg-pink-100 text-pink-800",
+    cold_nurture: "bg-slate-100 text-slate-800",
+    past_customer: "bg-emerald-100 text-emerald-800",
+  };
+
+  const handlePauseToggle = async () => {
+    try {
+      if (paused) {
+        await api.resumeWorkflow(leadId);
+        setPaused(false);
+      } else {
+        await api.pauseWorkflow(leadId);
+        setPaused(true);
+      }
+    } catch (e) {
+      console.error("Failed to toggle pause:", e);
+    }
+  };
+
+  const handleJobComplete = async () => {
+    try {
+      await api.markJobComplete(leadId);
+      const updated = await api.getWorkflowStatus(leadId);
+      setStatus(updated);
+    } catch (e) {
+      console.error("Failed to mark job complete:", e);
+    }
+  };
+
+  const formatRelative = (iso: string) => {
+    const diff = new Date(iso).getTime() - Date.now();
+    const mins = Math.round(diff / 60000);
+    if (mins < 0) return "overdue";
+    if (mins < 60) return `in ${mins}m`;
+    const hrs = Math.round(mins / 60);
+    if (hrs < 24) return `in ${hrs}h`;
+    return `in ${Math.round(hrs / 24)}d`;
+  };
+
+  if (loading) return null;
+
+  return (
+    <div className="rounded-lg border p-2.5 bg-muted/10 w-full mt-2">
+      <div className="flex items-center justify-between mb-2">
+        <p className="text-xs font-semibold text-muted-foreground flex items-center gap-1">
+          <Zap className="h-3 w-3" /> Workflow Automation
+        </p>
+        <div className="flex items-center gap-1">
+          {workflowStage === "deposit_paid" && (
+            <Button variant="ghost" size="sm" className="h-6 text-xs" onClick={handleJobComplete}>
+              Mark Complete
+            </Button>
+          )}
+          <Button variant="ghost" size="sm" className="h-6 text-xs" onClick={handlePauseToggle}>
+            {paused ? <Play className="h-3 w-3 mr-1" /> : <Pause className="h-3 w-3 mr-1" />}
+            {paused ? "Resume" : "Pause"}
+          </Button>
+        </div>
+      </div>
+
+      <div className="flex items-center gap-2 mb-2">
+        <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${STAGE_COLORS[workflowStage] || "bg-gray-100 text-gray-800"}`}>
+          {status?.stage_label || workflowStage}
+        </span>
+        {paused && (
+          <span className="text-xs px-2 py-0.5 rounded-full font-medium bg-yellow-100 text-yellow-800">
+            Paused
+          </span>
+        )}
+      </div>
+
+      {status && status.pending_messages.length > 0 && (
+        <div className="space-y-1">
+          <p className="text-[10px] text-muted-foreground uppercase font-semibold">Next messages</p>
+          {status.pending_messages.slice(0, 3).map((m) => (
+            <div key={m.id} className="flex items-start gap-1.5">
+              <Clock className="h-3 w-3 text-muted-foreground mt-0.5 flex-shrink-0" />
+              <div className="min-w-0">
+                <span className="text-[10px] text-muted-foreground">{formatRelative(m.send_at)}</span>
+                <p className="text-xs text-muted-foreground line-clamp-1">{m.message_body}</p>
+              </div>
+            </div>
+          ))}
+          {status.pending_messages.length > 3 && (
+            <p className="text-[10px] text-muted-foreground">
+              +{status.pending_messages.length - 3} more scheduled
+            </p>
+          )}
         </div>
       )}
     </div>

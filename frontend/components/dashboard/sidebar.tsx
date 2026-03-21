@@ -14,6 +14,7 @@ import {
   CalendarDays,
   LogOut,
   ShieldCheck,
+  Zap,
 } from "lucide-react";
 
 const navItems = [
@@ -21,6 +22,7 @@ const navItems = [
   { href: "/leads", label: "Leads", icon: Users, adminOnly: false },
   { href: "/admin-approval", label: "Admin Approval", icon: ShieldCheck, adminOnly: true },
   { href: "/estimates", label: "Estimates", icon: FileText, adminOnly: false },
+  { href: "/automations", label: "Automations", icon: Zap, adminOnly: false },
   { href: "/schedule", label: "Schedule", icon: CalendarDays, adminOnly: false },
   { href: "/settings", label: "Settings", icon: Settings, adminOnly: false },
 ];

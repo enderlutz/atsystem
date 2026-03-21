@@ -163,6 +163,24 @@ async def update_funnel_stage(token: str, body: StageUpdate):
     new_idx = STAGE_ORDER.index(body.stage)
     if new_idx > current_idx:
         db.table("proposals").update({"funnel_stage": body.stage}).eq("token", token).execute()
+
+        # Trigger workflow engine on funnel stage change
+        _WORKFLOW_EVENT_MAP = {
+            "opened": "opened",
+            "package_selected": "package_selected",
+            "color_selected": "color_selected",
+            "date_selected": "date_selected",
+            "checkout_started": "checkout_started",
+        }
+        if body.stage in _WORKFLOW_EVENT_MAP:
+            try:
+                from services.workflow import on_proposal_event
+                lead_res = db.table("proposals").select("lead_id").eq("token", token).single().execute()
+                if lead_res.data:
+                    on_proposal_event(lead_res.data["lead_id"], _WORKFLOW_EVENT_MAP[body.stage])
+            except Exception as e:
+                logger.error(f"Workflow on_proposal_event failed for token {token}: {e}")
+
     return {"status": "ok"}
 
 

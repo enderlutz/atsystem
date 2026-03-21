@@ -224,6 +224,38 @@ export const api = {
     request<{ status: string; date: string }>(`/api/admin/schedule/${date}`, {
       method: "DELETE",
     }),
+
+  // Workflow automation
+  getWorkflowStatus: (leadId: string) =>
+    request<WorkflowStatus>(`/api/workflow/leads/${leadId}/status`),
+  transitionWorkflowStage: (leadId: string, stage: string, reason?: string) =>
+    request<{ status: string; new_stage: string }>(`/api/workflow/leads/${leadId}/transition`, {
+      method: "POST",
+      body: JSON.stringify({ stage, reason: reason || "manual_va" }),
+    }),
+  pauseWorkflow: (leadId: string) =>
+    request<{ status: string }>(`/api/workflow/leads/${leadId}/pause`, { method: "POST" }),
+  resumeWorkflow: (leadId: string) =>
+    request<{ status: string }>(`/api/workflow/leads/${leadId}/resume`, { method: "POST" }),
+  markJobComplete: (leadId: string) =>
+    request<{ status: string }>(`/api/workflow/leads/${leadId}/job-complete`, { method: "POST" }),
+  getMessageQueue: (params?: string) =>
+    request<QueuedMessage[]>(`/api/workflow/queue${params ? `?${params}` : ""}`),
+  cancelQueuedMessage: (messageId: string) =>
+    request<{ status: string }>(`/api/workflow/queue/${messageId}/cancel`, { method: "POST" }),
+  sendQueuedMessageNow: (messageId: string) =>
+    request<{ status: string }>(`/api/workflow/queue/${messageId}/send-now`, { method: "POST" }),
+  getWorkflowStats: () =>
+    request<WorkflowStats>("/api/workflow/stats"),
+  getWorkflowConfig: () =>
+    request<WorkflowConfigItem[]>("/api/workflow/config"),
+  updateWorkflowConfig: (key: string, value: string) =>
+    request<{ status: string }>(`/api/workflow/config/${key}`, {
+      method: "PUT",
+      body: JSON.stringify({ value }),
+    }),
+  getWorkflowStages: () =>
+    request<{ value: string; label: string }[]>("/api/workflow/stages"),
 };
 
 // --- Beacon helper (for sendBeacon on page unload) ---
@@ -254,6 +286,9 @@ export interface Lead {
   va_notes: string;
   created_at: string;
   form_data: Record<string, unknown>;
+  workflow_stage?: string | null;
+  workflow_stage_entered_at?: string | null;
+  workflow_paused?: boolean;
 }
 
 export interface LeadDetail extends Lead {
@@ -399,6 +434,63 @@ export interface AdminScheduleSlot {
   label?: string;
   max_bookings: number;
   booked_count: number;
+}
+
+// --- Workflow Types ---
+export interface WorkflowStatus {
+  lead_id: string;
+  current_stage: string | null;
+  stage_label: string | null;
+  stage_entered_at: string | null;
+  paused: boolean;
+  pending_messages: WorkflowPendingMessage[];
+  message_history: WorkflowMessageHistory[];
+}
+
+export interface WorkflowPendingMessage {
+  id: string;
+  stage: string;
+  sequence_index: number;
+  message_body: string;
+  send_at: string;
+}
+
+export interface WorkflowMessageHistory {
+  id: string;
+  stage: string;
+  message_body: string;
+  send_at: string;
+  sent_at: string | null;
+  status: string;
+  cancel_reason: string | null;
+}
+
+export interface QueuedMessage {
+  id: string;
+  lead_id: string;
+  stage: string;
+  sequence_index: number;
+  message_body: string;
+  send_at: string;
+  sent_at: string | null;
+  status: string;
+  ghl_contact_id: string;
+  contact_name?: string;
+  error_message?: string;
+}
+
+export interface WorkflowStats {
+  stage_counts: Record<string, number>;
+  stage_labels: Record<string, string>;
+  pending_messages: number;
+  sent_today: number;
+  paused_leads: number;
+}
+
+export interface WorkflowConfigItem {
+  key: string;
+  value: string;
+  updated_at: string;
 }
 
 // Module-level cache for prefetched lead detail data — persists across client-side navigations

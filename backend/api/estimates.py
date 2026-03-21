@@ -142,6 +142,13 @@ async def approve_estimate(estimate_id: str, body: EstimateApprove = EstimateApp
                 f"Proposal link: {proposal_url}"
             ))
 
+    # Transition workflow to HOT_LEAD (proposal sent)
+    try:
+        from services.workflow import on_estimate_sent
+        on_estimate_sent(estimate["lead_id"])
+    except Exception as e:
+        logger.error(f"Workflow on_estimate_sent failed for lead {estimate['lead_id']}: {e}")
+
     return {"status": "approved", "estimate_id": estimate_id, "proposal_token": token, "proposal_url": proposal_url}
 
 
@@ -215,6 +222,13 @@ async def admin_approve_estimate(estimate_id: str, body: AdminApproveRequest, _:
                 f"Service: {estimate['service_type'].replace('_', ' ').title()}\n"
                 f"Proposal link: {proposal_url}"
             ))
+
+    # Transition workflow to HOT_LEAD (proposal sent)
+    try:
+        from services.workflow import on_estimate_sent
+        on_estimate_sent(estimate["lead_id"])
+    except Exception as e:
+        logger.error(f"Workflow on_estimate_sent failed for lead {estimate['lead_id']}: {e}")
 
     return {"status": "approved", "estimate_id": estimate_id, "proposal_token": token, "proposal_url": proposal_url}
 

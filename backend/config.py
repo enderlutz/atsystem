@@ -26,6 +26,7 @@ class Settings(BaseSettings):
     owner_ghl_contact_id: str = ""
 
     google_maps_api_key: str = ""
+    google_review_link: str = ""
     google_calendar_credentials_json: str = ""
     google_calendar_id: str = "primary"
 

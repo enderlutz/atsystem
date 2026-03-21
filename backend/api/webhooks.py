@@ -195,6 +195,13 @@ async def ghl_message_webhook(request: Request):
         }).eq("id", lead_id).execute()
         logger.info(f"Inbound message from {contact_id} — lead {lead_id} marked as responded")
 
+        # Trigger workflow engine on customer reply
+        try:
+            from services.workflow import on_customer_reply
+            on_customer_reply(lead_id, body_text)
+        except Exception as e:
+            logger.error(f"Workflow on_customer_reply failed for lead {lead_id}: {e}")
+
     return {"status": "ok"}
 
 
@@ -267,6 +274,14 @@ async def ghl_webhook(request: Request, background_tasks: BackgroundTasks):
 
     background_tasks.add_task(process_lead, lead_id, lead_data)
 
+    # Start workflow for new leads (not updates to existing leads)
+    if not existing.data:
+        try:
+            from services.workflow import transition_stage, Stage
+            transition_stage(lead_id, Stage.NEW_LEAD, reason="new_lead_webhook")
+        except Exception as e:
+            logger.error(f"Workflow transition failed for new lead {lead_id}: {e}")
+
     return {"status": "received", "lead_id": lead_id}
 
 
@@ -335,6 +350,14 @@ async def stripe_webhook(request: Request):
             db=db,
         )
         logger.info(f"Stripe webhook: proposal {token} finalized successfully")
+
+        # Trigger workflow transition to DEPOSIT_PAID
+        try:
+            from services.workflow import on_deposit_paid
+            on_deposit_paid(proposal["lead_id"])
+        except Exception as e:
+            logger.error(f"Workflow on_deposit_paid failed for lead {proposal['lead_id']}: {e}")
+
     except Exception as e:
         logger.error(f"Stripe webhook: failed to finalize proposal {token}: {e}")
         raise

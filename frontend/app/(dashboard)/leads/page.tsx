@@ -6,7 +6,7 @@ import { api, leadDetailCache, type Lead, type Estimate } from "@/lib/api";
 import { formatDate } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Search, CheckCircle2, Circle, Flame, LayoutGrid, List, Send, Sparkles } from "lucide-react";
+import { Search, CheckCircle2, Circle, Flame, LayoutGrid, List, Send, Sparkles, Zap } from "lucide-react";
 import {
   DndContext,
   type DragEndEvent,
@@ -22,6 +22,22 @@ import {
 import { CSS } from "@dnd-kit/utilities";
 
 const LAST_VISIT_KEY = "atSystemLastVisitAt";
+
+const WORKFLOW_LABELS: Record<string, string> = {
+  new_lead: "New Lead",
+  asking_address: "Asking Address",
+  hot_lead: "Hot Lead",
+  proposal_sent: "Proposal Sent",
+  no_package_selection: "No Package",
+  package_selected: "Pkg Selected",
+  no_date_selected: "No Date",
+  date_selected: "Date Selected",
+  deposit_paid: "Deposit Paid",
+  additional_service: "Add-on",
+  job_complete: "Complete",
+  cold_nurture: "Cold Nurture",
+  past_customer: "Past Customer",
+};
 
 function prefetchLead(id: string) {
   if (leadDetailCache.has(id)) return;
@@ -635,6 +651,14 @@ export default function LeadsPage() {
                               if (hasLeft) return <span className="text-xs text-red-500 flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-red-400 inline-block" />Left {ago}</span>;
                               return null;
                             })()}
+
+                            {/* Workflow stage badge */}
+                            {lead.workflow_stage && (
+                              <span className="text-xs text-violet-600 flex items-center gap-1">
+                                <Zap className="h-3 w-3" /> {WORKFLOW_LABELS[lead.workflow_stage] || lead.workflow_stage}
+                                {lead.workflow_paused && <span className="text-yellow-600">(paused)</span>}
+                              </span>
+                            )}
 
                             {/* Review reason (red column) */}
                             {col.key === "red" && reason && (
