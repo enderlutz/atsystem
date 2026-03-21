@@ -256,6 +256,13 @@ export const api = {
     }),
   getWorkflowStages: () =>
     request<{ value: string; label: string }[]>("/api/workflow/stages"),
+  getGhlPipelines: () =>
+    request<GhlPipeline[]>("/api/workflow/ghl-pipelines"),
+  saveGhlStageMap: (mapping: Record<string, string>) =>
+    request<{ status: string; mapped: number }>("/api/workflow/ghl-stage-map", {
+      method: "POST",
+      body: JSON.stringify(mapping),
+    }),
 };
 
 // --- Beacon helper (for sendBeacon on page unload) ---
@@ -491,6 +498,17 @@ export interface WorkflowConfigItem {
   key: string;
   value: string;
   updated_at: string;
+}
+
+export interface GhlPipelineStage {
+  id: string;
+  name: string;
+}
+
+export interface GhlPipeline {
+  id: string;
+  name: string;
+  stages: GhlPipelineStage[];
 }
 
 // Module-level cache for prefetched lead detail data — persists across client-side navigations

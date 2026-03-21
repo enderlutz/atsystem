@@ -292,3 +292,44 @@ async def list_stages(_: dict = Depends(get_current_user)):
         {"value": s.value, "label": STAGE_LABELS.get(s.value, s.value)}
         for s in Stage
     ]
+
+
+# ── GHL Pipeline stage mapping ───────────────────────────────────────
+
+@router.get("/ghl-pipelines")
+async def get_ghl_pipelines(_: dict = Depends(get_current_user)):
+    """Fetch all GHL pipelines with their stages so the user can map them."""
+    from services.ghl import get_pipelines
+    from config import get_settings
+
+    settings = get_settings()
+    pipelines = get_pipelines(settings.ghl_location_id)
+
+    result = []
+    for p in pipelines:
+        result.append({
+            "id": p.get("id"),
+            "name": p.get("name"),
+            "stages": [
+                {"id": s.get("id"), "name": s.get("name")}
+                for s in p.get("stages", [])
+            ],
+        })
+    return result
+
+
+@router.post("/ghl-stage-map")
+async def save_ghl_stage_map(mapping: dict, _: dict = Depends(get_current_user)):
+    """Save GHL stage ID mapping. Expects {workflow_stage: ghl_stage_id}."""
+    db = get_db()
+    now = datetime.now(timezone.utc).isoformat()
+
+    for workflow_stage, ghl_stage_id in mapping.items():
+        key = f"ghl_stage_{workflow_stage}"
+        db.table("workflow_config").upsert({
+            "key": key,
+            "value": ghl_stage_id,
+            "updated_at": now,
+        }).execute()
+
+    return {"status": "ok", "mapped": len(mapping)}

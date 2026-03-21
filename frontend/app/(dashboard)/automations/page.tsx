@@ -1,13 +1,13 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
-import { api, type WorkflowStats, type QueuedMessage, type WorkflowConfigItem } from "@/lib/api";
+import { api, type WorkflowStats, type QueuedMessage, type WorkflowConfigItem, type GhlPipeline } from "@/lib/api";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
-  Zap, MessageSquare, Clock, Pause, Send, X, Save, Settings2,
+  Zap, MessageSquare, Clock, Pause, Send, X, Save, Settings2, Link2, Check, Loader2,
 } from "lucide-react";
 
 const STAGE_COLORS: Record<string, string> = {
@@ -33,6 +33,12 @@ export default function AutomationsPage() {
   const [editingConfig, setEditingConfig] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState<string | null>(null);
+  const [ghlPipelines, setGhlPipelines] = useState<GhlPipeline[]>([]);
+  const [selectedPipeline, setSelectedPipeline] = useState<string>("");
+  const [stageMapping, setStageMapping] = useState<Record<string, string>>({});
+  const [loadingPipelines, setLoadingPipelines] = useState(false);
+  const [savingMap, setSavingMap] = useState(false);
+  const [mapSaved, setMapSaved] = useState(false);
 
   const fetchData = useCallback(async () => {
     try {
@@ -106,6 +112,61 @@ export default function AutomationsPage() {
     const days = Math.round(hrs / 24);
     return `in ${days}d`;
   };
+
+  const handleLoadPipelines = async () => {
+    setLoadingPipelines(true);
+    try {
+      const pipelines = await api.getGhlPipelines();
+      setGhlPipelines(pipelines);
+      // Pre-select first pipeline
+      if (pipelines.length > 0) setSelectedPipeline(pipelines[0].id);
+      // Pre-fill mapping from existing config
+      const existing: Record<string, string> = {};
+      for (const c of config) {
+        if (c.key.startsWith("ghl_stage_")) {
+          const workflowStage = c.key.replace("ghl_stage_", "");
+          existing[workflowStage] = c.value;
+        }
+      }
+      setStageMapping(existing);
+    } catch (e) {
+      console.error("Failed to load GHL pipelines:", e);
+    } finally {
+      setLoadingPipelines(false);
+    }
+  };
+
+  const handleSaveStageMap = async () => {
+    setSavingMap(true);
+    try {
+      await api.saveGhlStageMap(stageMapping);
+      setMapSaved(true);
+      setTimeout(() => setMapSaved(false), 3000);
+      fetchData(); // Refresh config
+    } catch (e) {
+      console.error("Failed to save stage mapping:", e);
+    } finally {
+      setSavingMap(false);
+    }
+  };
+
+  const WORKFLOW_STAGES = [
+    { value: "new_lead", label: "New Lead" },
+    { value: "asking_address", label: "Asking for Address" },
+    { value: "hot_lead", label: "Hot Lead" },
+    { value: "proposal_sent", label: "Proposal Sent" },
+    { value: "no_package_selection", label: "No Package Selection" },
+    { value: "package_selected", label: "Package Selected" },
+    { value: "no_date_selected", label: "No Date Selected" },
+    { value: "date_selected", label: "Date Selected" },
+    { value: "deposit_paid", label: "Deposit Paid" },
+    { value: "additional_service", label: "Additional Service" },
+    { value: "job_complete", label: "Job Complete" },
+    { value: "cold_nurture", label: "Cold Lead Nurture" },
+    { value: "past_customer", label: "Past Customer" },
+  ];
+
+  const selectedPipelineData = ghlPipelines.find((p) => p.id === selectedPipeline);
 
   const configLabels: Record<string, string> = {
     google_review_link: "Google Review Link",
@@ -283,6 +344,94 @@ export default function AutomationsPage() {
                   </div>
                 </div>
               ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* GHL Pipeline Stage Mapping */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-lg flex items-center gap-2">
+            <Link2 className="h-5 w-5" />
+            GHL Pipeline Stage Mapping
+          </CardTitle>
+        </CardHeader>
+        <CardContent>
+          {ghlPipelines.length === 0 ? (
+            <div className="space-y-2">
+              <p className="text-sm text-muted-foreground">
+                Connect your GHL pipeline stages so the workflow engine can sync opportunity stages automatically.
+              </p>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleLoadPipelines}
+                disabled={loadingPipelines}
+              >
+                {loadingPipelines ? (
+                  <><Loader2 className="h-3 w-3 mr-2 animate-spin" /> Loading...</>
+                ) : (
+                  "Load GHL Pipelines"
+                )}
+              </Button>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {ghlPipelines.length > 1 && (
+                <div className="space-y-1">
+                  <label className="text-sm font-medium">Pipeline</label>
+                  <select
+                    value={selectedPipeline}
+                    onChange={(e) => setSelectedPipeline(e.target.value)}
+                    className="w-full border rounded-md px-3 py-2 text-sm bg-background"
+                  >
+                    {ghlPipelines.map((p) => (
+                      <option key={p.id} value={p.id}>{p.name}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
+              {selectedPipelineData && (
+                <div className="space-y-3">
+                  <p className="text-sm text-muted-foreground">
+                    Map each workflow stage to a GHL pipeline stage:
+                  </p>
+                  {WORKFLOW_STAGES.map(({ value, label }) => (
+                    <div key={value} className="flex items-center gap-3">
+                      <div className="w-48 flex items-center gap-2 flex-shrink-0">
+                        <div className={`w-2.5 h-2.5 rounded-full ${STAGE_COLORS[value] || "bg-gray-400"}`} />
+                        <span className="text-sm font-medium">{label}</span>
+                      </div>
+                      <select
+                        value={stageMapping[value] || ""}
+                        onChange={(e) =>
+                          setStageMapping((prev) => ({ ...prev, [value]: e.target.value }))
+                        }
+                        className="flex-1 border rounded-md px-3 py-1.5 text-sm bg-background"
+                      >
+                        <option value="">-- Not mapped --</option>
+                        {selectedPipelineData.stages.map((s) => (
+                          <option key={s.id} value={s.id}>{s.name}</option>
+                        ))}
+                      </select>
+                    </div>
+                  ))}
+                  <Button
+                    size="sm"
+                    onClick={handleSaveStageMap}
+                    disabled={savingMap}
+                  >
+                    {mapSaved ? (
+                      <><Check className="h-3 w-3 mr-1" /> Saved!</>
+                    ) : savingMap ? (
+                      <><Loader2 className="h-3 w-3 mr-1 animate-spin" /> Saving...</>
+                    ) : (
+                      <><Save className="h-3 w-3 mr-1" /> Save Mapping</>
+                    )}
+                  </Button>
+                </div>
+              )}
             </div>
           )}
         </CardContent>
