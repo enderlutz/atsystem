@@ -85,7 +85,8 @@ async def approve_estimate(estimate_id: str, body: EstimateApprove = EstimateApp
             raise HTTPException(status_code=403, detail="Incorrect password — bypass denied")
 
     # Guardrail: VA may only send estimate after customer has responded (bypass with force_send)
-    if not lead.get("customer_responded") and not body.force_send:
+    # Admin is NEVER blocked — they own the company
+    if not is_admin and not lead.get("customer_responded") and not body.force_send:
         raise HTTPException(
             status_code=403,
             detail="Cannot send estimate before customer has responded"
@@ -152,9 +153,6 @@ async def admin_approve_estimate(estimate_id: str, body: AdminApproveRequest, _:
 
     estimate = res.data
     lead = estimate.get("lead") or {}
-
-    if not lead.get("customer_responded") and not body.force_send:
-        raise HTTPException(status_code=403, detail="Cannot send estimate before customer has responded")
 
     # Apply optional admin overrides to tiers
     inputs = dict(estimate.get("inputs") or {})
