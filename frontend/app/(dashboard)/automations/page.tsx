@@ -153,10 +153,15 @@ export default function AutomationsPage() {
   const handleSaveStageMap = async () => {
     setSavingMap(true);
     try {
-      await api.saveGhlStageMap(stageMapping);
+      // Save each mapping individually using the config endpoint (which we know works)
+      for (const [workflowStage, ghlStageId] of Object.entries(stageMapping)) {
+        if (ghlStageId) {
+          await api.updateWorkflowConfig(`ghl_stage_${workflowStage}`, ghlStageId);
+        }
+      }
       setMapSaved(true);
       setTimeout(() => setMapSaved(false), 3000);
-      fetchData(); // Refresh config
+      await fetchData(); // Refresh config
     } catch (e) {
       console.error("Failed to save stage mapping:", e);
     } finally {
