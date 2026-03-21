@@ -180,6 +180,11 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ stage }),
     }),
+  reportProposalActivity: (token: string, type: "heartbeat" | "left") =>
+    request<{ status: string }>(`/api/proposal/${token}/activity`, {
+      method: "POST",
+      body: JSON.stringify({ type }),
+    }),
   bookProposal: (token: string, data: {
     selected_tier: string;
     booked_at: string;
@@ -220,6 +225,11 @@ export const api = {
       method: "DELETE",
     }),
 };
+
+// --- Beacon helper (for sendBeacon on page unload) ---
+export function getActivityBeaconUrl(token: string) {
+  return `${API_URL}/api/proposal/${token}/activity`;
+}
 
 // --- Types ---
 export type ServiceType = "fence_staining" | "pressure_washing";
@@ -266,6 +276,8 @@ export interface Estimate {
   inputs?: Record<string, unknown>;
   proposal_funnel_stage?: string;
   proposal_status?: string;
+  proposal_last_active_at?: string | null;
+  proposal_left_page_at?: string | null;
 }
 
 export interface EstimateDetail extends Estimate {

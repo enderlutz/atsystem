@@ -63,7 +63,7 @@ async def get_lead(lead_id: str):
         # Attach proposal token if one exists for this estimate
         prop_res = await run_in_threadpool(lambda: (
             db.table("proposals")
-            .select("token, funnel_stage, status")
+            .select("token, funnel_stage, status, last_active_at, left_page_at")
             .eq("estimate_id", estimate["id"])
             .order("created_at", desc=True)
             .limit(1)
@@ -73,6 +73,8 @@ async def get_lead(lead_id: str):
             estimate["proposal_token"] = prop_res.data[0]["token"]
             estimate["proposal_funnel_stage"] = prop_res.data[0].get("funnel_stage") or "opened"
             estimate["proposal_status"] = prop_res.data[0].get("status") or "sent"
+            estimate["proposal_last_active_at"] = prop_res.data[0].get("last_active_at")
+            estimate["proposal_left_page_at"] = prop_res.data[0].get("left_page_at")
         lead["estimate"] = estimate
 
     return lead

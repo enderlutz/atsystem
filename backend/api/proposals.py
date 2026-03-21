@@ -45,6 +45,10 @@ class StageUpdate(BaseModel):
     stage: str
 
 
+class ActivityUpdate(BaseModel):
+    type: str  # "heartbeat" | "left"
+
+
 class CheckoutRequest(BaseModel):
     selected_tier: str
     booked_at: str
@@ -140,6 +144,8 @@ async def get_proposal(token: str):
         "funnel_stage": proposal.get("funnel_stage") or "sent",
         "fence_sides": inputs.get("fence_sides") or "",
         "custom_fence_sides": inputs.get("custom_fence_sides") or "",
+        "last_active_at": proposal.get("last_active_at"),
+        "left_page_at": proposal.get("left_page_at"),
     }
 
 
@@ -157,6 +163,20 @@ async def update_funnel_stage(token: str, body: StageUpdate):
     new_idx = STAGE_ORDER.index(body.stage)
     if new_idx > current_idx:
         db.table("proposals").update({"funnel_stage": body.stage}).eq("token", token).execute()
+    return {"status": "ok"}
+
+
+@router.post("/{token}/activity")
+async def report_activity(token: str, body: ActivityUpdate):
+    """Track customer page activity — heartbeat or left page. No auth required."""
+    if body.type not in ("heartbeat", "left"):
+        raise HTTPException(status_code=400, detail="Invalid activity type")
+    db = get_db()
+    now = datetime.now(timezone.utc).isoformat()
+    if body.type == "heartbeat":
+        db.table("proposals").update({"last_active_at": now, "left_page_at": None}).eq("token", token).execute()
+    else:
+        db.table("proposals").update({"last_active_at": now, "left_page_at": now}).eq("token", token).execute()
     return {"status": "ok"}
 
 

@@ -33,13 +33,15 @@ async def list_estimates(
     # Enrich with proposal funnel stage
     if estimates:
         est_ids = [e["id"] for e in estimates]
-        prop_res = db.table("proposals").select("estimate_id, funnel_stage, status").in_("estimate_id", est_ids).execute()
+        prop_res = db.table("proposals").select("estimate_id, funnel_stage, status, last_active_at, left_page_at").in_("estimate_id", est_ids).execute()
         prop_map = {p["estimate_id"]: p for p in (prop_res.data or [])}
         for est in estimates:
             prop = prop_map.get(est["id"])
             if prop:
                 est["proposal_funnel_stage"] = prop.get("funnel_stage") or "opened"
                 est["proposal_status"] = prop.get("status") or "sent"
+                est["proposal_last_active_at"] = prop.get("last_active_at")
+                est["proposal_left_page_at"] = prop.get("left_page_at")
     return estimates
 
 

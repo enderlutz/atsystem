@@ -1084,6 +1084,28 @@ export default function LeadDetailPage() {
                           );
                         })}
                       </div>
+                      {/* Customer page activity */}
+                      {(() => {
+                        const lastActive = est?.proposal_last_active_at;
+                        const leftAt = est?.proposal_left_page_at;
+                        if (!lastActive && !leftAt) return null;
+                        const now = Date.now();
+                        const activeMs = lastActive ? now - new Date(lastActive).getTime() : Infinity;
+                        const leftMs = leftAt ? now - new Date(leftAt).getTime() : Infinity;
+                        const isActive = activeMs < 120_000 && (!leftAt || new Date(lastActive!).getTime() > new Date(leftAt).getTime());
+                        const hasLeft = leftAt && (!lastActive || new Date(leftAt).getTime() >= new Date(lastActive).getTime());
+                        const formatAgo = (ms: number) => {
+                          const mins = Math.floor(ms / 60_000);
+                          if (mins < 1) return "just now";
+                          if (mins < 60) return `${mins}m ago`;
+                          const hrs = Math.floor(mins / 60);
+                          if (hrs < 24) return `${hrs}h ago`;
+                          return `${Math.floor(hrs / 24)}d ago`;
+                        };
+                        if (isActive) return <p className="text-xs mt-1.5 flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-green-500 animate-pulse inline-block" /> <span className="text-green-700 font-medium">Customer is on the page now</span></p>;
+                        if (hasLeft) return <p className="text-xs mt-1.5 flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-red-400 inline-block" /> <span className="text-red-600 font-medium">Left page {formatAgo(leftMs)}</span></p>;
+                        return <p className="text-xs mt-1.5 flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-gray-400 inline-block" /> <span className="text-muted-foreground">Last seen {formatAgo(activeMs)}</span></p>;
+                      })()}
                     </div>
                   );
                 })()}

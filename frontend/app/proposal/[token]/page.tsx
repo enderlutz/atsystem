@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "next/navigation";
-import { api, type ProposalData, type ScheduleSlot } from "@/lib/api";
+import { api, getActivityBeaconUrl, type ProposalData, type ScheduleSlot } from "@/lib/api";
 
 // ─── Design tokens ────────────────────────────────────────────────────────────
 const C = {
@@ -424,6 +424,43 @@ export default function ProposalPage() {
       }, 150);
     }
   }, []);
+
+  // Activity tracking — heartbeat every 30s, detect tab switch / close
+  useEffect(() => {
+    if (!token || status === "booked") return;
+    const beaconUrl = getActivityBeaconUrl(token);
+    const sendBeacon = (type: "heartbeat" | "left") => {
+      try {
+        navigator.sendBeacon(beaconUrl, JSON.stringify({ type }));
+      } catch {
+        // Fallback — fire-and-forget fetch
+        fetch(beaconUrl, { method: "POST", body: JSON.stringify({ type }), headers: { "Content-Type": "application/json" }, keepalive: true }).catch(() => {});
+      }
+    };
+    // Initial heartbeat
+    api.reportProposalActivity(token, "heartbeat").catch(() => {});
+    // Periodic heartbeat
+    const timer = setInterval(() => {
+      api.reportProposalActivity(token, "heartbeat").catch(() => {});
+    }, 30_000);
+    // Visibility change — tab switch
+    const onVisChange = () => {
+      if (document.hidden) {
+        sendBeacon("left");
+      } else {
+        api.reportProposalActivity(token, "heartbeat").catch(() => {});
+      }
+    };
+    // Page close / navigate away
+    const onUnload = () => sendBeacon("left");
+    document.addEventListener("visibilitychange", onVisChange);
+    window.addEventListener("beforeunload", onUnload);
+    return () => {
+      clearInterval(timer);
+      document.removeEventListener("visibilitychange", onVisChange);
+      window.removeEventListener("beforeunload", onUnload);
+    };
+  }, [token, status]);
 
   const handleSelectPkg = (p: "essential" | "signature" | "legacy") => {
     setPkg(p);

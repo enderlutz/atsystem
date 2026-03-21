@@ -621,6 +621,21 @@ export default function LeadsPage() {
                               );
                             })()}
 
+                            {/* Customer page activity indicator */}
+                            {col.key === "sent" && est?.proposal_last_active_at && (() => {
+                              const lastActive = est.proposal_last_active_at;
+                              const leftAt = est.proposal_left_page_at;
+                              const now = Date.now();
+                              const activeMs = lastActive ? now - new Date(lastActive).getTime() : Infinity;
+                              const isActive = activeMs < 120_000 && (!leftAt || new Date(lastActive!).getTime() > new Date(leftAt!).getTime());
+                              const hasLeft = leftAt && (!lastActive || new Date(leftAt).getTime() >= new Date(lastActive).getTime());
+                              const mins = Math.floor((hasLeft ? now - new Date(leftAt!).getTime() : activeMs) / 60_000);
+                              const ago = mins < 1 ? "now" : mins < 60 ? `${mins}m` : `${Math.floor(mins / 60)}h`;
+                              if (isActive) return <span className="text-xs text-green-600 flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse inline-block" />Active now</span>;
+                              if (hasLeft) return <span className="text-xs text-red-500 flex items-center gap-1"><span className="w-1.5 h-1.5 rounded-full bg-red-400 inline-block" />Left {ago}</span>;
+                              return null;
+                            })()}
+
                             {/* Review reason (red column) */}
                             {col.key === "red" && reason && (
                               <p className="text-xs text-red-600 leading-tight">{reason}</p>
