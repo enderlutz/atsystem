@@ -261,7 +261,7 @@ export const api = {
   saveGhlStageMap: (mapping: Record<string, string>) =>
     request<{ status: string; mapped: number }>("/api/workflow/ghl-stage-map", {
       method: "POST",
-      body: JSON.stringify(mapping),
+      body: JSON.stringify({ mapping }),
     }),
 };
 

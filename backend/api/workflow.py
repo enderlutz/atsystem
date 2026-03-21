@@ -318,13 +318,17 @@ async def get_ghl_pipelines(_: dict = Depends(get_current_user)):
     return result
 
 
+class StageMapRequest(BaseModel):
+    mapping: dict[str, str]
+
+
 @router.post("/ghl-stage-map")
-async def save_ghl_stage_map(mapping: dict, _: dict = Depends(get_current_user)):
-    """Save GHL stage ID mapping. Expects {workflow_stage: ghl_stage_id}."""
+async def save_ghl_stage_map(body: StageMapRequest, _: dict = Depends(get_current_user)):
+    """Save GHL stage ID mapping. Expects {"mapping": {workflow_stage: ghl_stage_id}}."""
     db = get_db()
     now = datetime.now(timezone.utc).isoformat()
 
-    for workflow_stage, ghl_stage_id in mapping.items():
+    for workflow_stage, ghl_stage_id in body.mapping.items():
         key = f"ghl_stage_{workflow_stage}"
         db.table("workflow_config").upsert({
             "key": key,
@@ -332,4 +336,4 @@ async def save_ghl_stage_map(mapping: dict, _: dict = Depends(get_current_user))
             "updated_at": now,
         }).execute()
 
-    return {"status": "ok", "mapped": len(mapping)}
+    return {"status": "ok", "mapped": len(body.mapping)}
