@@ -42,14 +42,14 @@ export default function AutomationsPage() {
 
   const fetchData = useCallback(async () => {
     try {
-      const [s, q, c] = await Promise.all([
+      const [s, q, c] = await Promise.allSettled([
         api.getWorkflowStats(),
         api.getMessageQueue(),
         api.getWorkflowConfig(),
       ]);
-      setStats(s);
-      setQueue(q);
-      setConfig(c);
+      if (s.status === "fulfilled") setStats(s.value);
+      if (q.status === "fulfilled") setQueue(q.value);
+      if (c.status === "fulfilled") setConfig(c.value);
     } catch (e) {
       console.error("Failed to load workflow data:", e);
     } finally {

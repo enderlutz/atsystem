@@ -233,7 +233,7 @@ async def get_workflow_stats(_: dict = Depends(get_current_user)):
         stage_counts[s] = stage_counts.get(s, 0) + 1
 
     # Pending messages count
-    pending_res = db.table("sms_queue").select("id", head=1).eq("status", "pending").execute()
+    pending_res = db.table("sms_queue").select("id").eq("status", "pending").execute()
     # This is an approximation — for exact count we'd need count()
 
     # Messages sent today
