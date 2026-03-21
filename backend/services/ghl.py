@@ -191,29 +191,36 @@ def send_message_to_contact(contact_id: str, message: str) -> bool:
         return False
 
 
-def format_estimate_for_client(estimate: dict, service_type: str, selected_tier: str = "signature") -> str:
+def format_estimate_for_client(estimate: dict, service_type: str, selected_tier: str = "signature", first_name: str = "", proposal_url: str = "") -> str:
     """Format the approved estimate as an SMS showing all 3 package options."""
     service = "Fence Restoration" if service_type == "fence_staining" else "Pressure Washing"
     tiers = (estimate.get("inputs") or {}).get("_tiers") or {}
     essential  = float(tiers.get("essential") or 0)
     signature  = float(tiers.get("signature") or 0)
     legacy     = float(tiers.get("legacy") or 0)
+    name = first_name or "there"
 
     if essential and signature and legacy:
-        return (
-            f"Hi! Thanks for reaching out about your {service} project. "
-            f"Based on your fence details, we've put together a custom proposal with package options "
-            f"tailored to your fence — including our most popular Signature package.\n\n"
-            f"Any questions? Reply here anytime!"
+        msg = (
+            f"Hey {name}! Thank you so much for reaching out about your {service} project. "
+            f"Your interactive proposal is ready! We skip the PDFs because we have your experience in mind. "
+            f"Open the link below, pick your package, choose your color, and book your date all in one spot. "
+            f"Feel free to reply anytime if you need anything! - Amy"
         )
+        if proposal_url:
+            msg += f"\n\n{proposal_url}"
+        return msg
+
     # Fallback for non-fence-staining
     price = estimate.get("estimate_low", 0)
-    return (
-        f"Hi! Thanks for reaching out about your {service} project. "
+    msg = (
+        f"Hey {name}! Thank you so much for reaching out about your {service} project. "
         f"Based on the details you shared, your estimate is ${price:,.0f}. "
-        f"Our team will be in touch shortly to confirm the details and send your full proposal. "
-        f"Any questions? Reply here anytime!"
+        f"Our team will be in touch shortly. Feel free to reply anytime if you need anything! - Amy"
     )
+    if proposal_url:
+        msg += f"\n\n{proposal_url}"
+    return msg
 
 
 # ── Conversations (response detection) ───────────────────────────────

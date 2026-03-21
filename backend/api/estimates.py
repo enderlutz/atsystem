@@ -126,8 +126,8 @@ async def approve_estimate(estimate_id: str, body: EstimateApprove = EstimateApp
 
     contact_id = lead.get("ghl_contact_id")
     if contact_id:
-        msg = format_estimate_for_client(estimate, estimate["service_type"])
-        msg += f"\n\nView your packages and book your appointment:\n{proposal_url}"
+        first_name = (lead.get("contact_name") or "").split()[0]
+        msg = format_estimate_for_client(estimate, estimate["service_type"], first_name=first_name, proposal_url=proposal_url)
         sent = send_message_to_contact(contact_id, msg)
         if sent:
             send_count = (estimate.get("send_count") or 0) + 1
@@ -209,8 +209,8 @@ async def admin_approve_estimate(estimate_id: str, body: AdminApproveRequest, _:
 
     contact_id = lead.get("ghl_contact_id")
     if contact_id:
-        msg = format_estimate_for_client({**estimate, "inputs": inputs}, estimate["service_type"])
-        msg += f"\n\nView your packages and book your appointment:\n{proposal_url}"
+        first_name = (lead.get("contact_name") or "").split()[0]
+        msg = format_estimate_for_client({**estimate, "inputs": inputs}, estimate["service_type"], first_name=first_name, proposal_url=proposal_url)
         sent = send_message_to_contact(contact_id, msg)
         if sent:
             send_count = (estimate.get("send_count") or 0) + 1
@@ -274,8 +274,8 @@ async def adjust_estimate(estimate_id: str, body: EstimateAdjust, _: dict = Depe
     contact_id = lead.get("ghl_contact_id")
     if contact_id:
         adjusted_estimate = {**estimate, "estimate_low": body.estimate_low, "estimate_high": body.estimate_high}
-        msg = format_estimate_for_client(adjusted_estimate, estimate["service_type"])
-        msg += f"\n\nView your custom quote and book your appointment:\n{proposal_url}"
+        first_name = (lead.get("contact_name") or "").split()[0]
+        msg = format_estimate_for_client(adjusted_estimate, estimate["service_type"], first_name=first_name, proposal_url=proposal_url)
         sent = send_message_to_contact(contact_id, msg)
         if sent:
             send_count = (estimate.get("send_count") or 0) + 1
@@ -377,8 +377,8 @@ async def resend_estimate(estimate_id: str, _: dict = Depends(require_admin)):
 
     contact_id = lead.get("ghl_contact_id")
     if contact_id:
-        msg = format_estimate_for_client(estimate, estimate["service_type"])
-        msg += f"\n\nView your packages and book your appointment:\n{proposal_url}"
+        first_name = (lead.get("contact_name") or "").split()[0]
+        msg = format_estimate_for_client(estimate, estimate["service_type"], first_name=first_name, proposal_url=proposal_url)
         sent = send_message_to_contact(contact_id, msg)
         if sent:
             send_count = (estimate.get("send_count") or 0) + 1
