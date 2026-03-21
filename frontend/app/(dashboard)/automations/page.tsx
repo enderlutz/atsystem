@@ -113,12 +113,11 @@ export default function AutomationsPage() {
     return `in ${days}d`;
   };
 
-  const handleLoadPipelines = async () => {
+  const handleLoadPipelines = useCallback(async () => {
     setLoadingPipelines(true);
     try {
       const pipelines = await api.getGhlPipelines();
       setGhlPipelines(pipelines);
-      // Pre-select first pipeline
       if (pipelines.length > 0) setSelectedPipeline(pipelines[0].id);
       // Pre-fill mapping from existing config
       const existing: Record<string, string> = {};
@@ -134,7 +133,18 @@ export default function AutomationsPage() {
     } finally {
       setLoadingPipelines(false);
     }
-  };
+  }, [config]);
+
+  // Auto-load GHL pipelines if saved mappings exist
+  const [autoLoaded, setAutoLoaded] = useState(false);
+  useEffect(() => {
+    if (autoLoaded || ghlPipelines.length > 0) return;
+    const hasMappings = config.some((c) => c.key.startsWith("ghl_stage_") && c.value);
+    if (hasMappings) {
+      setAutoLoaded(true);
+      handleLoadPipelines();
+    }
+  }, [config, autoLoaded, ghlPipelines.length, handleLoadPipelines]);
 
   const handleSaveStageMap = async () => {
     setSavingMap(true);
