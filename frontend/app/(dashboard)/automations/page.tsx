@@ -447,36 +447,38 @@ export default function AutomationsPage() {
         </CardHeader>
         <CardContent>
           <div className="space-y-4">
-            {config.map((item) => {
-              const isEditing = item.key in editingConfig;
+            {Object.entries(configLabels)
+              .filter(([key]) => !key.startsWith("ghl_stage_"))
+              .map(([key, label]) => {
+              const existing = config.find((c) => c.key === key);
+              const isEditing = key in editingConfig;
               const currentValue = isEditing
-                ? editingConfig[item.key]
-                : item.value;
+                ? editingConfig[key]
+                : existing?.value || "";
 
               return (
-                <div key={item.key} className="space-y-1">
-                  <label className="text-sm font-medium">
-                    {configLabels[item.key] || item.key}
-                  </label>
+                <div key={key} className="space-y-1">
+                  <label className="text-sm font-medium">{label}</label>
                   <div className="flex gap-2">
                     <Input
                       value={currentValue}
                       onChange={(e) =>
                         setEditingConfig((prev) => ({
                           ...prev,
-                          [item.key]: e.target.value,
+                          [key]: e.target.value,
                         }))
                       }
+                      placeholder={`Enter ${label.toLowerCase()}`}
                       className="flex-1"
                     />
                     {isEditing && (
                       <Button
                         size="sm"
-                        onClick={() => handleSaveConfig(item.key)}
-                        disabled={saving === item.key}
+                        onClick={() => handleSaveConfig(key)}
+                        disabled={saving === key}
                       >
                         <Save className="h-3 w-3 mr-1" />
-                        {saving === item.key ? "Saving..." : "Save"}
+                        {saving === key ? "Saving..." : "Save"}
                       </Button>
                     )}
                   </div>
