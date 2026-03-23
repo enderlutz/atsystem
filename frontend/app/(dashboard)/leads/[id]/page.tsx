@@ -136,6 +136,14 @@ export default function LeadDetailPage() {
   const [confirmingAddress, setConfirmingAddress] = useState(false);
   const [addressConfirmed, setAddressConfirmed] = useState(false);
 
+  // Workflow shortcut buttons state
+  const [askingAddress, setAskingAddress] = useState(false);
+  const [addressAsked, setAddressAsked] = useState(false);
+  const [triggeringNewBuild, setTriggeringNewBuild] = useState(false);
+  const [newBuildTriggered, setNewBuildTriggered] = useState(false);
+  const [sendingDateLink, setSendingDateLink] = useState(false);
+  const [dateLinkSent, setDateLinkSent] = useState(false);
+
   // Estimate preview modal
   const [showPreview, setShowPreview] = useState(false);
   const [previewToken, setPreviewToken] = useState<string | null>(null);
@@ -387,6 +395,45 @@ export default function LeadDetailPage() {
       setApproveError(e instanceof Error ? e.message : "Failed to reject");
     } finally {
       setApprovingEstimate(false);
+    }
+  };
+
+  const handleAskForAddress = async () => {
+    if (!lead) return;
+    setAskingAddress(true);
+    try {
+      await api.askForAddress(lead.id);
+      setAddressAsked(true);
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setAskingAddress(false);
+    }
+  };
+
+  const handleNewBuild = async () => {
+    if (!lead) return;
+    setTriggeringNewBuild(true);
+    try {
+      await api.triggerNewBuild(lead.id);
+      setNewBuildTriggered(true);
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setTriggeringNewBuild(false);
+    }
+  };
+
+  const handleSendDateLink = async () => {
+    if (!lead) return;
+    setSendingDateLink(true);
+    try {
+      await api.sendDateLink(lead.id);
+      setDateLinkSent(true);
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setSendingDateLink(false);
     }
   };
 
@@ -925,6 +972,30 @@ export default function LeadDetailPage() {
             <p className="text-xs text-muted-foreground">Auto-populated from the customer's GHL form. Check "Edit" to override.</p>
           </div>
 
+          {/* Workflow address shortcut buttons */}
+          <div className="flex gap-2 flex-wrap pt-1 border-t">
+            <Button
+              variant="outline"
+              size="sm"
+              className="gap-1.5 text-xs"
+              onClick={handleAskForAddress}
+              disabled={askingAddress || addressAsked}
+            >
+              <MessageSquare className="h-3.5 w-3.5" />
+              {addressAsked ? "Address Request Sent ✓" : askingAddress ? "Sending..." : "Ask for Address"}
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              className="gap-1.5 text-xs"
+              onClick={handleNewBuild}
+              disabled={triggeringNewBuild || newBuildTriggered}
+            >
+              <MapPin className="h-3.5 w-3.5" />
+              {newBuildTriggered ? "New Build SMS Sent ✓" : triggeringNewBuild ? "Sending..." : "New Build – Can't Measure"}
+            </Button>
+          </div>
+
           <Button
             onClick={handleSaveEstimateInputs}
             disabled={savingEstimate}
@@ -1113,6 +1184,81 @@ export default function LeadDetailPage() {
                 {lead.workflow_stage && (
                   <WorkflowSection leadId={lead.id} workflowStage={lead.workflow_stage} workflowPaused={lead.workflow_paused || false} />
                 )}
+
+                {/* Interactive Proposal Data */}
+                {(est?.proposal_selected_tier || est?.proposal_color_mode || est?.proposal_booked_at) && (() => {
+                  const tier = est.proposal_selected_tier;
+                  const colorMode = est.proposal_color_mode;
+                  const color = est.proposal_selected_color;
+                  const hoaColors = est.proposal_hoa_colors;
+                  const customColor = est.proposal_custom_color;
+                  const bookedAt = est.proposal_booked_at;
+                  const isBooked = est.proposal_status === "booked";
+
+                  const colorDisplay = (() => {
+                    if (!colorMode || colorMode === "gallery") return color || null;
+                    if (colorMode === "hoa_only") return hoaColors?.length ? `HOA: ${hoaColors.join(", ")}` : null;
+                    if (colorMode === "hoa_approved") return customColor ? `HOA Approved — ${customColor}` : "HOA Approved (pending)";
+                    if (colorMode === "custom") return customColor ? `Custom — ${customColor}` : "Custom (pending)";
+                    return color || null;
+                  })();
+
+                  const hoaOptionLabel = (() => {
+                    if (!colorMode || colorMode === "gallery") return null;
+                    if (colorMode === "hoa_only") return "HOA Multi-Select";
+                    if (colorMode === "hoa_approved") return "HOA Approved Color";
+                    if (colorMode === "custom") return "Custom Color";
+                    return null;
+                  })();
+
+                  return (
+                    <div className="rounded-lg border bg-muted/20 p-3 space-y-2.5">
+                      <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Interactive Proposal Data</p>
+                      <div className="grid grid-cols-2 gap-x-4 gap-y-1.5 text-sm">
+                        {tier && (
+                          <>
+                            <span className="text-muted-foreground text-xs">Package</span>
+                            <span className="text-xs font-medium capitalize">{tier}</span>
+                          </>
+                        )}
+                        {hoaOptionLabel && (
+                          <>
+                            <span className="text-muted-foreground text-xs">HOA Option</span>
+                            <span className="text-xs font-medium">{hoaOptionLabel}</span>
+                          </>
+                        )}
+                        {colorDisplay && (
+                          <>
+                            <span className="text-muted-foreground text-xs">Color</span>
+                            <span className="text-xs font-medium">{colorDisplay}</span>
+                          </>
+                        )}
+                        {bookedAt && (
+                          <>
+                            <span className="text-muted-foreground text-xs">Date</span>
+                            <span className="text-xs font-medium">
+                              {new Date(bookedAt).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric", year: "numeric" })}
+                              {isBooked && <span className="ml-1.5 text-green-600 font-semibold">✓ Booked</span>}
+                            </span>
+                          </>
+                        )}
+                      </div>
+                      {/* Send date-selection link when color is chosen but no date yet */}
+                      {colorDisplay && !isBooked && !bookedAt && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="gap-1.5 text-xs w-full"
+                          onClick={handleSendDateLink}
+                          disabled={sendingDateLink || dateLinkSent}
+                        >
+                          <Send className="h-3.5 w-3.5" />
+                          {dateLinkSent ? "Date Link Sent ✓" : sendingDateLink ? "Sending..." : "Send Date Selection Link"}
+                        </Button>
+                      )}
+                    </div>
+                  );
+                })()}
               </div>
             ) : isRed ? (
               isAdmin ? (

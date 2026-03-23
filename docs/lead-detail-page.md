@@ -1,4 +1,4 @@
-# Lead Detail Page — Logic Reference
+N# Lead Detail Page — Logic Reference
 
 **File:** `frontend/app/(dashboard)/leads/[id]/page.tsx`
 

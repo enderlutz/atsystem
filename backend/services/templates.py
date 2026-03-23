@@ -56,6 +56,22 @@ _NEW_LEAD = [
      "- Amy"),
 ]
 
+# -- Stage 1b: New Build — Can't Measure on Google Earth ----------------------
+
+_NEW_BUILD = [
+    (0,
+     "Hi {first_name}! We were checking out your address to measure your fence "
+     "line through Google Earth and it looks like your home might be a newer "
+     "build — it hasn't been fully updated on the map yet! No worries though. "
+     "We have two easy options: you can send us a few photos of your fence so "
+     "we can estimate from those, or we can do a quick free in-person "
+     "measurement. Which one works better for you?"),
+    (86400,  # 24 hours
+     "Hey {first_name}! Just circling back on this! We just need either some "
+     "fence photos or to schedule a quick free visit so we can get your "
+     "estimate put together. Which works best for you?"),
+]
+
 # -- Stage 2: Asking for Address / ZIP ----------------------------------------
 
 _ASKING_ADDRESS = [
@@ -99,12 +115,19 @@ _PROPOSAL_SENT = [
      "Hey {first_name}, good news, we've still got availability on the "
      "schedule for your area! Your estimate is ready whenever you are: "
      "{proposal_link}"),
+    (432000,  # Day 5
+     "Hey {first_name}! Still thinking it over? Totally get it! If you have "
+     "any questions about the packages or what's included, just reply and I'm "
+     "happy to walk you through it. We would love to take care of y'all!"),
+    (518400,  # Day 6
+     "Hey {first_name}, last little check-in from me! Your estimate is still "
+     "right here whenever you're ready: {proposal_link} — Amy"),
 ]
 
 # -- Stage 5: No Package Selection --------------------------------------------
 
 _NO_PACKAGE = [
-    (1800,  # 30 min after stage entry (which is 30 min after open)
+    (0,  # Immediate — 15-min wait already happened in PROPOSAL_SENT stage
      "Hey {first_name}! I noticed you took a look at your estimate, that's "
      "great! Our most popular option is the Signature package. It gives you "
      "beautiful results and honestly the best value. Need a hand choosing? "
@@ -202,7 +225,7 @@ _NO_DATE = [
 # -- Stage 8: Date Selected / No Deposit --------------------------------------
 
 _DATE_SELECTED = [
-    (0,
+    (60,  # 1 minute — fires immediately if customer left; deferred to 15 min if still active
      "Awesome, {first_name}! Your date is set for {date}! To get it locked "
      "in, we just need a $50 deposit that goes right toward your total. Only "
      "takes a minute: {stripe_link}. Just so you know, your spot isn't "
@@ -353,6 +376,7 @@ _PAST_CUSTOMER = [
 
 STAGE_TEMPLATES: dict[str, list[tuple[int, str]]] = {
     "new_lead": _NEW_LEAD,
+    "new_build": _NEW_BUILD,
     "asking_address": _ASKING_ADDRESS,
     "hot_lead": _HOT_LEAD,
     "proposal_sent": _PROPOSAL_SENT,

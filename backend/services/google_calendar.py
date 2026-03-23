@@ -50,6 +50,7 @@ def create_calendar_event(
             },
         }
 
+        logger.info(f"Creating calendar event on calendar_id={calendar_id!r}")
         created = service.events().insert(calendarId=calendar_id, body=event).execute()
         event_id = created.get("id")
         logger.info(f"Calendar event created: {event_id}")

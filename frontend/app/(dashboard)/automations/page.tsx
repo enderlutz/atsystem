@@ -8,10 +8,299 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
   Zap, MessageSquare, Clock, Pause, Send, X, Save, Settings2, Link2, Check, Loader2,
+  GitBranch,
 } from "lucide-react";
+
+// ─── Workflow Diagram ──────────────────────────────────────────────────────────
+
+type NodeType = "trigger" | "condition" | "action" | "wait" | "end" | "manual";
+
+interface ChainNode {
+  type: NodeType;
+  label: string;
+  detail?: string;
+}
+
+interface WFBranch {
+  label: string;
+  nodes: ChainNode[];
+}
+
+interface WorkflowDef {
+  id: string;
+  title: string;
+  dot: string;
+  chain: ChainNode[];
+  branches?: WFBranch[];
+  note?: string;
+}
+
+const NODE_STYLES: Record<NodeType, string> = {
+  trigger: "bg-blue-100 border border-blue-400 text-blue-800",
+  condition: "bg-amber-100 border border-amber-400 text-amber-800",
+  action: "bg-green-100 border border-green-500 text-green-800",
+  wait: "bg-gray-100 border border-gray-300 text-gray-600",
+  end: "bg-purple-100 border border-purple-400 text-purple-800",
+  manual: "bg-orange-100 border border-orange-400 text-orange-800",
+};
+
+function NodeChip({ node }: { node: ChainNode }) {
+  return (
+    <span
+      className={`inline-flex flex-col items-center rounded-md px-2 py-1 text-xs font-medium leading-tight ${NODE_STYLES[node.type]}`}
+      title={node.detail}
+    >
+      {node.label}
+      {node.detail && (
+        <span className="text-[10px] font-normal opacity-70 mt-0.5">{node.detail}</span>
+      )}
+    </span>
+  );
+}
+
+const WORKFLOW_DEFINITIONS: WorkflowDef[] = [
+  {
+    id: "wf1",
+    title: "WF1 — New Lead",
+    dot: "bg-blue-500",
+    chain: [
+      { type: "trigger", label: "New lead arrives" },
+      { type: "action", label: "Send intro SMS ×3", detail: "Now → 1hr → 24hr" },
+      { type: "condition", label: "Customer replies?" },
+    ],
+    branches: [
+      { label: "YES + has address", nodes: [{ type: "end", label: "→ Hot Lead" }] },
+      { label: "YES + no address", nodes: [{ type: "end", label: "→ Ask Address" }] },
+    ],
+    note: "VA override: can approve estimate directly (force send) without waiting for a reply.",
+  },
+  {
+    id: "wf2a",
+    title: "WF2a — Ask for Address",
+    dot: "bg-orange-400",
+    chain: [
+      { type: "manual", label: "VA clicks 'Ask for Address'" },
+      { type: "action", label: "Send address request ×2", detail: "Now → 24hr" },
+      { type: "wait", label: "VA reviews reply" },
+      { type: "end", label: "→ Hot Lead (manual)" },
+    ],
+  },
+  {
+    id: "wf2b",
+    title: "WF2b — New Build (Can't Measure)",
+    dot: "bg-orange-400",
+    chain: [
+      { type: "manual", label: "VA clicks 'New Build'" },
+      { type: "action", label: "Send photos/in-person SMS ×2", detail: "Now → 24hr" },
+      { type: "wait", label: "Customer chooses option" },
+      { type: "end", label: "→ VA handles" },
+    ],
+  },
+  {
+    id: "wf3",
+    title: "WF3 — Proposal Sent (No Open)",
+    dot: "bg-teal-500",
+    chain: [
+      { type: "trigger", label: "Estimate approved & sent" },
+      { type: "action", label: "Proposal link SMS", detail: "Immediate" },
+      { type: "wait", label: "Customer opens?" },
+    ],
+    branches: [
+      {
+        label: "NO — follow-ups",
+        nodes: [
+          { type: "action", label: "4hr follow-up" },
+          { type: "action", label: "Day 2" },
+          { type: "action", label: "Day 4" },
+          { type: "action", label: "Day 5" },
+          { type: "action", label: "Day 6" },
+        ],
+      },
+      { label: "YES — opened", nodes: [{ type: "end", label: "→ WF5" }] },
+    ],
+  },
+  {
+    id: "wf5",
+    title: "WF5 — No Package Selection",
+    dot: "bg-yellow-500",
+    chain: [
+      { type: "trigger", label: "Proposal opened" },
+      { type: "wait", label: "15 min" },
+      { type: "condition", label: "Package chosen?" },
+    ],
+    branches: [
+      {
+        label: "NO",
+        nodes: [
+          { type: "action", label: "\"Signature is popular\" SMS", detail: "Immediate" },
+          { type: "action", label: "Day 1" },
+          { type: "action", label: "Day 3 (review)" },
+          { type: "action", label: "Day 5" },
+          { type: "action", label: "Day 6" },
+          { type: "end", label: "7d → Cold Nurture" },
+        ],
+      },
+      { label: "YES", nodes: [{ type: "end", label: "→ WF6" }] },
+    ],
+  },
+  {
+    id: "wf6",
+    title: "WF6 — Package Selected, No Color",
+    dot: "bg-cyan-400",
+    chain: [
+      { type: "trigger", label: "Package selected" },
+      { type: "action", label: "Tier color chart SMS", detail: "Immediate + 2hr + Day 2" },
+      { type: "condition", label: "Customer texts color?" },
+    ],
+    branches: [
+      {
+        label: "YES — auto-detected",
+        nodes: [
+          { type: "action", label: "Color saved to proposal" },
+          { type: "end", label: "→ No Date" },
+        ],
+      },
+      {
+        label: "NO — VA sends date link",
+        nodes: [
+          { type: "manual", label: "VA: 'Send Date Link'" },
+          { type: "action", label: "SMS with ?step=date URL" },
+          { type: "end", label: "→ No Date" },
+        ],
+      },
+    ],
+  },
+  {
+    id: "wf7",
+    title: "WF7 — No Date Selected",
+    dot: "bg-indigo-500",
+    chain: [
+      { type: "trigger", label: "Color chosen, no date" },
+      { type: "action", label: "\"Openings available\" SMS", detail: "Immediate" },
+      { type: "action", label: "4hr nudge" },
+      { type: "action", label: "Day 2 (urgency)" },
+      { type: "action", label: "Day 4 (personal)" },
+    ],
+  },
+  {
+    id: "wf8",
+    title: "WF8 — Date Selected, No Deposit",
+    dot: "bg-blue-800",
+    chain: [
+      { type: "trigger", label: "Date selected" },
+      { type: "condition", label: "Still on page?" },
+    ],
+    branches: [
+      {
+        label: "NO (left)",
+        nodes: [
+          { type: "action", label: "Deposit reminder", detail: "1 min" },
+          { type: "action", label: "2hr reminder" },
+          { type: "action", label: "Day 1" },
+          { type: "action", label: "Day 2" },
+        ],
+      },
+      {
+        label: "YES (active)",
+        nodes: [
+          { type: "wait", label: "15 min" },
+          { type: "action", label: "Deposit reminder" },
+        ],
+      },
+    ],
+  },
+  {
+    id: "wf9",
+    title: "WF9 — Deposit Paid",
+    dot: "bg-green-600",
+    chain: [
+      { type: "trigger", label: "Deposit paid" },
+      { type: "action", label: "Confirmation SMS", detail: "Immediate" },
+      { type: "action", label: "Day-before reminder", detail: "6 PM eve" },
+      { type: "action", label: "Job-day SMS", detail: "7 AM" },
+      { type: "manual", label: "VA marks complete" },
+      { type: "action", label: "Review request + referral", detail: "Now + Day 3" },
+      { type: "end", label: "14d → Past Customer" },
+    ],
+  },
+];
+
+function WorkflowDiagram() {
+  const legend: { type: NodeType; label: string }[] = [
+    { type: "trigger", label: "Trigger / event" },
+    { type: "action", label: "Send SMS / action" },
+    { type: "condition", label: "Condition / branch" },
+    { type: "wait", label: "Wait / timer" },
+    { type: "manual", label: "VA manual action" },
+    { type: "end", label: "Stage transition" },
+  ];
+
+  return (
+    <div className="space-y-4">
+      {/* Legend */}
+      <div className="flex flex-wrap gap-2 pb-2 border-b">
+        {legend.map(({ type, label }) => (
+          <span key={type} className={`inline-flex items-center gap-1.5 rounded-md px-2 py-0.5 text-xs font-medium ${NODE_STYLES[type]}`}>
+            {label}
+          </span>
+        ))}
+      </div>
+
+      {WORKFLOW_DEFINITIONS.map((wf) => (
+        <Card key={wf.id} className="overflow-hidden">
+          <CardHeader className="py-3 px-4">
+            <CardTitle className="text-sm flex items-center gap-2">
+              <div className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${wf.dot}`} />
+              {wf.title}
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="px-4 pb-3 space-y-2">
+            {/* Main chain */}
+            <div className="flex flex-wrap items-start gap-1">
+              {wf.chain.map((node, i) => (
+                <div key={i} className="flex items-start gap-1">
+                  <NodeChip node={node} />
+                  {i < wf.chain.length - 1 && (
+                    <span className="text-muted-foreground text-xs pt-1.5">→</span>
+                  )}
+                </div>
+              ))}
+            </div>
+
+            {/* Branches */}
+            {wf.branches && (
+              <div className="space-y-1.5 ml-2 pl-3 border-l-2 border-muted">
+                {wf.branches.map((branch, bi) => (
+                  <div key={bi} className="flex flex-wrap items-start gap-1">
+                    <span className="text-xs font-medium text-muted-foreground pt-1 flex-shrink-0">
+                      {branch.label}:
+                    </span>
+                    {branch.nodes.map((node, ni) => (
+                      <div key={ni} className="flex items-start gap-1">
+                        <NodeChip node={node} />
+                        {ni < branch.nodes.length - 1 && (
+                          <span className="text-muted-foreground text-xs pt-1.5">→</span>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {wf.note && (
+              <p className="text-xs text-muted-foreground italic border-t pt-2">{wf.note}</p>
+            )}
+          </CardContent>
+        </Card>
+      ))}
+    </div>
+  );
+}
 
 const STAGE_COLORS: Record<string, string> = {
   new_lead: "bg-blue-500",
+  new_build: "bg-orange-300",
   asking_address: "bg-orange-400",
   hot_lead: "bg-red-500",
   proposal_sent: "bg-teal-500",
@@ -27,6 +316,7 @@ const STAGE_COLORS: Record<string, string> = {
 };
 
 export default function AutomationsPage() {
+  const [activeTab, setActiveTab] = useState<"overview" | "workflow">("overview");
   const [stats, setStats] = useState<WorkflowStats | null>(null);
   const [queue, setQueue] = useState<QueuedMessage[]>([]);
   const [config, setConfig] = useState<WorkflowConfigItem[]>([]);
@@ -171,6 +461,7 @@ export default function AutomationsPage() {
 
   const WORKFLOW_STAGES = [
     { value: "new_lead", label: "New Lead" },
+    { value: "new_build", label: "New Build – Asking for Photos" },
     { value: "asking_address", label: "Asking for Address" },
     { value: "hot_lead", label: "Hot Lead" },
     { value: "proposal_sent", label: "Proposal Sent" },
@@ -199,6 +490,18 @@ export default function AutomationsPage() {
     popular_color_2: "Popular Color #2",
   };
 
+  const configHints: Record<string, string> = {
+    google_review_link: "Your Google Business review URL. Used in Job Complete and Cold Nurture messages to ask customers for reviews.",
+    cold_lead_incentive: "Promo text sent to cold leads at month 3. Goes into the message as: \"We've got a little something special going on this month, [your text here].\" Example: $100 off any fence staining booked this month",
+    referral_bonus: "What referrers and referred customers get. Goes into: \"Anyone who books through you gets [your text here]!\" Example: $50 off their service and you get $50 off your next one",
+    entry_color_name: "The single stain color name available in the Entry package. Example: Dark Walnut",
+    entry_color_link: "Image URL showing the Entry color on a real fence. Sent to customers who pick the Entry package.",
+    signature_color_chart: "Image URL showing all 6 Signature color options. Sent to customers who pick the Signature package.",
+    legacy_color_chart: "Image URL showing all 6 Legacy/premium color options. Sent to customers who pick the Legacy package.",
+    popular_color_1: "Name of the most popular stain color. Used in Package Selected messages. Example: Dark Walnut",
+    popular_color_2: "Name of the second most popular stain color. Example: Cedar",
+  };
+
   if (loading) {
     return (
       <div className="p-6">
@@ -225,6 +528,35 @@ export default function AutomationsPage() {
           Refresh
         </Button>
       </div>
+
+      {/* Tab bar */}
+      <div className="flex border-b">
+        <button
+          className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
+            activeTab === "overview"
+              ? "border-primary text-primary"
+              : "border-transparent text-muted-foreground hover:text-foreground"
+          }`}
+          onClick={() => setActiveTab("overview")}
+        >
+          Overview
+        </button>
+        <button
+          className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors flex items-center gap-1.5 ${
+            activeTab === "workflow"
+              ? "border-primary text-primary"
+              : "border-transparent text-muted-foreground hover:text-foreground"
+          }`}
+          onClick={() => setActiveTab("workflow")}
+        >
+          <GitBranch className="h-3.5 w-3.5" />
+          Workflow Diagram
+        </button>
+      </div>
+
+      {activeTab === "workflow" && <WorkflowDiagram />}
+
+      {activeTab === "overview" && (<>
 
       {/* Stats cards */}
       {stats && (
@@ -536,6 +868,7 @@ export default function AutomationsPage() {
           </div>
         </CardContent>
       </Card>
+      </>)}
     </div>
   );
 }

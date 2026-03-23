@@ -180,6 +180,17 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ stage }),
     }),
+  saveProposalSelection: (token: string, data: {
+    selected_tier?: string;
+    color_mode?: string;
+    selected_color?: string;
+    hoa_colors?: string[];
+    custom_color?: string;
+  }) =>
+    request<{ status: string }>(`/api/proposal/${token}/selection`, {
+      method: "PATCH",
+      body: JSON.stringify(data),
+    }),
   reportProposalActivity: (token: string, type: "heartbeat" | "left") =>
     request<{ status: string }>(`/api/proposal/${token}/activity`, {
       method: "POST",
@@ -263,6 +274,12 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ mapping }),
     }),
+  askForAddress: (leadId: string) =>
+    request<{ status: string; new_stage: string }>(`/api/workflow/leads/${leadId}/ask-address`, { method: "POST" }),
+  triggerNewBuild: (leadId: string) =>
+    request<{ status: string; new_stage: string }>(`/api/workflow/leads/${leadId}/new-build`, { method: "POST" }),
+  sendDateLink: (leadId: string) =>
+    request<{ status: string; new_stage: string; url: string }>(`/api/workflow/leads/${leadId}/send-date-link`, { method: "POST" }),
 };
 
 // --- Beacon helper (for sendBeacon on page unload) ---
@@ -326,6 +343,12 @@ export interface EstimateDetail extends Estimate {
   inputs: Record<string, string | number | boolean>;
   breakdown: BreakdownItem[];
   proposal_token?: string;
+  proposal_selected_tier?: string;
+  proposal_color_mode?: string;
+  proposal_selected_color?: string;
+  proposal_hoa_colors?: string[];
+  proposal_custom_color?: string;
+  proposal_booked_at?: string;
 }
 
 export interface BreakdownItem {
@@ -435,12 +458,20 @@ export interface ScheduleSlot {
   spots_remaining: number;
 }
 
+export interface ScheduleBooking {
+  customer_name: string;
+  contact_phone: string;
+  selected_tier: string;
+  booked_at: string;
+}
+
 export interface AdminScheduleSlot {
   date: string;
   is_available: boolean;
   label?: string;
   max_bookings: number;
   booked_count: number;
+  bookings?: ScheduleBooking[];
 }
 
 // --- Workflow Types ---

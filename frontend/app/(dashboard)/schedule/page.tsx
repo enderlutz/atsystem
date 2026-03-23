@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { api, getCurrentUser, type AdminScheduleSlot } from "@/lib/api";
+import { api, getCurrentUser, type AdminScheduleSlot, type ScheduleBooking } from "@/lib/api";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -227,6 +227,24 @@ export default function SchedulePage() {
                   </Badge>
                 )}
               </CardHeader>
+              {/* Booking details — shown to all roles */}
+              {slotMap[selectedDate]?.bookings && slotMap[selectedDate].bookings!.length > 0 && (
+                <CardContent className="pb-0 space-y-2">
+                  <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Bookings</p>
+                  {slotMap[selectedDate].bookings!.map((b: ScheduleBooking, i: number) => (
+                    <div key={i} className="rounded-md border bg-muted/30 px-3 py-2 space-y-0.5 text-sm">
+                      <p className="font-medium">{b.customer_name}</p>
+                      <p className="text-muted-foreground text-xs capitalize">{b.selected_tier} package</p>
+                      {b.contact_phone && (
+                        <p className="text-muted-foreground text-xs">{b.contact_phone}</p>
+                      )}
+                      <p className="text-muted-foreground text-xs">
+                        {new Date(b.booked_at).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}
+                      </p>
+                    </div>
+                  ))}
+                </CardContent>
+              )}
               {isAdmin ? (
                 <CardContent className="space-y-3">
                   <div className="flex items-center gap-2">

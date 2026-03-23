@@ -318,6 +318,79 @@ async def get_ghl_pipelines(_: dict = Depends(get_current_user)):
     return result
 
 
+# ── VA shortcut: ask for address ─────────────────────────────────────
+
+@router.post("/leads/{lead_id}/ask-address")
+async def ask_for_address(lead_id: str, _: dict = Depends(get_current_user)):
+    """Transition lead to ASKING_ADDRESS stage — sends the address request SMS."""
+    transition_stage(lead_id, Stage.ASKING_ADDRESS, reason="va_ask_address")
+    return {"status": "ok", "new_stage": Stage.ASKING_ADDRESS.value}
+
+
+# ── VA shortcut: new build ────────────────────────────────────────────
+
+@router.post("/leads/{lead_id}/new-build")
+async def trigger_new_build(lead_id: str, _: dict = Depends(get_current_user)):
+    """Transition lead to NEW_BUILD stage — sends 'can't measure, send photos or in-person?' SMS."""
+    transition_stage(lead_id, Stage.NEW_BUILD, reason="va_new_build")
+    return {"status": "ok", "new_stage": Stage.NEW_BUILD.value}
+
+
+# ── VA shortcut: send date-selection link ────────────────────────────
+
+@router.post("/leads/{lead_id}/send-date-link")
+async def send_date_link(lead_id: str, _: dict = Depends(get_current_user)):
+    """Send a proposal link that jumps straight to the date picker (color already chosen).
+    Transitions lead to NO_DATE stage."""
+    from services.ghl import send_message_to_contact
+    from config import get_settings
+
+    db = get_db()
+    settings = get_settings()
+
+    lead_res = (
+        db.table("leads")
+        .select("ghl_contact_id, contact_name")
+        .eq("id", lead_id)
+        .single()
+        .execute()
+    )
+    if not lead_res.data:
+        raise HTTPException(status_code=404, detail="Lead not found")
+
+    lead = lead_res.data
+    contact_id = lead.get("ghl_contact_id")
+    if not contact_id:
+        raise HTTPException(status_code=400, detail="Lead has no GHL contact ID")
+
+    prop_res = (
+        db.table("proposals")
+        .select("token")
+        .eq("lead_id", lead_id)
+        .neq("status", "booked")
+        .order("created_at", desc=True)
+        .limit(1)
+        .execute()
+    )
+    if not prop_res.data:
+        raise HTTPException(status_code=404, detail="No active proposal found for this lead")
+
+    token = prop_res.data[0]["token"]
+    date_url = f"{settings.proposal_base_url}/proposal/{token}?step=date"
+
+    name = (lead.get("contact_name") or "").strip()
+    first_name = name.split()[0] if name else "there"
+
+    msg = (
+        f"Hey {first_name}! Great news — your color is all set! Now just pick a "
+        f"date that works for you and we'll get everything locked in: {date_url}"
+    )
+    send_message_to_contact(contact_id, msg)
+
+    transition_stage(lead_id, Stage.NO_DATE, reason="va_send_date_link")
+    return {"status": "ok", "new_stage": Stage.NO_DATE.value, "url": date_url}
+
+
 class StageMapRequest(BaseModel):
     mapping: dict[str, str]
 

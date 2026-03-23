@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useParams } from "next/navigation";
+import { useParams, useSearchParams } from "next/navigation";
 import { api, getActivityBeaconUrl, type ProposalData, type ScheduleSlot } from "@/lib/api";
 
 // ─── Design tokens ────────────────────────────────────────────────────────────
@@ -285,6 +285,8 @@ const PROOF_TIMES = ["12 minutes ago", "27 minutes ago", "43 minutes ago", "1 ho
 // ─── Main ─────────────────────────────────────────────────────────────────────
 export default function ProposalPage() {
   const { token } = useParams<{ token: string }>();
+  const searchParams = useSearchParams();
+  const skipToDate = searchParams.get("step") === "date";
   const [proposal, setProposal] = useState<ProposalData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -354,6 +356,13 @@ export default function ProposalPage() {
           if (data.contact_email) {
             setContactEmail(data.contact_email);
           }
+        } else if (skipToDate && data.selected_tier && data.selected_color) {
+          // VA sent a pre-colored link — restore saved selections and jump to date picker
+          if (data.selected_tier === "essential" || data.selected_tier === "signature" || data.selected_tier === "legacy") {
+            setPkg(data.selected_tier);
+          }
+          setStep(2);
+          trackStage("opened");
         } else {
           trackStage("opened");
         }
@@ -410,9 +419,18 @@ export default function ProposalPage() {
 
   useEffect(() => { if (step === 2) loadDates(datesMonth); }, [step, datesMonth]);
 
-  // Track color_selected stage when color selection is complete
+  // Track color_selected stage and save color data when color selection is complete
   useEffect(() => {
-    if (isColorComplete()) trackStage("color_selected");
+    if (!isColorComplete()) return;
+    trackStage("color_selected");
+    const colorName = getColorDisplayName();
+    if (colorMode === "gallery") {
+      api.saveProposalSelection(token, { color_mode: "gallery", selected_color: colorName }).catch(() => {});
+    } else if (colorMode === "hoa_only") {
+      api.saveProposalSelection(token, { color_mode: "hoa_only", hoa_colors: getHoaColorNames() }).catch(() => {});
+    } else if (colorMode === "hoa_approved" || colorMode === "custom") {
+      api.saveProposalSelection(token, { color_mode: colorMode, custom_color: customColor || undefined }).catch(() => {});
+    }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedColor, hoaColors, customColor, hoaSendLater, customSendLater, colorMode, pkg]);
 
@@ -472,6 +490,7 @@ export default function ProposalPage() {
       setSelectedColor(0);
     }
     trackStage("package_selected");
+    api.saveProposalSelection(token, { selected_tier: p }).catch(() => {});
     setTimeout(() => colorRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 100);
   };
 
@@ -888,7 +907,7 @@ export default function ProposalPage() {
                         const isActive = colorMode === mode;
                         return (
                           <button key={mode}
-                            onClick={() => { setColorMode(mode); trackStage("hoa_selected"); }}
+                            onClick={() => { setColorMode(mode); trackStage("hoa_selected"); api.saveProposalSelection(token, { color_mode: mode }).catch(() => {}); }}
                             className="w-full text-left rounded-xl p-3 border-2 transition-all"
                             style={{
                               background: isActive ? "rgba(28,34,53,0.06)" : C.cardLight,
@@ -1289,7 +1308,7 @@ export default function ProposalPage() {
                           )}
 
                           {colorMode !== "gallery" && (
-                            <button onClick={() => { setColorMode("gallery"); setHoaColors([]); setCustomColor(""); }}
+                            <button onClick={() => { setColorMode("gallery"); setHoaColors([]); setCustomColor(""); api.saveProposalSelection(token, { color_mode: "gallery", hoa_colors: [], selected_color: undefined }).catch(() => {}); }}
                               style={{ color: C.textMuted }} className="text-xs underline">
                               ← Back to standard color gallery
                             </button>

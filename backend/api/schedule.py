@@ -130,16 +130,31 @@ async def get_admin_schedule(month: Optional[str] = None):
 
     proposals_res = (
         db.table("proposals")
-        .select("booked_at")
+        .select("booked_at, selected_tier, lead_id")
         .eq("status", "booked")
         .execute()
     ).data or []
 
+    # Fetch lead info for all booked proposals
+    lead_ids = list({p["lead_id"] for p in proposals_res if p.get("lead_id")})
+    lead_map: dict[str, dict] = {}
+    if lead_ids:
+        leads_res = db.table("leads").select("id, contact_name, contact_phone").in_("id", lead_ids).execute()
+        lead_map = {l["id"]: l for l in (leads_res.data or [])}
+
     booked_dates: dict[str, int] = {}
+    bookings_by_date: dict[str, list] = {}
     for p in proposals_res:
         if p.get("booked_at"):
             date_str = str(p["booked_at"])[:10]
             booked_dates[date_str] = booked_dates.get(date_str, 0) + 1
+            lead = lead_map.get(p.get("lead_id", ""), {})
+            bookings_by_date.setdefault(date_str, []).append({
+                "customer_name": lead.get("contact_name") or "Unknown",
+                "contact_phone": lead.get("contact_phone") or "",
+                "selected_tier": p.get("selected_tier") or "",
+                "booked_at": p.get("booked_at") or "",
+            })
 
     return [
         {
@@ -148,6 +163,7 @@ async def get_admin_schedule(month: Optional[str] = None):
             "label": s.get("label") or "",
             "max_bookings": s["max_bookings"],
             "booked_count": booked_dates.get(str(s["date"]), 0),
+            "bookings": bookings_by_date.get(str(s["date"]), []),
         }
         for s in slots
     ]

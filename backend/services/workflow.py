@@ -19,6 +19,7 @@ logger = logging.getLogger(__name__)
 
 class Stage(str, Enum):
     NEW_LEAD = "new_lead"
+    NEW_BUILD = "new_build"
     ASKING_ADDRESS = "asking_address"
     HOT_LEAD = "hot_lead"
     PROPOSAL_SENT = "proposal_sent"
@@ -36,6 +37,7 @@ class Stage(str, Enum):
 # Human-readable labels for dashboard display
 STAGE_LABELS: dict[str, str] = {
     "new_lead": "New Lead",
+    "new_build": "New Build – Asking for Photos",
     "asking_address": "Asking for Address",
     "hot_lead": "Hot Lead",
     "proposal_sent": "Proposal Sent",
@@ -49,6 +51,39 @@ STAGE_LABELS: dict[str, str] = {
     "cold_nurture": "Cold Lead Nurture",
     "past_customer": "Past Customer",
 }
+
+
+# Known stain/color names (lowercase) for auto-detecting customer replies in PACKAGE_SELECTED stage.
+# Derived from the HOA_COLOR_HEX dict in proposals.py + common gallery names.
+KNOWN_COLORS: list[str] = [
+    "adobe", "antique burgundy", "autumn fog", "autumn russet", "brickwood",
+    "brown", "cedar", "cedar naturaltone", "cilantro", "classic buff",
+    "clay angel", "coffee gelato", "corner café", "corner cafe", "cowboy boots",
+    "cowboy suede", "desert sand", "dust bunny", "filtered shade", "forest canopy",
+    "frappe", "gallery grey", "garden ochre", "gravity", "gray brook", "greige",
+    "hazy stratus", "heirloom red", "high-speed steel", "honey gold", "hopsack",
+    "khaki", "king's canyon", "kings canyon", "midnight shadow", "monticello tan",
+    "mountain smoke", "mudslide", "natural cork", "navajo horizon", "notre dame",
+    "nuance", "pale powder", "pitch cobalt", "porcelain shale", "quail egg",
+    "redwood", "reindeer", "riverbed's edge", "rusticanna", "safari brown",
+    "sahara sands", "savannah red", "scented candle", "seafoam storm", "sharkfin",
+    "stampede", "standing still", "timber dust", "universal umber", "very black",
+    "warm buff", "wedgwood blue",
+    # Common short names customers might say
+    "natural cedar", "dark walnut", "golden oak", "espresso", "driftwood",
+    "silver gray", "weathered wood",
+]
+
+
+def _detect_color_in_message(text: str) -> str | None:
+    """Try to detect a known stain color name in a customer's text reply."""
+    text_lower = text.lower()
+    # Prefer longer matches first to avoid partial matches (e.g. "cedar naturaltone" before "cedar")
+    for color in sorted(KNOWN_COLORS, key=len, reverse=True):
+        if color in text_lower:
+            # Return title-cased version as the canonical color name
+            return color.title()
+    return None
 
 
 def _get_workflow_config() -> dict[str, str]:
@@ -303,6 +338,42 @@ def on_customer_reply(lead_id: str, message_text: str = "") -> None:
         # VA will manually confirm address, then transition to HOT_LEAD
         # For now, just pause — VA reviews and transitions manually
         logger.info(f"Workflow: lead {lead_id} replied in ASKING_ADDRESS — VA should review")
+
+    elif current_stage == Stage.PACKAGE_SELECTED.value:
+        # Try to detect a color name from the customer's reply
+        detected_color = _detect_color_in_message(message_text)
+        if detected_color:
+            # Save the color to the latest proposal and transition to NO_DATE
+            try:
+                db = get_db()
+                prop_res = (
+                    db.table("proposals")
+                    .select("id")
+                    .eq("lead_id", lead_id)
+                    .neq("status", "booked")
+                    .order("created_at", desc=True)
+                    .limit(1)
+                    .execute()
+                )
+                if prop_res.data:
+                    db.table("proposals").update({
+                        "selected_color": detected_color,
+                        "color_mode": "gallery",
+                    }).eq("id", prop_res.data[0]["id"]).execute()
+                    logger.info(
+                        f"Workflow: auto-detected color '{detected_color}' from reply "
+                        f"for lead {lead_id}"
+                    )
+            except Exception as e:
+                logger.warning(f"Workflow: failed to save auto-detected color for lead {lead_id}: {e}")
+            transition_stage(lead_id, Stage.NO_DATE, reason="color_detected_from_reply")
+        else:
+            # No color detected — pause for VA to review the reply
+            db.table("leads").update({"workflow_paused": True}).eq("id", lead_id).execute()
+            logger.info(
+                f"Workflow: lead {lead_id} replied in PACKAGE_SELECTED but no color "
+                f"detected — paused for VA review"
+            )
 
     elif current_stage in (Stage.COLD_NURTURE.value, Stage.PAST_CUSTOMER.value):
         # Re-enter active pipeline

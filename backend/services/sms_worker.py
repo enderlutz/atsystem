@@ -77,6 +77,43 @@ def _process_pending_messages():
                 _update_message_status(db, msg["id"], "cancelled", cancel_reason="stage_changed")
                 continue
 
+            # WF8: For the first DATE_SELECTED message, defer to 15 min if customer is still active
+            if (
+                msg["stage"] == "date_selected"
+                and msg["sequence_index"] == 0
+            ):
+                prop_res = (
+                    db.table("proposals")
+                    .select("last_active_at")
+                    .eq("lead_id", msg["lead_id"])
+                    .neq("status", "booked")
+                    .order("created_at", desc=True)
+                    .limit(1)
+                    .execute()
+                )
+                if prop_res.data:
+                    last_active = prop_res.data[0].get("last_active_at")
+                    if last_active:
+                        try:
+                            la_dt = datetime.fromisoformat(
+                                last_active.replace("Z", "+00:00")
+                            )
+                            if (datetime.now(timezone.utc) - la_dt).total_seconds() < 300:
+                                # Customer still active — defer by 15 min from now
+                                new_send_at = (
+                                    datetime.now(timezone.utc) + timedelta(minutes=15)
+                                ).isoformat()
+                                db.table("sms_queue").update(
+                                    {"send_at": new_send_at}
+                                ).eq("id", msg["id"]).execute()
+                                logger.info(
+                                    f"SMS worker: deferred date_selected msg {msg['id']} "
+                                    f"by 15 min (customer still active)"
+                                )
+                                continue
+                        except ValueError:
+                            pass
+
             # Send via GHL
             sent = send_message_to_contact(msg["ghl_contact_id"], msg["message_body"])
 
@@ -141,6 +178,35 @@ def _check_timeouts():
 
     db = get_db()
     now = datetime.now(timezone.utc)
+
+    # 0. PROPOSAL_SENT > 15 min with no package selected → NO_PACKAGE
+    cutoff_15m = (now - timedelta(minutes=15)).isoformat()
+    proposal_sent_res = (
+        db.table("leads")
+        .select("id")
+        .eq("workflow_stage", Stage.PROPOSAL_SENT.value)
+        .eq("workflow_paused", False)
+        .lt("workflow_stage_entered_at", cutoff_15m)
+        .execute()
+    )
+    for lead in (proposal_sent_res.data or []):
+        prop = (
+            db.table("proposals")
+            .select("selected_tier")
+            .eq("lead_id", lead["id"])
+            .neq("status", "booked")
+            .order("created_at", desc=True)
+            .limit(1)
+            .execute()
+        )
+        if prop.data and not prop.data[0].get("selected_tier"):
+            logger.info(
+                f"Timeout: lead {lead['id']} in PROPOSAL_SENT > 15 min, "
+                f"no package selected → NO_PACKAGE"
+            )
+            transition_stage(
+                lead["id"], Stage.NO_PACKAGE, reason="no_package_15min_timeout"
+            )
 
     # 1. NO_PACKAGE > 7 days → COLD_NURTURE
     cutoff_7d = (now - timedelta(days=7)).isoformat()

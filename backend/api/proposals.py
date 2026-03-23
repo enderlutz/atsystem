@@ -45,6 +45,14 @@ class StageUpdate(BaseModel):
     stage: str
 
 
+class SelectionUpdate(BaseModel):
+    selected_tier: str | None = None
+    color_mode: str | None = None
+    selected_color: str | None = None
+    hoa_colors: list | None = None
+    custom_color: str | None = None
+
+
 class ActivityUpdate(BaseModel):
     type: str  # "heartbeat" | "left"
 
@@ -180,6 +188,34 @@ async def update_funnel_stage(token: str, body: StageUpdate):
                     on_proposal_event(lead_res.data["lead_id"], _WORKFLOW_EVENT_MAP[body.stage])
             except Exception as e:
                 logger.error(f"Workflow on_proposal_event failed for token {token}: {e}")
+
+    return {"status": "ok"}
+
+
+@router.patch("/{token}/selection")
+async def save_selection(token: str, body: SelectionUpdate):
+    """Save mid-funnel selections (package, color mode, color) as the customer makes choices."""
+    db = get_db()
+    result = db.table("proposals").select("status").eq("token", token).single().execute()
+    if not result.data:
+        raise HTTPException(status_code=404, detail="Proposal not found")
+    if result.data["status"] == "booked":
+        return {"status": "ok"}  # Already booked — don't overwrite confirmed values
+
+    updates: dict = {}
+    if body.selected_tier is not None:
+        updates["selected_tier"] = body.selected_tier
+    if body.color_mode is not None:
+        updates["color_mode"] = body.color_mode
+    if body.selected_color is not None:
+        updates["selected_color"] = body.selected_color
+    if body.hoa_colors is not None:
+        updates["hoa_colors"] = body.hoa_colors
+    if body.custom_color is not None:
+        updates["custom_color"] = body.custom_color
+
+    if updates:
+        db.table("proposals").update(updates).eq("token", token).execute()
 
     return {"status": "ok"}
 
@@ -343,6 +379,13 @@ async def _finalize_booking(
         credentials_json=settings.google_calendar_credentials_json,
         calendar_id=settings.google_calendar_id,
     )
+    if not calendar_event_id:
+        logger.warning(
+            f"Calendar event was NOT created for proposal {token} "
+            f"(calendar_id={settings.google_calendar_id!r}). "
+            "Check GOOGLE_CALENDAR_CREDENTIALS_JSON and GOOGLE_CALENDAR_ID env vars. "
+            "If using a shared team calendar, ensure the service account has Editor access."
+        )
 
     if settings.owner_ghl_contact_id:
         alan_msg = (
