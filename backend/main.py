@@ -23,8 +23,9 @@ logging.basicConfig(level=logging.INFO)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     asyncio.create_task(poll_ghl_contacts())
-    asyncio.create_task(poll_sms_queue())
-    asyncio.create_task(poll_stage_timeouts())
+    # Workflow SMS workers — disabled until system is tested and ready
+    # asyncio.create_task(poll_sms_queue())
+    # asyncio.create_task(poll_stage_timeouts())
     yield
 
 
