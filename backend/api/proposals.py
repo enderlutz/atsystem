@@ -480,6 +480,18 @@ async def _finalize_booking(
         "deposit_paid": bool(stripe_session_id),
     }).eq("token", token).execute()
 
+    # Ensure a schedule_slot row exists for the booked date so it appears on the dashboard calendar
+    booked_date_str = booked_dt.date().isoformat()
+    existing_slot = db.table("schedule_slots").select("date, max_bookings").eq("date", booked_date_str).execute()
+    if not existing_slot.data:
+        db.table("schedule_slots").insert({
+            "date": booked_date_str,
+            "is_available": True,
+            "label": "",
+            "max_bookings": 1,
+        }).execute()
+        logger.info(f"Auto-created schedule slot for booked date {booked_date_str}")
+
     logger.info(f"Proposal {token} booked: {tier_label} on {date_str} for {customer_name}")
 
     if settings.ghl_booked_stage_id:
