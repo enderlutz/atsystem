@@ -225,7 +225,7 @@ export const api = {
   getAvailableDates: (month?: string) =>
     request<ScheduleSlot[]>(`/api/schedule${month ? `?month=${month}` : ""}`),
   getAdminSchedule: (month?: string) =>
-    request<AdminScheduleSlot[]>(`/api/admin/schedule${month ? `?month=${month}` : ""}`),
+    request<AdminScheduleResponse>(`/api/admin/schedule${month ? `?month=${month}` : ""}`),
   upsertScheduleSlot: (slot: Omit<AdminScheduleSlot, "booked_count">) =>
     request<{ status: string; date: string }>("/api/admin/schedule", {
       method: "POST",
@@ -463,7 +463,12 @@ export interface ScheduleBooking {
   customer_name: string;
   contact_phone: string;
   selected_tier: string;
+  tier_price: number;
   booked_at: string;
+  color_display?: string | null;
+  hoa_label?: string | null;
+  linear_feet?: string | number | null;
+  fence_height?: string | number | null;
 }
 
 export interface AdminScheduleSlot {
@@ -473,6 +478,11 @@ export interface AdminScheduleSlot {
   max_bookings: number;
   booked_count: number;
   bookings?: ScheduleBooking[];
+}
+
+export interface AdminScheduleResponse {
+  slots: AdminScheduleSlot[];
+  calendar_blocked: string[]; // dates with banana-colored events on Alan's calendar
 }
 
 // --- Workflow Types ---

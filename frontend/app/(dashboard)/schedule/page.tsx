@@ -29,6 +29,7 @@ export default function SchedulePage() {
   const [year, setYear] = useState(now.getFullYear());
   const [month, setMonth] = useState(now.getMonth()); // 0-indexed
   const [slots, setSlots] = useState<AdminScheduleSlot[]>([]);
+  const [calendarBlocked, setCalendarBlocked] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
   const [editSlot, setEditSlot] = useState<Partial<AdminScheduleSlot>>({});
@@ -41,7 +42,8 @@ export default function SchedulePage() {
     setLoading(true);
     try {
       const data = await api.getAdminSchedule(monthStr);
-      setSlots(data);
+      setSlots(data.slots);
+      setCalendarBlocked(data.calendar_blocked ?? []);
     } catch (e) {
       console.error(e);
     } finally {
@@ -52,6 +54,7 @@ export default function SchedulePage() {
   useEffect(() => { load(); }, [monthStr]);
 
   const slotMap = Object.fromEntries(slots.map((s) => [s.date, s]));
+  const calendarBlockedSet = new Set(calendarBlocked);
 
   // Build calendar grid
   const firstDay = new Date(year, month, 1).getDay(); // 0 = Sun
@@ -168,10 +171,13 @@ export default function SchedulePage() {
                 const isSelected = selectedDate === dateStr;
                 const isToday = dateStr === todayStr;
                 const isPast = dateStr < todayStr;
+                const isAlanBusy = calendarBlockedSet.has(dateStr);
 
-                let cellClass = `rounded-lg border text-center py-2 text-sm ${isAdmin || slotMap[dateStr] ? "cursor-pointer" : "cursor-default"} transition-all select-none `;
+                let cellClass = `rounded-lg border text-center py-2 text-sm ${isAdmin || slotMap[dateStr] || isAlanBusy ? "cursor-pointer" : "cursor-default"} transition-all select-none `;
                 if (isSelected) {
                   cellClass += "border-blue-500 bg-blue-50 text-blue-800 font-semibold ";
+                } else if (isAlanBusy) {
+                  cellClass += "border-amber-400 bg-amber-50 text-amber-800 hover:bg-amber-100 ";
                 } else if (slot?.is_available && slot.booked_count < slot.max_bookings) {
                   cellClass += "border-green-400 bg-green-50 text-green-800 hover:bg-green-100 ";
                 } else if (slot && (slot.booked_count >= slot.max_bookings || !slot.is_available)) {
@@ -183,9 +189,12 @@ export default function SchedulePage() {
                 return (
                   <div key={i} className={cellClass} onClick={() => handleDayClick(day)}>
                     <p className={`text-xs font-bold leading-none ${isToday ? "text-blue-600" : ""}`}>{day}</p>
+                    {isAlanBusy && !slot && (
+                      <p className="text-[10px] mt-0.5 leading-none">Alan</p>
+                    )}
                     {slot && (
                       <p className="text-[10px] mt-0.5 leading-none">
-                        {slot.booked_count}/{slot.max_bookings}
+                        {isAlanBusy ? "🔒 " : ""}{slot.booked_count}/{slot.max_bookings}
                       </p>
                     )}
                   </div>
@@ -194,12 +203,15 @@ export default function SchedulePage() {
             </div>
 
             {/* Legend */}
-            <div className="flex items-center gap-4 mt-4 pt-3 border-t text-xs text-muted-foreground">
+            <div className="flex flex-wrap items-center gap-3 mt-4 pt-3 border-t text-xs text-muted-foreground">
               <span className="flex items-center gap-1.5">
                 <span className="h-3 w-3 rounded-sm bg-green-100 border border-green-400" /> Available
               </span>
               <span className="flex items-center gap-1.5">
                 <span className="h-3 w-3 rounded-sm bg-yellow-100 border border-yellow-400" /> Full / Off
+              </span>
+              <span className="flex items-center gap-1.5">
+                <span className="h-3 w-3 rounded-sm bg-amber-100 border border-amber-400" /> Alan&apos;s appointment
               </span>
               <span className="flex items-center gap-1.5">
                 <span className="h-3 w-3 rounded-sm bg-background border border-border" /> Not added
@@ -221,26 +233,57 @@ export default function SchedulePage() {
                     <X className="h-4 w-4" />
                   </button>
                 </div>
-                {slotMap[selectedDate] && (
-                  <Badge variant={slotMap[selectedDate].is_available ? "success" : "pending"} className="w-fit text-xs">
-                    {slotMap[selectedDate].booked_count > 0 ? `${slotMap[selectedDate].booked_count} booking(s)` : "No bookings yet"}
-                  </Badge>
-                )}
+                <div className="flex flex-wrap gap-1.5">
+                  {calendarBlockedSet.has(selectedDate) && (
+                    <Badge className="w-fit text-xs bg-amber-100 text-amber-800 border border-amber-300 hover:bg-amber-100">
+                      🗓 Alan&apos;s appointment (from Google Calendar)
+                    </Badge>
+                  )}
+                  {slotMap[selectedDate] && (
+                    <Badge variant={slotMap[selectedDate].is_available ? "success" : "pending"} className="w-fit text-xs">
+                      {slotMap[selectedDate].booked_count > 0 ? `${slotMap[selectedDate].booked_count} booking(s)` : "No bookings yet"}
+                    </Badge>
+                  )}
+                </div>
               </CardHeader>
               {/* Booking details — shown to all roles */}
               {slotMap[selectedDate]?.bookings && slotMap[selectedDate].bookings!.length > 0 && (
                 <CardContent className="pb-0 space-y-2">
                   <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">Bookings</p>
                   {slotMap[selectedDate].bookings!.map((b: ScheduleBooking, i: number) => (
-                    <div key={i} className="rounded-md border bg-muted/30 px-3 py-2 space-y-0.5 text-sm">
-                      <p className="font-medium">{b.customer_name}</p>
-                      <p className="text-muted-foreground text-xs capitalize">{b.selected_tier} package</p>
+                    <div key={i} className="rounded-md border bg-muted/30 px-3 py-2.5 space-y-1 text-sm">
+                      <div className="flex items-start justify-between gap-2">
+                        <p className="font-semibold leading-tight">{b.customer_name}</p>
+                        <span className="text-[10px] text-muted-foreground whitespace-nowrap mt-0.5">
+                          {new Date(b.booked_at).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}
+                        </span>
+                      </div>
                       {b.contact_phone && (
                         <p className="text-muted-foreground text-xs">{b.contact_phone}</p>
                       )}
-                      <p className="text-muted-foreground text-xs">
-                        {new Date(b.booked_at).toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}
-                      </p>
+                      <div className="flex flex-wrap gap-1 pt-0.5">
+                        <span className="inline-flex items-center rounded-full bg-blue-100 px-2 py-0.5 text-[11px] font-medium text-blue-800 capitalize">
+                          {b.selected_tier} {b.tier_price > 0 ? `— $${b.tier_price.toLocaleString("en-US", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}` : ""}
+                        </span>
+                        {b.hoa_label && (
+                          <span className="inline-flex items-center rounded-full bg-purple-100 px-2 py-0.5 text-[11px] font-medium text-purple-800">
+                            {b.hoa_label}
+                          </span>
+                        )}
+                      </div>
+                      {(b.color_display || b.linear_feet || b.fence_height) && (
+                        <div className="text-xs text-muted-foreground space-y-0.5 pt-0.5 border-t mt-1">
+                          {b.color_display && (
+                            <p>Color: <span className="text-foreground font-medium">{b.color_display}</span></p>
+                          )}
+                          {b.linear_feet && (
+                            <p>Linear ft: <span className="text-foreground font-medium">{b.linear_feet}</span></p>
+                          )}
+                          {b.fence_height && (
+                            <p>Height: <span className="text-foreground font-medium">{b.fence_height}</span></p>
+                          )}
+                        </div>
+                      )}
                     </div>
                   ))}
                 </CardContent>
@@ -325,7 +368,7 @@ export default function SchedulePage() {
             <CardContent className="space-y-1 text-sm">
               <div className="flex justify-between">
                 <span className="text-muted-foreground">Available dates</span>
-                <span className="font-medium">{slots.filter((s) => s.is_available && s.booked_count < s.max_bookings).length}</span>
+                <span className="font-medium">{slots.filter((s) => s.is_available && s.booked_count < s.max_bookings && !calendarBlockedSet.has(s.date)).length}</span>
               </div>
               <div className="flex justify-between">
                 <span className="text-muted-foreground">Total bookings</span>
@@ -335,6 +378,12 @@ export default function SchedulePage() {
                 <span className="text-muted-foreground">Full dates</span>
                 <span className="font-medium">{slots.filter((s) => s.booked_count >= s.max_bookings).length}</span>
               </div>
+              {calendarBlocked.length > 0 && (
+                <div className="flex justify-between pt-1 border-t">
+                  <span className="text-amber-700">Alan&apos;s appointments</span>
+                  <span className="font-medium text-amber-700">{calendarBlocked.length}</span>
+                </div>
+              )}
             </CardContent>
           </Card>
         </div>

@@ -5,6 +5,9 @@ from datetime import datetime, timedelta, timezone
 
 logger = logging.getLogger(__name__)
 
+# Google Calendar colorId for "Banana" (yellow) — Alan uses this for client appointments
+BANANA_COLOR_ID = "5"
+
 
 def create_calendar_event(
     summary: str,
@@ -59,3 +62,60 @@ def create_calendar_event(
     except Exception as e:
         logger.error(f"Failed to create calendar event: {e}")
         return None
+
+
+def get_banana_event_dates(
+    month: str,  # "YYYY-MM"
+    credentials_json: str = "",
+    calendar_id: str = "primary",
+) -> list[str]:
+    """
+    Returns dates (YYYY-MM-DD) that have banana/yellow-colored events on Alan's calendar.
+    These are treated as days he already has a client appointment — unavailable for new bookings.
+    Falls back to empty list if credentials aren't set or the API call fails.
+    """
+    if not credentials_json:
+        return []
+
+    try:
+        from google.oauth2 import service_account
+        from googleapiclient.discovery import build
+
+        year_str, mo_str = month.split("-")
+        year, mo_int = int(year_str), int(mo_str)
+        time_min = datetime(year, mo_int, 1, tzinfo=timezone.utc)
+        if mo_int == 12:
+            time_max = datetime(year + 1, 1, 1, tzinfo=timezone.utc)
+        else:
+            time_max = datetime(year, mo_int + 1, 1, tzinfo=timezone.utc)
+
+        creds_dict = json.loads(credentials_json)
+        credentials = service_account.Credentials.from_service_account_info(
+            creds_dict,
+            scopes=["https://www.googleapis.com/auth/calendar"],
+        )
+        service = build("calendar", "v3", credentials=credentials, cache_discovery=False)
+
+        result = service.events().list(
+            calendarId=calendar_id,
+            timeMin=time_min.isoformat(),
+            timeMax=time_max.isoformat(),
+            singleEvents=True,
+            orderBy="startTime",
+        ).execute()
+
+        booked: set[str] = set()
+        for event in result.get("items", []):
+            if event.get("colorId") == BANANA_COLOR_ID:
+                start_info = event.get("start", {})
+                # All-day events use "date"; timed events use "dateTime"
+                date_str = start_info.get("date") or (start_info.get("dateTime") or "")[:10]
+                if date_str:
+                    booked.add(date_str)
+
+        logger.info(f"Found {len(booked)} banana-color event dates for {month}")
+        return sorted(booked)
+
+    except Exception as e:
+        logger.error(f"Failed to fetch banana calendar events: {e}")
+        return []
