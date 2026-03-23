@@ -437,6 +437,7 @@ export interface ProposalData {
   service_type?: string;
   previously_stained?: string;
   tiers?: { essential: number; signature: number; legacy: number };
+  military_discount?: boolean;
   booked_at?: string;
   selected_tier?: string;
   booked_tier_price?: number;

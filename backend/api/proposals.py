@@ -103,13 +103,22 @@ async def get_proposal(token: str):
     lead_result = db.table("leads").select("*").eq("id", proposal["lead_id"]).single().execute()
     lead = lead_result.data or {}
 
-    tiers = (estimate.get("inputs") or {}).get("_tiers") or {}
+    inputs = estimate.get("inputs") or {}
+    tiers_raw = inputs.get("_tiers") or {}
+
+    # Apply military discount ($50 off each tier) if flagged on the lead's form data
+    military_discount = bool(inputs.get("military_discount", False))
+    discount_amount = 50.0 if military_discount else 0.0
+    tiers = {
+        "essential": max(0.0, float(tiers_raw.get("essential") or 0) - discount_amount),
+        "signature":  max(0.0, float(tiers_raw.get("signature") or 0) - discount_amount),
+        "legacy":     max(0.0, float(tiers_raw.get("legacy") or 0) - discount_amount),
+    }
 
     # Mark as viewed if still in 'sent' state (not for preview)
     if proposal["status"] == "sent":
         db.table("proposals").update({"status": "viewed"}).eq("token", token).execute()
 
-    inputs = estimate.get("inputs") or {}
     selected_tier = proposal.get("selected_tier")
     selected_tier_price = float(tiers.get(selected_tier) or 0) if selected_tier else 0
 
@@ -134,11 +143,8 @@ async def get_proposal(token: str):
         "service_type": estimate.get("service_type", "fence_staining"),
         "previously_stained": inputs.get("previously_stained") or "No",
         "contact_email": lead.get("contact_email") or "",
-        "tiers": {
-            "essential": float(tiers.get("essential") or 0),
-            "signature": float(tiers.get("signature") or 0),
-            "legacy":    float(tiers.get("legacy") or 0),
-        },
+        "military_discount": military_discount,
+        "tiers": tiers,
         "selected_tier": selected_tier,
         "booked_tier_price": selected_tier_price,
         "booked_at": proposal.get("booked_at"),
@@ -327,7 +333,11 @@ async def _finalize_booking(
     lead = lead_result.data or {}
     est_result = db.table("estimates").select("*").eq("id", proposal["estimate_id"]).single().execute()
     estimate = est_result.data or {}
-    tiers = (estimate.get("inputs") or {}).get("_tiers") or {}
+    est_inputs = estimate.get("inputs") or {}
+    tiers_raw = est_inputs.get("_tiers") or {}
+    military_discount = bool(est_inputs.get("military_discount", False))
+    discount_amount = 50.0 if military_discount else 0.0
+    tiers = {k: max(0.0, float(v or 0) - discount_amount) for k, v in tiers_raw.items()}
 
     customer_name = lead.get("contact_name") or "Customer"
     address = lead.get("address") or ""

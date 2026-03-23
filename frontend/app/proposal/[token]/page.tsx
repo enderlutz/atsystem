@@ -847,9 +847,21 @@ export default function ProposalPage() {
                 <>
                   {/* Greeting */}
                   <div>
-                    <h1 style={{ color: C.cream, ...headingStyle }} className="text-2xl md:text-3xl font-bold leading-tight">
-                      {firstName ? `Hi ${firstName}, here's your custom proposal!` : "Your Custom Proposal"}
-                    </h1>
+                    {proposal.military_discount ? (
+                      <>
+                        <div className="flex items-center gap-2 mb-2">
+                          <span className="text-2xl">🎖️</span>
+                          <span className="text-sm font-semibold px-2.5 py-0.5 rounded-full" style={{ background: "rgba(201,168,76,0.18)", color: C.gold }}>Military Discount Applied — $50 Off</span>
+                        </div>
+                        <h1 style={{ color: C.cream, ...headingStyle }} className="text-2xl md:text-3xl font-bold leading-tight">
+                          Thank you for your service{firstName ? `, ${firstName}` : ""}! Let us do your fence for you!
+                        </h1>
+                      </>
+                    ) : (
+                      <h1 style={{ color: C.cream, ...headingStyle }} className="text-2xl md:text-3xl font-bold leading-tight">
+                        {firstName ? `Hi ${firstName}, here's your custom proposal!` : "Your Custom Proposal"}
+                      </h1>
+                    )}
                     {proposal.address && (
                       <p style={{ color: C.textMuted }} className="text-sm mt-1.5 flex items-center gap-1.5">
                         <span>{proposal.address}</span>

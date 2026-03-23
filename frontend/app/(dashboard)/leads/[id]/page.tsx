@@ -93,6 +93,7 @@ export default function LeadDetailPage() {
   const [fenceSides, setFenceSides] = useState<string[]>([]);
   const [customFenceSides, setCustomFenceSides] = useState("");
   const [showCustomFenceSides, setShowCustomFenceSides] = useState(false);
+  const [militaryDiscount, setMilitaryDiscount] = useState(false);
   const [savingEstimate, setSavingEstimate] = useState(false);
   const [estimateSaved, setEstimateSaved] = useState(false);
   const [additionalServicesSent, setAdditionalServicesSent] = useState(false);
@@ -174,6 +175,7 @@ export default function LeadDetailPage() {
         setCustomFenceSides(String(fd.custom_fence_sides));
         setShowCustomFenceSides(true);
       }
+      setMilitaryDiscount(Boolean(fd.military_discount));
       setAdditionalServicesSent(data.estimate?.additional_services_sent ?? false);
       // Pre-fill admin custom tier inputs from existing tiers
       const t = data.estimate?.inputs?._tiers as Record<string, number> | undefined;
@@ -507,6 +509,7 @@ export default function LeadDetailPage() {
         additional_services: additionalServices,
         fence_sides: fenceSides,
         confident_pct: Number(confidencePct) || 100,
+        military_discount: militaryDiscount,
       };
       if (linearFeet) formData.linear_feet = Number(linearFeet);
       if (timeline) formData.service_timeline = timeline;
@@ -998,6 +1001,20 @@ export default function LeadDetailPage() {
               {newBuildTriggered ? "New Build SMS Sent ✓" : triggeringNewBuild ? "Sending..." : "New Build – Can't Measure"}
             </Button>
           </div>
+
+          {/* Military Discount */}
+          <label className="flex items-center gap-2.5 cursor-pointer select-none rounded-lg border border-blue-200 bg-blue-50 px-3 py-2.5 hover:bg-blue-100 transition-colors">
+            <input
+              type="checkbox"
+              className="h-4 w-4 rounded accent-blue-600"
+              checked={militaryDiscount}
+              onChange={(e) => setMilitaryDiscount(e.target.checked)}
+            />
+            <div>
+              <span className="text-sm font-semibold text-blue-800">🎖️ Military Discount</span>
+              <p className="text-xs text-blue-600 mt-0.5">Applies $50 off all packages on the proposal</p>
+            </div>
+          </label>
 
           <Button
             onClick={handleSaveEstimateInputs}
