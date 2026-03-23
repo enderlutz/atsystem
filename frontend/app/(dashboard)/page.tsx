@@ -121,7 +121,7 @@ export default function DashboardPage() {
           title="Revenue Estimate"
           value={loading ? "—" : formatCurrency(stats?.revenue_estimate_this_month ?? 0)}
           icon={TrendingUp}
-          description="Low estimate, approved jobs this month"
+          description="Signature tier total, approved jobs this month"
         />
       </div>
 

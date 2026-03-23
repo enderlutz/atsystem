@@ -30,6 +30,8 @@ async def list_estimates(
         q = q.eq("service_type", service_type)
     res = q.execute()
     estimates = res.data or []
+    # Exclude estimates for archived leads
+    estimates = [e for e in estimates if not (e.get("lead") or {}).get("archived", False)]
     # Enrich with proposal funnel stage
     if estimates:
         est_ids = [e["id"] for e in estimates]

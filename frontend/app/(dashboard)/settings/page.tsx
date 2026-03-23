@@ -77,6 +77,7 @@ export default function SettingsPage() {
   const isAdmin = currentUser?.role === "admin";
   const [fenceConfig, setFenceConfig] = useState<FenceConfig>(defaultFenceConfig);
   const [pressureConfig, setPressureConfig] = useState<PressureConfig>(defaultPressureConfig);
+  const [pricingLoaded, setPricingLoaded] = useState(false);
   const [saving, setSaving] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [syncResult, setSyncResult] = useState<{ imported: number; skipped_duplicate: number; skipped_no_fields: number; total_fetched: number } | null>(null);
@@ -182,7 +183,7 @@ export default function SettingsPage() {
           });
         }
       }
-    }).catch(() => {});
+    }).catch(() => {}).finally(() => setPricingLoaded(true));
   }, []);
 
   const savePricing = async () => {
@@ -473,8 +474,8 @@ export default function SettingsPage() {
         </CardContent>
       </Card>
 
-      <Button onClick={savePricing} disabled={saving} size="lg">
-        {saving ? "Saving..." : "Save All Settings"}
+      <Button onClick={savePricing} disabled={saving || !pricingLoaded} size="lg">
+        {saving ? "Saving..." : !pricingLoaded ? "Loading..." : "Save All Settings"}
       </Button>
 
       {/* Danger Zone — admin only */}

@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback, type ReactNode } from "react";
 import Link from "next/link";
 import { api, leadDetailCache, type Lead, type Estimate } from "@/lib/api";
+import { toast } from "sonner";
 import { formatDate } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -70,13 +71,14 @@ const PRIORITY_ORDER: Record<string, number> = { HOT: 0, HIGH: 1, MEDIUM: 2, LOW
 
 function getKanbanStatus(lead: Lead, estimateMap: Map<string, Estimate>): KanbanStatus {
   const est = estimateMap.get(lead.id);
-  // Sent/approved leads: check for additional services to route to special column
+  // Explicit VA override takes priority (allows moving sent leads to follow_up etc.)
+  if (lead.kanban_column) return lead.kanban_column as KanbanStatus;
+  // Sent/approved leads: route to sent column based on additional services
   if (lead.status === "sent" || lead.status === "approved" || est?.status === "approved") {
     const addSvcs = ((lead.form_data?.additional_services as string) || "").trim();
     if (addSvcs) return "sent_addons";
     return "sent";
   }
-  if (lead.kanban_column) return lead.kanban_column as KanbanStatus;
   if (!lead.address || lead.address.trim() === "") return "no_address";
   if (lead.tags?.some((t) => NEEDS_INFO_TAGS.has(t))) return "needs_info";
   if (lead.tags?.some((t) => FOLLOW_UP_TAGS.has(t))) return "follow_up";
@@ -361,6 +363,7 @@ export default function LeadsPage() {
       setLeads((prev) => prev.map((l) => l.id === lead.id ? { ...l, status: "sent" } : l));
     } catch (e) {
       console.error(e);
+      toast.error(e instanceof Error ? e.message : "Failed to send estimate");
     } finally {
       setQuickApprovingId(null);
     }
@@ -381,6 +384,8 @@ export default function LeadsPage() {
     if (!lead) return;
     const currentCol = getKanbanStatus(lead, estimateMap);
     if (currentCol === newCol) return;
+    // Block dragging into "sent" columns — leads only enter these when estimate is actually approved
+    if (newCol === "sent" || newCol === "sent_addons") return;
     // Optimistic update
     setLeads((prev) => prev.map((l) => l.id === leadId ? { ...l, kanban_column: newCol } : l));
     try {
@@ -436,8 +441,16 @@ export default function LeadsPage() {
         <p className="text-muted-foreground">
           {leads.length} total
           {lastSyncAt && (
-            <span className="ml-2 text-xs">
-              · Last synced {formatDate(lastSyncAt)}
+            <span className="ml-2 text-xs" title={formatDate(lastSyncAt)}>
+              · Last synced {(() => {
+                const diff = Date.now() - new Date(lastSyncAt).getTime();
+                const mins = Math.floor(diff / 60000);
+                if (mins < 1) return "just now";
+                if (mins < 60) return `${mins}m ago`;
+                const hrs = Math.floor(mins / 60);
+                if (hrs < 24) return `${hrs}h ago`;
+                return formatDate(lastSyncAt);
+              })()}
             </span>
           )}
         </p>

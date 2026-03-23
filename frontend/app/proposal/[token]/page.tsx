@@ -529,6 +529,11 @@ export default function ProposalPage() {
 
   const handleCheckout = async () => {
     if (!selectedDate || !proposal || !pkg) return;
+    const emailTrimmed = contactEmail.trim();
+    if (emailTrimmed && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailTrimmed)) {
+      setBookError("Please enter a valid email address.");
+      return;
+    }
     setBooking(true); setBookError(null);
     trackStage("checkout_started");
     const bookedAt = new Date(selectedDate + "T09:00:00");
@@ -579,7 +584,7 @@ export default function ProposalPage() {
 
   const tiers = proposal.tiers;
   const bookedTierKey = ((proposal.selected_tier as "essential" | "signature" | "legacy" | undefined) || pkg);
-  const tierPrice = proposal.booked_tier_price ?? (tiers && bookedTierKey ? tiers[bookedTierKey] : 0);
+  const tierPrice = proposal.booked_tier_price || (tiers && bookedTierKey ? tiers[bookedTierKey] : 0);
   const firstName = proposal.customer_name?.split(" ")[0] || "";
   const previouslyStained = (proposal.previously_stained || "No").toLowerCase().startsWith("y");
   const selectedColorDisplay = proposal.color_display || getColorDisplayName() || "Not specified";

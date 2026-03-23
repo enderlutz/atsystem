@@ -494,6 +494,10 @@ export default function LeadDetailPage() {
 
   const handleSaveEstimateInputs = async () => {
     if (!lead) return;
+    if (!linearFeet || Number(linearFeet) <= 0) {
+      alert("Please enter linear feet before calculating.");
+      return;
+    }
     setSavingEstimate(true);
     try {
       const formData: Record<string, string | number | boolean | string[]> = {
@@ -512,7 +516,6 @@ export default function LeadDetailPage() {
 
       const updated = await api.updateLeadFormData(lead.id, formData);
       setLead(updated);
-      setEstimateSent(false); // Reset sent state after recalculation
       setApproveError(null);
       setEstimateSaved(true);
       setTimeout(() => setEstimateSaved(false), 3000);
