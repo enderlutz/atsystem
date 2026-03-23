@@ -1,12 +1,12 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { api, getCurrentUser, type AdminScheduleSlot, type ScheduleBooking } from "@/lib/api";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
-import { ChevronLeft, ChevronRight, CalendarDays, X } from "lucide-react";
+import { ChevronLeft, ChevronRight, CalendarDays, RefreshCw, X } from "lucide-react";
 
 const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const MONTHS = [
@@ -35,23 +35,35 @@ export default function SchedulePage() {
   const [editSlot, setEditSlot] = useState<Partial<AdminScheduleSlot>>({});
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [syncing, setSyncing] = useState(false);
+  const [lastSynced, setLastSynced] = useState<Date | null>(null);
 
   const monthStr = toMonthStr(year, month);
 
-  const load = async () => {
-    setLoading(true);
+  const load = async (silent = false) => {
+    if (!silent) setLoading(true);
+    else setSyncing(true);
     try {
       const data = await api.getAdminSchedule(monthStr);
       setSlots(data.slots);
       setCalendarBlocked(data.calendar_blocked ?? []);
+      setLastSynced(new Date());
     } catch (e) {
       console.error(e);
     } finally {
       setLoading(false);
+      setSyncing(false);
     }
   };
 
+  // Initial load + reload when month changes
   useEffect(() => { load(); }, [monthStr]);
+
+  // Auto-refresh every 60 seconds (silent — no spinner)
+  useEffect(() => {
+    const interval = setInterval(() => load(true), 60_000);
+    return () => clearInterval(interval);
+  }, [monthStr]);
 
   const slotMap = Object.fromEntries(slots.map((s) => [s.date, s]));
   const calendarBlockedSet = new Set(calendarBlocked);
@@ -145,6 +157,18 @@ export default function SchedulePage() {
                 {MONTHS[month]} {year}
               </CardTitle>
               <div className="flex items-center gap-1">
+                <Button
+                  size="sm" variant="outline"
+                  className="h-7 px-2 gap-1 text-xs"
+                  onClick={() => load(true)}
+                  disabled={syncing}
+                  title={lastSynced ? `Last synced: ${lastSynced.toLocaleTimeString()}` : "Sync with Alan's calendar"}
+                >
+                  <RefreshCw className={`h-3 w-3 ${syncing ? "animate-spin" : ""}`} />
+                  {lastSynced
+                    ? lastSynced.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })
+                    : "Sync"}
+                </Button>
                 <Button size="sm" variant="outline" className="h-7 w-7 p-0" onClick={prevMonth}>
                   <ChevronLeft className="h-4 w-4" />
                 </Button>
