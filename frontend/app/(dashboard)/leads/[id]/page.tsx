@@ -20,6 +20,7 @@ import {
 const GOOGLE_MAPS_KEY = process.env.NEXT_PUBLIC_GOOGLE_MAPS_KEY || "";
 
 const FENCE_HEIGHT_OPTIONS = [
+  "Didn't answer",
   "6ft standard",
   "6.5ft standard with rot board",
   "7ft",
@@ -28,10 +29,17 @@ const FENCE_HEIGHT_OPTIONS = [
 ];
 
 const FENCE_AGE_OPTIONS = [
+  "Didn't answer",
   "Brand new (less than 6 months)",
   "1-6 years",
   "6-15 years",
   "Older than 15 years / Not sure",
+];
+
+const PREVIOUSLY_STAINED_OPTIONS = [
+  "Didn't answer",
+  "No",
+  "Yes",
 ];
 
 const TIMELINE_OPTIONS = [
@@ -76,9 +84,9 @@ export default function LeadDetailPage() {
 
   // Estimate inputs state
   const [linearFeet, setLinearFeet] = useState("");
-  const [fenceHeight, setFenceHeight] = useState("6ft standard");
-  const [fenceAge, setFenceAge] = useState("1-6 years");
-  const [previouslyStained, setPreviouslyStained] = useState("No");
+  const [fenceHeight, setFenceHeight] = useState("Didn't answer");
+  const [fenceAge, setFenceAge] = useState("Didn't answer");
+  const [previouslyStained, setPreviouslyStained] = useState("Didn't answer");
   const [timeline, setTimeline] = useState("");
   const [additionalServices, setAdditionalServices] = useState("");
   const [editingAdditionalServices, setEditingAdditionalServices] = useState(false);
@@ -162,9 +170,9 @@ export default function LeadDetailPage() {
       setVaNotes(data.va_notes || "");
       const fd = data.form_data || {};
       setLinearFeet(String(fd.linear_feet || ""));
-      setFenceHeight(String(fd.fence_height || "6ft standard"));
-      setFenceAge(String(fd.fence_age || "1-6 years"));
-      setPreviouslyStained(String(fd.previously_stained || "No"));
+      setFenceHeight(String(fd.fence_height || "Didn't answer"));
+      setFenceAge(String(fd.fence_age || "Didn't answer"));
+      setPreviouslyStained(String(fd.previously_stained || "Didn't answer"));
       setTimeline(String(fd.service_timeline || fd.timeframe || ""));
       setAdditionalServices(String(fd.additional_services || ""));
       // Fallback: extract zip from address for leads predating the form_data fix
@@ -539,6 +547,15 @@ export default function LeadDetailPage() {
     if (!lead) return;
     if (!linearFeet || Number(linearFeet) <= 0) {
       toast.error("Please enter linear feet before calculating.");
+      return;
+    }
+    const unanswered = [
+      fenceHeight === "Didn't answer" && "Fence Height",
+      fenceAge === "Didn't answer" && "Fence Age",
+      previouslyStained === "Didn't answer" && "Previously Stained",
+    ].filter(Boolean);
+    if (unanswered.length > 0) {
+      toast.error(`Please select a value for: ${unanswered.join(", ")}`);
       return;
     }
     setSavingEstimate(true);
@@ -938,13 +955,13 @@ export default function LeadDetailPage() {
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-1">
               <label className="text-sm font-medium">Fence Height</label>
-              <select className={selectCls} value={fenceHeight} onChange={(e) => setFenceHeight(e.target.value)}>
+              <select className={`${selectCls} ${fenceHeight === "Didn't answer" ? "text-red-500" : ""}`} value={fenceHeight} onChange={(e) => setFenceHeight(e.target.value)}>
                 {FENCE_HEIGHT_OPTIONS.map((o) => <option key={o}>{o}</option>)}
               </select>
             </div>
             <div className="space-y-1">
               <label className="text-sm font-medium">Fence Age</label>
-              <select className={selectCls} value={fenceAge} onChange={(e) => setFenceAge(e.target.value)}>
+              <select className={`${selectCls} ${fenceAge === "Didn't answer" ? "text-red-500" : ""}`} value={fenceAge} onChange={(e) => setFenceAge(e.target.value)}>
                 {FENCE_AGE_OPTIONS.map((o) => <option key={o}>{o}</option>)}
               </select>
             </div>
@@ -953,10 +970,10 @@ export default function LeadDetailPage() {
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-1">
               <label className="text-sm font-medium">Previously Stained</label>
-              <select className={selectCls} value={previouslyStained} onChange={(e) => setPreviouslyStained(e.target.value)}>
-                <option>No</option>
-                <option>Yes</option>
-                <option>Not sure</option>
+              <select className={`${selectCls} ${previouslyStained === "Didn't answer" ? "text-red-500" : ""}`} value={previouslyStained} onChange={(e) => setPreviouslyStained(e.target.value)}>
+                {PREVIOUSLY_STAINED_OPTIONS.map((o) => (
+                  <option key={o} value={o}>{o}</option>
+                ))}
               </select>
             </div>
             <div className="space-y-1">
