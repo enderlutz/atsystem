@@ -1088,9 +1088,9 @@ export default function LeadsPage() {
                 {hLead.priority}
               </span>
             </div>
-            {fd.additional_services && (
+            {!!fd.additional_services && (
               <div className="mt-1.5 text-xs text-amber-700">
-                Add-ons: {String(fd.additional_services as string)}
+                Add-ons: {String(fd.additional_services)}
               </div>
             )}
             {tiers?.signature ? (
