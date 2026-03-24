@@ -449,9 +449,9 @@ async def approve_date_request(proposal_id: str, _: dict = Depends(require_admin
             first = (lead.get("contact_name") or "there").split()[0]
             friendly_date = new_booked_at.strftime("%A, %B %-d")
             sms = (
-                f"Hi {first}! 🎉 Good news — we were able to get you on {friendly_date} "
+                f"Hi {first}! Good news - we were able to get you on {friendly_date} "
                 f"for your fence restoration. Your booking has been updated to that date.\n\n"
-                f"See you then!\n— A&T's Fence Restoration"
+                f"See you then!\nA&T's Fence Restoration"
             )
             send_message_to_contact(ghl_contact_id, sms)
 
