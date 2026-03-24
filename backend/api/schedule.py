@@ -224,6 +224,80 @@ async def get_admin_schedule(month: Optional[str] = None):
     }
 
 
+@router.get("/api/admin/schedule/test-calendar")
+async def test_calendar_connection():
+    """Debug — tests the Google Calendar connection and returns diagnostic info."""
+    settings = get_settings()
+
+    result = {
+        "calendar_id": settings.google_calendar_id,
+        "credentials_set": bool(settings.google_calendar_credentials_json),
+        "status": "unknown",
+        "error": None,
+        "total_events": 0,
+        "banana_events": [],
+    }
+
+    if not settings.google_calendar_credentials_json:
+        result["status"] = "error"
+        result["error"] = "GOOGLE_CALENDAR_CREDENTIALS_JSON env var is not set"
+        return result
+
+    try:
+        import json
+        from google.oauth2 import service_account
+        from googleapiclient.discovery import build
+        from datetime import datetime, timezone
+
+        now = datetime.now(timezone.utc)
+        time_min = datetime(now.year, now.month, 1, tzinfo=timezone.utc).isoformat()
+        mo_next = now.month + 1 if now.month < 12 else 1
+        yr_next = now.year if now.month < 12 else now.year + 1
+        time_max = datetime(yr_next, mo_next, 1, tzinfo=timezone.utc).isoformat()
+
+        creds_dict = json.loads(settings.google_calendar_credentials_json)
+        result["service_account_email"] = creds_dict.get("client_email", "unknown")
+
+        credentials = service_account.Credentials.from_service_account_info(
+            creds_dict,
+            scopes=["https://www.googleapis.com/auth/calendar"],
+        )
+        service = build("calendar", "v3", credentials=credentials, cache_discovery=False)
+
+        events_result = service.events().list(
+            calendarId=settings.google_calendar_id,
+            timeMin=time_min,
+            timeMax=time_max,
+            singleEvents=True,
+        ).execute()
+
+        events = events_result.get("items", [])
+        result["total_events"] = len(events)
+        result["status"] = "ok"
+
+        for e in events:
+            color_id = e.get("colorId", "none")
+            start = e.get("start", {})
+            date_str = start.get("date") or (start.get("dateTime") or "")[:10]
+            result["banana_events" if color_id == "5" else "status"]  # just collecting banana ones below
+
+        result["banana_events"] = [
+            {
+                "date": (e.get("start", {}).get("date") or (e.get("start", {}).get("dateTime") or "")[:10]),
+                "summary": e.get("summary", "(no title)"),
+                "colorId": e.get("colorId"),
+            }
+            for e in events if e.get("colorId") == "5"
+        ]
+        result["all_event_colors"] = list({e.get("colorId", "none") for e in events})
+
+    except Exception as ex:
+        result["status"] = "error"
+        result["error"] = str(ex)
+
+    return result
+
+
 @router.post("/api/admin/schedule")
 async def upsert_schedule_slot(body: SlotUpsert, _: dict = Depends(require_admin)):
     """Admin — add or update a booking slot."""
