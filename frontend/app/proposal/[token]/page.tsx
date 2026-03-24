@@ -321,6 +321,7 @@ export default function ProposalPage() {
 
   const [backupDates, setBackupDates] = useState<string[]>([]);
   const [showBackupPrompt, setShowBackupPrompt] = useState(false);
+  const [requestedDate, setRequestedDate] = useState<string | null>(null);
 
   // Contact
   const [contactEmail, setContactEmail] = useState("");
@@ -417,7 +418,12 @@ export default function ProposalPage() {
     finally { setDatesLoading(false); }
   };
 
-  useEffect(() => { if (step === 2) loadDates(datesMonth); }, [step, datesMonth]);
+  useEffect(() => {
+    if (step === 2) {
+      loadDates(datesMonth);
+      setRequestedDate(null); // clear requested date when month changes
+    }
+  }, [step, datesMonth]);
 
   // Track color_selected stage and save color data when color selection is complete
   useEffect(() => {
@@ -537,7 +543,10 @@ export default function ProposalPage() {
     setBooking(true); setBookError(null);
     trackStage("checkout_started");
     const bookedAt = new Date(selectedDate + "T09:00:00");
-    const backupDatePayload = backupDates.map((d) => new Date(d + "T09:00:00").toISOString());
+    const backupDatePayload = [
+      ...(requestedDate ? [new Date(requestedDate + "T09:00:00").toISOString()] : []),
+      ...backupDates.map((d) => new Date(d + "T09:00:00").toISOString()),
+    ];
     const colorData = pkg === "essential"
       ? { selected_color: "Clear Sealant", color_mode: "gallery", hoa_colors: null, custom_color: null }
       : colorMode === "gallery"
@@ -1370,7 +1379,11 @@ export default function ProposalPage() {
                     </span>
                     <span className="text-xs px-3 py-1.5 rounded-full font-medium"
                       style={{ background: "rgba(22,163,74,0.10)", color: C.green, border: "1px solid rgba(22,163,74,0.25)" }}>
-                      Green dates = best availability
+                      Green = confirmed available
+                    </span>
+                    <span className="text-xs px-3 py-1.5 rounded-full font-medium"
+                      style={{ background: "rgba(107,114,128,0.10)", color: C.textMuted, border: `1px solid ${C.border}` }}>
+                      Gray = request only
                     </span>
                   </div>
 
@@ -1399,9 +1412,11 @@ export default function ProposalPage() {
                             const dateStr = `${calYear}-${String(calMonthNum).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
                             const slot = dateSlotMap[dateStr];
                             const isPast = dateStr < todayISO;
-                            const isPreferred = Boolean(slot);
+                            const isAvailable = Boolean(slot);
                             const isPrimary = selectedDate === dateStr;
                             const isBackup = backupDates.includes(dateStr);
+                            const isRequested = requestedDate === dateStr;
+                            const isUnavailable = !isAvailable && !isPast;
                             if (isPast) return (
                               <div key={i} className="rounded-lg text-center py-2.5">
                                 <p className="text-xs" style={{ color: "#9CA3AF", opacity: 0.4 }}>{day}</p>
@@ -1414,6 +1429,11 @@ export default function ProposalPage() {
                               <button
                                 key={i}
                                 onClick={() => {
+                                  // Unavailable date — handle as request
+                                  if (isUnavailable) {
+                                    setRequestedDate(isRequested ? null : dateStr);
+                                    return;
+                                  }
                                   if (isPrimary) {
                                     setSelectedDate(null);
                                     setBackupDates([]);
@@ -1440,19 +1460,27 @@ export default function ProposalPage() {
                                 }}
                                 className="rounded-lg text-center py-2 transition-all"
                                 style={{
-                                  background: isPrimary ? "linear-gradient(135deg, #C9A84C 0%, #E8C96A 100%)" : isBackup ? "rgba(212,166,74,0.12)" : isPreferred ? "rgba(22,163,74,0.08)" : "rgba(28,34,53,0.05)",
-                                  border: `1px solid ${isPrimary ? "#C9A84C" : isBackup ? "rgba(212,166,74,0.5)" : isPreferred ? C.green : C.border}`,
+                                  background: isPrimary
+                                    ? "linear-gradient(135deg, #C9A84C 0%, #E8C96A 100%)"
+                                    : isBackup ? "rgba(212,166,74,0.12)"
+                                    : isRequested ? "rgba(107,114,128,0.14)"
+                                    : isAvailable ? "rgba(22,163,74,0.08)"
+                                    : "rgba(107,114,128,0.05)",
+                                  border: `1px solid ${isPrimary ? "#C9A84C" : isBackup ? "rgba(212,166,74,0.5)" : isRequested ? "#9CA3AF" : isAvailable ? C.green : C.border}`,
                                   boxShadow: isPrimary ? `0 2px 8px rgba(201,168,76,0.45)` : "none",
-                                  opacity: atMax ? 0.4 : 1,
+                                  opacity: atMax ? 0.4 : isUnavailable ? 0.65 : 1,
                                   cursor: atMax ? "not-allowed" : "pointer",
                                 }}>
-                                <p className="text-xs font-bold leading-none" style={{ color: isPrimary ? "#FFFFFF" : C.cream }}>{day}</p>
+                                <p className="text-xs font-bold leading-none" style={{ color: isPrimary ? "#FFFFFF" : isUnavailable && !isRequested ? C.textMuted : C.cream }}>{day}</p>
                                 {selectionLabel && (
                                   <p className="text-[8px] leading-none mt-0.5 font-bold" style={{ color: isPrimary ? "rgba(255,255,255,0.9)" : C.gold }}>{selectionLabel}</p>
                                 )}
-                                {!selectionLabel && isPreferred && (
+                                {isRequested && !selectionLabel && (
+                                  <p className="text-[8px] leading-none mt-0.5 font-semibold" style={{ color: "#9CA3AF" }}>request</p>
+                                )}
+                                {!selectionLabel && !isRequested && isAvailable && (
                                   <p className="text-[8px] leading-none mt-0.5 font-semibold" style={{ color: C.green }}>
-                                    {slot?.label || "Best Availability"}
+                                    {slot?.label || "open"}
                                   </p>
                                 )}
                               </button>
@@ -1461,26 +1489,39 @@ export default function ProposalPage() {
                         </div>
                       )}
                       {availableDates.length === 0 && !datesLoading && (
-                        <p className="text-center text-sm py-6" style={{ color: C.textMuted }}>No preferred dates this month, any date above is still available to request →</p>
+                        <p className="text-center text-sm py-4" style={{ color: C.textMuted }}>No confirmed dates this month — tap any date to request it. Alan will confirm within 24h.</p>
                       )}
                     </div>
                   </div>
 
+                  {/* Request note — shown when an unavailable date is tapped */}
+                  {requestedDate && !selectedDate && (
+                    <div className="rounded-xl p-3 fade-slide" style={{ background: "rgba(239,68,68,0.05)", border: "1px solid rgba(239,68,68,0.25)" }}>
+                      <p className="font-semibold text-sm" style={{ color: "#DC2626" }}>⚠️ {formatDateDisplay(requestedDate)} is currently unavailable</p>
+                      <p className="text-xs mt-1" style={{ color: C.textMuted }}>You can request this date — Alan will do his best to accommodate. You must also select a confirmed available date (green) as your primary booking.</p>
+                    </div>
+                  )}
+
                   {/* Selected date confirmation */}
                   {selectedDate ? (
                     <div className="rounded-xl p-4 fade-slide" style={{ background: "rgba(22,163,74,0.06)", border: "1px solid rgba(22,163,74,0.25)" }}>
-                      <p style={{ color: C.green }} className="font-semibold text-sm">✓ Preferred: {formatDateDisplay(selectedDate)}</p>
+                      <p style={{ color: C.green }} className="font-semibold text-sm">✓ Confirmed: {formatDateDisplay(selectedDate)}</p>
+                      {requestedDate && (
+                        <p className="text-xs mt-1" style={{ color: C.textMuted }}>
+                          📋 Requested: {formatDateDisplay(requestedDate)} (pending Alan&apos;s availability)
+                        </p>
+                      )}
                       {colorMode === "hoa_only" && backupDates.length > 0 && (
                         <p style={{ color: C.creamDark }} className="text-xs mt-1">
                           Backups: {backupDates.map((d, i) => `${["2nd","3rd","4th"][i]}, ${formatShortDateDisplay(d)}`).join(" • ")}
                         </p>
                       )}
                     </div>
-                  ) : (
+                  ) : !requestedDate ? (
                     <div className="rounded-xl p-3 fade-slide" style={{ background: "rgba(28,34,53,0.04)", border: `1px solid ${C.border}` }}>
-                      <p style={{ color: C.textMuted }} className="text-xs">Tap a date to select your preferred day.</p>
+                      <p style={{ color: C.textMuted }} className="text-xs">Tap a green date to confirm, or tap any gray date to request it.</p>
                     </div>
-                  )}
+                  ) : null}
 
                   {/* HOA backup date prompt */}
                   {showBackupPrompt && colorMode === "hoa_only" && (
