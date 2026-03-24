@@ -113,7 +113,7 @@ function getKanbanStatus(lead: Lead, estimateMap: Map<string, Estimate>): Kanban
     return WORKFLOW_STAGE_TO_COLUMN[lead.workflow_stage];
   }
   // 3. Booked proposal → Deposit Paid column
-  if (lead.proposal_status === "booked") return "deposit_paid";
+  if (est?.proposal_status === "booked") return "deposit_paid";
   // 4. Pre-workflow fallback: lead/estimate status
   if (lead.status === "sent" || lead.status === "approved" || est?.status === "approved") {
     return "sent";
