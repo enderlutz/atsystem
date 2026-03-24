@@ -1,12 +1,12 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { api, getCurrentUser, type AdminScheduleSlot, type CalendarEvent, type ScheduleBooking } from "@/lib/api";
+import { api, getCurrentUser, type AdminScheduleSlot, type CalendarEvent, type DateRequest, type ScheduleBooking } from "@/lib/api";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
-import { ChevronLeft, ChevronRight, CalendarDays, RefreshCw, X } from "lucide-react";
+import { ChevronLeft, ChevronRight, CalendarDays, RefreshCw, X, Check, Inbox } from "lucide-react";
 
 const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const MONTHS = [
@@ -37,6 +37,8 @@ export default function SchedulePage() {
   const [deleting, setDeleting] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [lastSynced, setLastSynced] = useState<Date | null>(null);
+  const [dateRequests, setDateRequests] = useState<DateRequest[]>([]);
+  const [processingRequest, setProcessingRequest] = useState<string | null>(null);
 
   const monthStr = toMonthStr(year, month);
 
@@ -44,9 +46,13 @@ export default function SchedulePage() {
     if (!silent) setLoading(true);
     else setSyncing(true);
     try {
-      const data = await api.getAdminSchedule(monthStr);
+      const [data, requests] = await Promise.all([
+        api.getAdminSchedule(monthStr),
+        isAdmin ? api.getDateRequests() : Promise.resolve([]),
+      ]);
       setSlots(data.slots);
       setCalendarBlocked(data.calendar_blocked ?? []);
+      setDateRequests(requests);
       setLastSynced(new Date());
     } catch (e) {
       console.error(e);
@@ -132,6 +138,30 @@ export default function SchedulePage() {
       console.error(e);
     } finally {
       setDeleting(false);
+    }
+  };
+
+  const handleApproveRequest = async (proposalId: string) => {
+    setProcessingRequest(proposalId);
+    try {
+      await api.approveDateRequest(proposalId);
+      await load(true);
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setProcessingRequest(null);
+    }
+  };
+
+  const handleDeclineRequest = async (proposalId: string) => {
+    setProcessingRequest(proposalId);
+    try {
+      await api.declineDateRequest(proposalId);
+      await load(true);
+    } catch (e) {
+      console.error(e);
+    } finally {
+      setProcessingRequest(null);
     }
   };
 
@@ -420,6 +450,82 @@ export default function SchedulePage() {
           </Card>
         </div>
       </div>
+
+      {/* Date Request Queue — admin only */}
+      {isAdmin && (
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base flex items-center gap-2">
+              <Inbox className="h-4 w-4" />
+              Date Requests
+              {dateRequests.length > 0 && (
+                <span className="ml-auto inline-flex items-center rounded-full bg-orange-100 px-2 py-0.5 text-xs font-semibold text-orange-700">
+                  {dateRequests.length}
+                </span>
+              )}
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            {dateRequests.length === 0 ? (
+              <p className="text-sm text-muted-foreground text-center py-4">No pending date requests.</p>
+            ) : (
+              <div className="space-y-3">
+                {dateRequests.map((req) => {
+                  const isProcessing = processingRequest === req.proposal_id;
+                  const fmtDate = (d: string) =>
+                    new Date(d + "T12:00:00").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
+                  return (
+                    <div key={req.proposal_id} className="rounded-lg border bg-muted/20 px-4 py-3 space-y-2">
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <p className="font-semibold text-sm leading-tight">{req.customer_name}</p>
+                          {req.contact_phone && (
+                            <p className="text-xs text-muted-foreground mt-0.5">{req.contact_phone}</p>
+                          )}
+                        </div>
+                        <span className="inline-flex items-center rounded-full bg-blue-100 px-2 py-0.5 text-[11px] font-medium text-blue-800 capitalize whitespace-nowrap">
+                          {req.selected_tier}{req.tier_price > 0 ? ` — $${req.tier_price.toLocaleString("en-US", { maximumFractionDigits: 0 })}` : ""}
+                        </span>
+                      </div>
+                      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs">
+                        <span className="text-muted-foreground">
+                          Confirmed: <span className="font-medium text-foreground">{fmtDate(req.booked_at)}</span>
+                        </span>
+                        <span className="text-orange-700">
+                          Requested: <span className="font-semibold">{fmtDate(req.requested_date)}</span>
+                        </span>
+                      </div>
+                      {req.address && (
+                        <p className="text-xs text-muted-foreground">{req.address}</p>
+                      )}
+                      <div className="flex gap-2 pt-1">
+                        <Button
+                          size="sm"
+                          className="h-7 text-xs gap-1.5"
+                          onClick={() => handleApproveRequest(req.proposal_id)}
+                          disabled={isProcessing}
+                        >
+                          <Check className="h-3 w-3" />
+                          {isProcessing ? "Updating…" : "Approve — move to " + fmtDate(req.requested_date)}
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="h-7 text-xs"
+                          onClick={() => handleDeclineRequest(req.proposal_id)}
+                          disabled={isProcessing}
+                        >
+                          Dismiss
+                        </Button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
     </div>
   );
 }

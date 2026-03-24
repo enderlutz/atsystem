@@ -237,6 +237,12 @@ export const api = {
     request<{ status: string; date: string }>(`/api/admin/schedule/${date}`, {
       method: "DELETE",
     }),
+  getDateRequests: () =>
+    request<DateRequest[]>("/api/admin/schedule/date-requests"),
+  approveDateRequest: (proposalId: string) =>
+    request<{ status: string; new_date: string }>(`/api/admin/schedule/date-requests/${proposalId}/approve`, { method: "POST" }),
+  declineDateRequest: (proposalId: string) =>
+    request<{ status: string }>(`/api/admin/schedule/date-requests/${proposalId}/decline`, { method: "POST" }),
 
   // Workflow automation
   getWorkflowStatus: (leadId: string) =>
@@ -491,6 +497,17 @@ export interface CalendarEvent {
 export interface AdminScheduleResponse {
   slots: AdminScheduleSlot[];
   calendar_blocked: CalendarEvent[];
+}
+
+export interface DateRequest {
+  proposal_id: string;
+  customer_name: string;
+  contact_phone: string;
+  address: string;
+  booked_at: string;        // YYYY-MM-DD — confirmed primary date
+  requested_date: string;   // YYYY-MM-DD — alternate date customer wants
+  selected_tier: string;
+  tier_price: number;
 }
 
 // --- Workflow Types ---

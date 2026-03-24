@@ -333,3 +333,82 @@ async def delete_schedule_slot(date: str, _: dict = Depends(require_admin)):
     db = get_db()
     db.table("schedule_slots").delete().eq("date", date).execute()
     return {"status": "deleted", "date": date}
+
+
+# ── Date request queue ────────────────────────────────────────────────────────
+
+@router.get("/api/admin/schedule/date-requests")
+async def get_date_requests(_: dict = Depends(require_admin)):
+    """Admin — returns booked proposals with a pending alternate-date request (backup_dates non-empty)."""
+    db = get_db()
+    proposals_res = (
+        db.table("proposals")
+        .select("id, booked_at, backup_dates, lead_id, selected_tier, booked_tier_price")
+        .eq("status", "booked")
+        .execute()
+    ).data or []
+
+    # Only proposals that actually have a backup/requested date
+    pending = [p for p in proposals_res if p.get("backup_dates")]
+
+    lead_ids = list({p["lead_id"] for p in pending if p.get("lead_id")})
+    lead_map: dict[str, dict] = {}
+    if lead_ids:
+        leads_res = db.table("leads").select("id, contact_name, contact_phone, address").in_("id", lead_ids).execute()
+        lead_map = {l["id"]: l for l in (leads_res.data or [])}
+
+    result = []
+    for p in pending:
+        lead = lead_map.get(p.get("lead_id", ""), {})
+        backup = p["backup_dates"]
+        requested_date = backup[0] if isinstance(backup, list) and backup else str(backup)
+        result.append({
+            "proposal_id": p["id"],
+            "customer_name": lead.get("contact_name") or "Unknown",
+            "contact_phone": lead.get("contact_phone") or "",
+            "address": lead.get("address") or "",
+            "booked_at": str(p["booked_at"])[:10],
+            "requested_date": requested_date,
+            "selected_tier": p.get("selected_tier") or "",
+            "tier_price": float(p.get("booked_tier_price") or 0),
+        })
+
+    return sorted(result, key=lambda r: r["requested_date"])
+
+
+@router.post("/api/admin/schedule/date-requests/{proposal_id}/approve")
+async def approve_date_request(proposal_id: str, _: dict = Depends(require_admin)):
+    """Admin — approve: swap booked_at to the requested date and clear backup_dates."""
+    db = get_db()
+    row = db.table("proposals").select("id, backup_dates").eq("id", proposal_id).single().execute().data
+    if not row or not row.get("backup_dates"):
+        raise HTTPException(status_code=404, detail="Request not found")
+
+    backup = row["backup_dates"]
+    new_date_str = backup[0] if isinstance(backup, list) else str(backup)
+    new_booked_at = datetime.fromisoformat(f"{new_date_str}T09:00:00+00:00")
+
+    db.table("proposals").update({
+        "booked_at": new_booked_at.isoformat(),
+        "backup_dates": [],
+    }).eq("id", proposal_id).execute()
+
+    # Ensure a schedule_slot exists for the new date
+    existing = db.table("schedule_slots").select("date").eq("date", new_date_str).execute()
+    if not existing.data:
+        db.table("schedule_slots").insert({
+            "date": new_date_str,
+            "is_available": True,
+            "label": "",
+            "max_bookings": 1,
+        }).execute()
+
+    return {"status": "approved", "new_date": new_date_str}
+
+
+@router.post("/api/admin/schedule/date-requests/{proposal_id}/decline")
+async def decline_date_request(proposal_id: str, _: dict = Depends(require_admin)):
+    """Admin — decline: keep original booked_at, clear backup_dates."""
+    db = get_db()
+    db.table("proposals").update({"backup_dates": []}).eq("id", proposal_id).execute()
+    return {"status": "declined"}
