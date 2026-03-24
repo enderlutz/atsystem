@@ -117,11 +117,15 @@ async def get_available_dates(month: Optional[str] = None):
         if booked >= max_bookings:
             continue
 
+        # Banana-event dates are busy — don't include in available list.
+        # The frontend shows them as gray "request only" dates automatically
+        # (any date not in the available list is treated as requestable).
+        if ds in alan_busy:
+            continue
+
         label = ""
         if slot and slot.get("label"):
             label = slot["label"]
-        elif ds in alan_busy:
-            label = "busy"
 
         available.append({
             "date": ds,

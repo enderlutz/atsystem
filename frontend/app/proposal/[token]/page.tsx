@@ -1381,11 +1381,11 @@ export default function ProposalPage() {
                     </span>
                     <span className="text-xs px-3 py-1.5 rounded-full font-medium"
                       style={{ background: "rgba(22,163,74,0.10)", color: C.green, border: "1px solid rgba(22,163,74,0.25)" }}>
-                      Green = confirmed available
+                      Green = available
                     </span>
                     <span className="text-xs px-3 py-1.5 rounded-full font-medium"
                       style={{ background: "rgba(107,114,128,0.10)", color: C.textMuted, border: `1px solid ${C.border}` }}>
-                      Gray = request only
+                      Gray = currently booked
                     </span>
                   </div>
 
@@ -1478,7 +1478,10 @@ export default function ProposalPage() {
                                   <p className="text-[8px] leading-none mt-0.5 font-bold" style={{ color: isPrimary ? "rgba(255,255,255,0.9)" : C.gold }}>{selectionLabel}</p>
                                 )}
                                 {isRequested && !selectionLabel && (
-                                  <p className="text-[8px] leading-none mt-0.5 font-semibold" style={{ color: "#9CA3AF" }}>request</p>
+                                  <p className="text-[8px] leading-none mt-0.5 font-semibold" style={{ color: "#9CA3AF" }}>requested</p>
+                                )}
+                                {!selectionLabel && !isRequested && isUnavailable && (
+                                  <p className="text-[7px] leading-none mt-0.5 font-medium" style={{ color: "#9CA3AF" }}>booked</p>
                                 )}
                                 {!selectionLabel && !isRequested && isAvailable && (
                                   <p className="text-[8px] leading-none mt-0.5 font-semibold" style={{ color: C.green }}>
@@ -1499,8 +1502,8 @@ export default function ProposalPage() {
                   {/* Request note — shown when an unavailable date is tapped */}
                   {requestedDate && !selectedDate && (
                     <div className="rounded-xl p-3 fade-slide" style={{ background: "rgba(239,68,68,0.05)", border: "1px solid rgba(239,68,68,0.25)" }}>
-                      <p className="font-semibold text-sm" style={{ color: "#DC2626" }}>⚠️ {formatDateDisplay(requestedDate)} is currently unavailable</p>
-                      <p className="text-xs mt-1" style={{ color: C.textMuted }}>You can request this date — Alan will do his best to accommodate. You must also select a confirmed available date (green) as your primary booking.</p>
+                      <p className="font-semibold text-sm" style={{ color: "#DC2626" }}>⚠️ {formatDateDisplay(requestedDate)} is currently booked</p>
+                      <p className="text-xs mt-1" style={{ color: C.textMuted }}>You can request this date — we'll do our best to fit you in. Please also select an available date (green) as your primary booking to proceed.</p>
                     </div>
                   )}
 
