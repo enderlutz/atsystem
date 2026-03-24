@@ -47,7 +47,7 @@ function prefetchLead(id: string) {
 const LEADS_CACHE_KEY = "at_leads_cache";
 const ESTIMATES_CACHE_KEY = "at_estimates_cache";
 
-type KanbanStatus = "gray" | "no_address" | "needs_info" | "green" | "yellow" | "red" | "follow_up" | "sent_addons" | "sent";
+type KanbanStatus = "gray" | "no_address" | "needs_info" | "green" | "yellow" | "red" | "follow_up" | "sent_addons" | "sent" | "booked";
 
 // Tags that route a lead into "Needs More Information"
 const NEEDS_INFO_TAGS = new Set(["Needs height", "Age of the Fence", "Needs Info", "needs_info"]);
@@ -65,6 +65,7 @@ const COLUMN_QUEUE_ORDER: Record<KanbanStatus, number> = {
   red: 6,
   sent_addons: 7,
   sent: 8,
+  booked: 9,
 };
 
 const PRIORITY_ORDER: Record<string, number> = { HOT: 0, HIGH: 1, MEDIUM: 2, LOW: 3 };
@@ -73,6 +74,8 @@ function getKanbanStatus(lead: Lead, estimateMap: Map<string, Estimate>): Kanban
   const est = estimateMap.get(lead.id);
   // Explicit VA override takes priority (allows moving sent leads to follow_up etc.)
   if (lead.kanban_column) return lead.kanban_column as KanbanStatus;
+  // Booked proposals — customer has selected a package and date
+  if (est?.proposal_status === "booked") return "booked";
   // Sent/approved leads: route to sent column based on additional services
   if (lead.status === "sent" || lead.status === "approved" || est?.status === "approved") {
     const addSvcs = ((lead.form_data?.additional_services as string) || "").trim();
@@ -170,6 +173,14 @@ const COLUMNS: {
     bgCls: "bg-emerald-50",
     dotCls: "bg-emerald-500",
   },
+  {
+    key: "booked",
+    label: "Booked",
+    description: "Customer has selected a package and confirmed a date",
+    headerCls: "bg-indigo-100 border-indigo-200",
+    bgCls: "bg-indigo-50",
+    dotCls: "bg-indigo-500",
+  },
 ];
 
 const COLUMN_BADGE: Record<KanbanStatus, string> = {
@@ -182,6 +193,7 @@ const COLUMN_BADGE: Record<KanbanStatus, string> = {
   follow_up: "bg-sky-100 text-sky-700",
   sent_addons: "bg-cyan-100 text-cyan-700",
   sent: "bg-emerald-100 text-emerald-700",
+  booked: "bg-indigo-100 text-indigo-700",
 };
 
 const COLUMN_LABEL: Record<KanbanStatus, string> = {
@@ -194,6 +206,7 @@ const COLUMN_LABEL: Record<KanbanStatus, string> = {
   follow_up: "Follow Up",
   sent_addons: "Sent — Add-Ons",
   sent: "Estimate Sent",
+  booked: "Booked",
 };
 
 const priorityColors: Record<string, string> = {
@@ -402,8 +415,8 @@ export default function LeadsPage() {
     if (!lead) return;
     const currentCol = getKanbanStatus(lead, estimateMap);
     if (currentCol === newCol) return;
-    // Block dragging into "sent" columns — leads only enter these when estimate is actually approved
-    if (newCol === "sent" || newCol === "sent_addons") return;
+    // Block dragging into "sent" / "booked" columns — leads enter these automatically
+    if (newCol === "sent" || newCol === "sent_addons" || newCol === "booked") return;
     // Optimistic update
     setLeads((prev) => prev.map((l) => l.id === leadId ? { ...l, kanban_column: newCol } : l));
     try {
