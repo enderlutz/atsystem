@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 import secrets
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Body, Depends, HTTPException, Query
+from pydantic import BaseModel
 from typing import Optional
 from datetime import datetime, timezone
 
@@ -465,10 +466,20 @@ async def get_preview_token(estimate_id: str):
     return {"token": token}
 
 
+class AddonMarkRequest(BaseModel):
+    description: str | None = None
+    price: float | None = None
+
+
 @router.post("/{estimate_id}/additional-services-sent")
-async def mark_additional_services_sent(estimate_id: str):
+async def mark_additional_services_sent(estimate_id: str, body: AddonMarkRequest = Body(default=AddonMarkRequest())):
     db = get_db()
-    db.table("estimates").update({"additional_services_sent": True}).eq("id", estimate_id).execute()
+    update: dict = {"additional_services_sent": True}
+    if body.description is not None:
+        update["addon_description"] = body.description
+    if body.price is not None:
+        update["addon_price"] = body.price
+    db.table("estimates").update(update).eq("id", estimate_id).execute()
     return {"status": "updated"}
 
 

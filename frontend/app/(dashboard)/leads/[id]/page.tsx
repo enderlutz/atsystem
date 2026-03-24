@@ -98,6 +98,10 @@ export default function LeadDetailPage() {
   const [savingEstimate, setSavingEstimate] = useState(false);
   const [estimateSaved, setEstimateSaved] = useState(false);
   const [additionalServicesSent, setAdditionalServicesSent] = useState(false);
+  const [addonDescription, setAddonDescription] = useState("");
+  const [addonPrice, setAddonPrice] = useState("");
+  const [savedAddonDescription, setSavedAddonDescription] = useState<string | null>(null);
+  const [savedAddonPrice, setSavedAddonPrice] = useState<number | null>(null);
   const [markingAddons, setMarkingAddons] = useState(false);
 
   // Role detection
@@ -178,6 +182,8 @@ export default function LeadDetailPage() {
       }
       setMilitaryDiscount(Boolean(fd.military_discount));
       setAdditionalServicesSent(data.estimate?.additional_services_sent ?? false);
+      setSavedAddonDescription(data.estimate?.addon_description ?? null);
+      setSavedAddonPrice(data.estimate?.addon_price ?? null);
       // Pre-fill admin custom tier inputs from existing tiers
       const t = data.estimate?.inputs?._tiers as Record<string, number> | undefined;
       if (t?.essential) setAdminCustomEssential(String(t.essential));
@@ -484,9 +490,12 @@ export default function LeadDetailPage() {
     if (!lead?.estimate) return;
     setMarkingAddons(true);
     try {
-      await api.markAdditionalServicesSent(lead.estimate.id);
+      const price = addonPrice ? parseFloat(addonPrice) : undefined;
+      await api.markAdditionalServicesSent(lead.estimate.id, addonDescription || undefined, price);
       setAdditionalServicesSent(true);
-      toast.success("Marked as sent");
+      setSavedAddonDescription(addonDescription || null);
+      setSavedAddonPrice(price ?? null);
+      toast.success("Additional estimate recorded");
     } catch (e) {
       console.error(e);
       toast.error("Failed to mark addons sent");
@@ -501,6 +510,8 @@ export default function LeadDetailPage() {
     try {
       await api.unmarkAdditionalServicesSent(lead.estimate.id);
       setAdditionalServicesSent(false);
+      setSavedAddonDescription(null);
+      setSavedAddonPrice(null);
       toast.success("Marked as not sent");
     } catch (e) {
       console.error(e);
@@ -1520,30 +1531,60 @@ export default function LeadDetailPage() {
               </div>
             )}
 
-            {/* Yellow: add-ons tracking */}
-            {approvalStatus === "yellow" && (
-              <div className="flex items-center justify-between pt-1 border-t">
-                <p className="text-sm text-muted-foreground">Additional services pricing</p>
+            {/* Additional services tracking — shown whenever additional_services is set */}
+            {additionalServices.trim() && (
+              <div className="pt-2 border-t space-y-2">
+                <p className="text-sm font-medium">Additional Estimate</p>
                 {additionalServicesSent ? (
-                  <span className="inline-flex items-center gap-1.5">
-                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-emerald-100 text-emerald-700">
-                      <CheckCircle2 className="h-3 w-3" /> Sent Additional Proposal
-                    </span>
-                    <button
-                      className="text-xs text-muted-foreground hover:text-destructive underline underline-offset-2"
-                      disabled={markingAddons}
-                      onClick={handleUnmarkAddonsSent}
-                    >
-                      Undo
-                    </button>
-                  </span>
+                  <div className="space-y-1">
+                    <div className="flex items-center justify-between">
+                      <span className="inline-flex items-center gap-1.5 px-2 py-1 rounded-md text-sm font-medium bg-emerald-50 text-emerald-700 border border-emerald-200">
+                        <CheckCircle2 className="h-3.5 w-3.5" />
+                        Additional Estimate
+                        {savedAddonPrice != null && ` · $${Number(savedAddonPrice).toLocaleString("en-US", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`}
+                      </span>
+                      <button
+                        className="text-xs text-muted-foreground hover:text-destructive underline underline-offset-2"
+                        disabled={markingAddons}
+                        onClick={handleUnmarkAddonsSent}
+                      >
+                        Undo
+                      </button>
+                    </div>
+                    {savedAddonDescription && (
+                      <p className="text-xs text-muted-foreground">{savedAddonDescription}</p>
+                    )}
+                  </div>
                 ) : (
-                  <Button size="sm" variant="outline" className="text-xs h-7 px-2"
-                    disabled={markingAddons}
-                    onClick={handleMarkAddonsSent}
-                  >
-                    {markingAddons ? "Saving…" : "Mark Add-ons Sent"}
-                  </Button>
+                  <div className="space-y-2">
+                    <p className="text-xs text-muted-foreground">Services requested: {additionalServices}</p>
+                    <Input
+                      placeholder="What was estimated? (e.g. deck staining, gutter cleaning)"
+                      value={addonDescription}
+                      onChange={(e) => setAddonDescription(e.target.value)}
+                      className="text-sm h-8"
+                    />
+                    <div className="flex gap-2">
+                      <div className="relative flex-1">
+                        <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground text-sm">$</span>
+                        <Input
+                          type="number"
+                          placeholder="Amount charged"
+                          value={addonPrice}
+                          onChange={(e) => setAddonPrice(e.target.value)}
+                          className="pl-6 text-sm h-8"
+                        />
+                      </div>
+                      <Button
+                        size="sm"
+                        className="h-8 px-3 text-xs bg-emerald-600 hover:bg-emerald-700"
+                        disabled={markingAddons}
+                        onClick={handleMarkAddonsSent}
+                      >
+                        {markingAddons ? "Saving…" : "Mark as Sent"}
+                      </Button>
+                    </div>
+                  </div>
                 )}
               </div>
             )}

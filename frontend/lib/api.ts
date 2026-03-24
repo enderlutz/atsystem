@@ -126,9 +126,11 @@ export const api = {
     request<{ status: string; proposal_url: string }>(`/api/estimates/${id}/resend`, { method: "POST" }),
   getPreviewToken: (estimateId: string) =>
     request<{ token: string }>(`/api/estimates/${estimateId}/preview`, { method: "POST" }),
-  markAdditionalServicesSent: (estimateId: string) =>
+  markAdditionalServicesSent: (estimateId: string, description?: string, price?: number) =>
     request<{ status: string }>(`/api/estimates/${estimateId}/additional-services-sent`, {
       method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ description: description ?? null, price: price ?? null }),
     }),
   unmarkAdditionalServicesSent: (estimateId: string) =>
     request<{ status: string }>(`/api/estimates/${estimateId}/additional-services-sent`, {
@@ -338,6 +340,8 @@ export interface Estimate {
   estimate_high: number;
   owner_notes: string | null;
   additional_services_sent: boolean;
+  addon_description?: string | null;
+  addon_price?: number | null;
   send_count: number;
   created_at: string;
   approved_at: string | null;

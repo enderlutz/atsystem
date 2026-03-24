@@ -112,7 +112,9 @@ function getKanbanStatus(lead: Lead, estimateMap: Map<string, Estimate>): Kanban
   if (lead.workflow_stage && WORKFLOW_STAGE_TO_COLUMN[lead.workflow_stage]) {
     return WORKFLOW_STAGE_TO_COLUMN[lead.workflow_stage];
   }
-  // 3. Pre-workflow fallback: lead/estimate status
+  // 3. Booked proposal → Deposit Paid column
+  if (lead.proposal_status === "booked") return "deposit_paid";
+  // 4. Pre-workflow fallback: lead/estimate status
   if (lead.status === "sent" || lead.status === "approved" || est?.status === "approved") {
     return "sent";
   }
@@ -337,6 +339,8 @@ export default function LeadsPage() {
   const [activeDragLead, setActiveDragLead] = useState<Lead | null>(null);
   const [confirmArchiveId, setConfirmArchiveId] = useState<string | null>(null);
   const [archivingId, setArchivingId] = useState<string | null>(null);
+  const [hoveredLeadId, setHoveredLeadId] = useState<string | null>(null);
+  const [hoverPos, setHoverPos] = useState<{ x: number; y: number } | null>(null);
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
@@ -684,6 +688,12 @@ export default function LeadsPage() {
                             className={`bg-white rounded-md border shadow-sm p-3 space-y-2 hover:shadow-md transition-shadow ${
                               isOwnerLead ? "opacity-80" : ""
                             } ${newLeadIds.has(lead.id) ? "ring-2 ring-blue-300 ring-offset-1" : ""} ${addonsPending ? "ring-2 ring-yellow-400 ring-offset-1" : ""}`}
+                            onMouseEnter={(e) => {
+                              const rect = e.currentTarget.getBoundingClientRect();
+                              setHoveredLeadId(lead.id);
+                              setHoverPos({ x: rect.right + 8, y: rect.top });
+                            }}
+                            onMouseLeave={() => { setHoveredLeadId(null); setHoverPos(null); }}
                           >
                             {/* Name + priority */}
                             <div className="flex items-start justify-between gap-1">
@@ -725,10 +735,15 @@ export default function LeadsPage() {
                               </span>
                             )}
 
-                            {/* Add-ons needed badge */}
+                            {/* Add-ons badge */}
                             {addonsPending && (
                               <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-xs bg-yellow-100 text-yellow-700 border border-yellow-300 font-medium">
                                 ★ Add-ons estimate needed
+                              </span>
+                            )}
+                            {hasAddons && est?.additional_services_sent && (
+                              <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-xs bg-emerald-50 text-emerald-700 border border-emerald-200 font-medium">
+                                ✓ Additional Estimate{est.addon_price != null ? `: $${Number(est.addon_price).toLocaleString("en-US", { maximumFractionDigits: 0 })}` : ""}
                               </span>
                             )}
 
@@ -1040,6 +1055,72 @@ export default function LeadsPage() {
           )}
         </div>
       )}
+
+      {/* Hover card — fixed position, shows lead details on kanban card hover */}
+      {hoveredLeadId && hoverPos && (() => {
+        const hLead = leads.find((l) => l.id === hoveredLeadId);
+        if (!hLead) return null;
+        const hEst = estimateMap.get(hLead.id);
+        const tiers = hEst?.inputs?._tiers as Record<string, number> | undefined;
+        const fd = (hLead.form_data || {}) as Record<string, unknown>;
+        const posLeft = hoverPos.x + 280 > window.innerWidth ? hoverPos.x - 296 : hoverPos.x;
+        const posTop = Math.min(hoverPos.y, window.innerHeight - 320);
+        return (
+          <div
+            className="fixed z-50 w-68 bg-white border border-gray-200 rounded-lg shadow-xl p-3.5 text-sm pointer-events-none"
+            style={{ left: posLeft, top: posTop, width: 272 }}
+          >
+            <div className="font-semibold text-base leading-tight mb-1">{hLead.contact_name || "—"}</div>
+            {hLead.contact_phone && (
+              <div className="text-xs text-muted-foreground">{hLead.contact_phone}</div>
+            )}
+            {hLead.contact_email && (
+              <div className="text-xs text-muted-foreground truncate">{hLead.contact_email}</div>
+            )}
+            {hLead.address && (
+              <div className="text-xs text-muted-foreground mt-1 truncate">{hLead.address}</div>
+            )}
+            <div className="mt-2 flex items-center gap-1.5 flex-wrap">
+              <span className="px-1.5 py-0.5 rounded text-xs bg-slate-100 text-slate-600 font-medium capitalize">
+                {hLead.service_type?.replace("_", " ") || "—"}
+              </span>
+              <span className={`px-1.5 py-0.5 rounded text-xs font-medium ${priorityColors[hLead.priority] || priorityColors.MEDIUM}`}>
+                {hLead.priority}
+              </span>
+            </div>
+            {fd.additional_services && (
+              <div className="mt-1.5 text-xs text-amber-700">
+                Add-ons: {String(fd.additional_services)}
+              </div>
+            )}
+            {tiers?.signature ? (
+              <div className="mt-2 pt-2 border-t grid grid-cols-3 gap-1 text-xs">
+                <div className="text-center">
+                  <div className="text-muted-foreground">Essential</div>
+                  <div className="font-medium text-emerald-700">${Number(tiers.essential || 0).toFixed(0)}</div>
+                </div>
+                <div className="text-center">
+                  <div className="text-muted-foreground">Signature</div>
+                  <div className="font-semibold text-emerald-700">${Number(tiers.signature).toFixed(0)}</div>
+                </div>
+                <div className="text-center">
+                  <div className="text-muted-foreground">Legacy</div>
+                  <div className="font-medium text-emerald-700">${Number(tiers.legacy || 0).toFixed(0)}</div>
+                </div>
+              </div>
+            ) : (
+              <div className="mt-1.5 text-xs text-muted-foreground">No estimate yet</div>
+            )}
+            {hLead.tags?.length > 0 && (
+              <div className="mt-2 pt-2 border-t flex flex-wrap gap-1">
+                {hLead.tags.slice(0, 4).map((tag) => (
+                  <span key={tag} className="px-1.5 py-0.5 rounded text-xs bg-gray-100 text-gray-500">{tag}</span>
+                ))}
+              </div>
+            )}
+          </div>
+        );
+      })()}
     </div>
   );
 }
