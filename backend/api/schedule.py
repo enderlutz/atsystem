@@ -460,7 +460,44 @@ async def approve_date_request(proposal_id: str, _: dict = Depends(require_admin
 
 @router.post("/api/admin/schedule/date-requests/{proposal_id}/decline")
 async def decline_date_request(proposal_id: str, _: dict = Depends(require_admin)):
-    """Admin — decline: keep original booked_at, clear backup_dates."""
+    """Admin — decline: keep original booked_at, clear backup_dates, SMS customer."""
     db = get_db()
+
+    row = (
+        db.table("proposals")
+        .select("id, backup_dates, lead_id, booked_at")
+        .eq("id", proposal_id)
+        .single()
+        .execute()
+    ).data
+    if not row:
+        raise HTTPException(status_code=404, detail="Request not found")
+
     db.table("proposals").update({"backup_dates": []}).eq("id", proposal_id).execute()
+
+    # SMS the customer: their alternate date wasn't available, original date still stands
+    if row.get("lead_id"):
+        lead = (
+            db.table("leads")
+            .select("contact_name, ghl_contact_id")
+            .eq("id", row["lead_id"])
+            .single()
+            .execute()
+        ).data or {}
+        ghl_contact_id = lead.get("ghl_contact_id")
+        if ghl_contact_id and row.get("booked_at"):
+            first = (lead.get("contact_name") or "there").split()[0]
+            try:
+                original_dt = datetime.fromisoformat(str(row["booked_at"]).replace("Z", "+00:00"))
+                friendly_date = original_dt.strftime("%A, %B %-d")
+            except ValueError:
+                friendly_date = str(row["booked_at"])[:10]
+            sms = (
+                f"Hi {first}, unfortunately we weren't able to accommodate your alternate date request. "
+                f"Your original booking on {friendly_date} is still confirmed.\n\n"
+                f"If you'd like to reschedule, just give us a call and we'll do our best to find a time that works.\n\n"
+                f"— A&T's Fence Restoration"
+            )
+            send_message_to_contact(ghl_contact_id, sms)
+
     return {"status": "declined"}

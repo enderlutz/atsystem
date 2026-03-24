@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import { api, leadDetailCache, getCurrentUser, type LeadDetail, type GHLMessage, type Estimate, type WorkflowStatus } from "@/lib/api";
 import { formatDate, formatCurrency } from "@/lib/utils";
+import { toast } from "sonner";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -488,8 +489,10 @@ export default function LeadDetailPage() {
     try {
       await api.updateVANotes(lead.id, vaNotes);
       setLead({ ...lead, va_notes: vaNotes });
+      toast.success("Notes saved");
     } catch (e) {
       console.error(e);
+      toast.error("Failed to save notes");
     }
     setSavingNotes(false);
   };
@@ -497,7 +500,7 @@ export default function LeadDetailPage() {
   const handleSaveEstimateInputs = async () => {
     if (!lead) return;
     if (!linearFeet || Number(linearFeet) <= 0) {
-      alert("Please enter linear feet before calculating.");
+      toast.error("Please enter linear feet before calculating.");
       return;
     }
     setSavingEstimate(true);
@@ -522,8 +525,10 @@ export default function LeadDetailPage() {
       setApproveError(null);
       setEstimateSaved(true);
       setTimeout(() => setEstimateSaved(false), 3000);
+      toast.success("Estimate recalculated");
     } catch (e) {
       console.error(e);
+      toast.error(e instanceof Error ? e.message : "Failed to save estimate inputs");
     }
     setSavingEstimate(false);
   };
@@ -626,9 +631,11 @@ export default function LeadDetailPage() {
                         address: contactAddress,
                       });
                       setLead({ ...lead, contact_name: contactName, contact_phone: contactPhone, address: contactAddress });
+                      toast.success("Contact info updated");
                       setEditingContact(false);
                     } catch (e) {
                       console.error(e);
+                      toast.error("Failed to update contact info");
                     }
                     setSavingContact(false);
                   }}

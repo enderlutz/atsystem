@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { ChevronLeft, ChevronRight, CalendarDays, RefreshCw, X, Check, Inbox } from "lucide-react";
+import { toast } from "sonner";
 
 const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const MONTHS = [
@@ -120,8 +121,10 @@ export default function SchedulePage() {
       });
       await load();
       setSelectedDate(null);
+      toast.success("Availability saved");
     } catch (e) {
       console.error(e);
+      toast.error("Failed to save date");
     } finally {
       setSaving(false);
     }
@@ -134,8 +137,10 @@ export default function SchedulePage() {
       await api.deleteScheduleSlot(selectedDate);
       await load();
       setSelectedDate(null);
+      toast.success("Date removed");
     } catch (e) {
       console.error(e);
+      toast.error("Failed to remove date");
     } finally {
       setDeleting(false);
     }
@@ -146,8 +151,10 @@ export default function SchedulePage() {
     try {
       await api.approveDateRequest(proposalId);
       await load(true);
+      toast.success("Date approved — customer has been texted");
     } catch (e) {
       console.error(e);
+      toast.error("Failed to approve date request");
     } finally {
       setProcessingRequest(null);
     }
@@ -158,8 +165,10 @@ export default function SchedulePage() {
     try {
       await api.declineDateRequest(proposalId);
       await load(true);
+      toast.success("Request dismissed — customer has been texted");
     } catch (e) {
       console.error(e);
+      toast.error("Failed to dismiss request");
     } finally {
       setProcessingRequest(null);
     }

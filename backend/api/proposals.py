@@ -195,6 +195,27 @@ async def update_funnel_stage(token: str, body: StageUpdate):
             except Exception as e:
                 logger.error(f"Workflow on_proposal_event failed for token {token}: {e}")
 
+        # Alert Alan on high-signal funnel milestones
+        if body.stage in ("package_selected", "date_selected"):
+            try:
+                settings = get_settings()
+                if settings.owner_ghl_contact_id:
+                    prop = db.table("proposals").select("lead_id, selected_tier").eq("token", token).single().execute().data or {}
+                    if prop.get("lead_id"):
+                        lead = db.table("leads").select("contact_name").eq("id", prop["lead_id"]).single().execute().data or {}
+                        full_name = lead.get("contact_name") or "A customer"
+                        tier = (prop.get("selected_tier") or "").capitalize()
+                        if body.stage == "package_selected" and tier:
+                            msg = f"Proposal update: {full_name} selected the {tier} package."
+                        elif body.stage == "date_selected":
+                            msg = f"Proposal update: {full_name} has selected a date and is ready to confirm their booking."
+                        else:
+                            msg = None
+                        if msg:
+                            send_message_to_contact(settings.owner_ghl_contact_id, msg)
+            except Exception as e:
+                logger.error(f"Failed to send milestone SMS to Alan for token {token}: {e}")
+
     return {"status": "ok"}
 
 
