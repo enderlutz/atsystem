@@ -1,6 +1,17 @@
-"""Schedule slots API — public read + admin write for booking availability calendar."""
-from datetime import datetime, timezone
+"""Schedule slots API — public read + admin write for booking availability calendar.
+
+All dates are available by default. Dates are blocked by:
+  1. Past dates (before today)
+  2. Banana-colored events on Alan's Google Calendar (existing jobs)
+  3. Admin-blocked dates in schedule_slots table (is_available=false)
+  4. Dates already fully booked (proposals with status=booked)
+
+Banana-event dates are still shown to customers as "request only" — they can
+request those dates and Alan decides on a per-day basis.
+"""
+from datetime import date, datetime, timedelta, timezone
 from typing import Optional
+from calendar import monthrange
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
@@ -25,45 +36,50 @@ class SlotUpsert(BaseModel):
 @router.get("/api/schedule")
 async def get_available_dates(month: Optional[str] = None):
     """
-    Public — returns dates customers can book.
-    Filters out dates where booked proposal count >= max_bookings,
-    and dates that have banana-colored events on Alan's Google Calendar.
-    month: "YYYY-MM" — defaults to current month.
+    Public — returns available dates for the month.
+    All dates are open by default. Blocked by:
+      1. Past dates
+      2. Admin-blocked dates (schedule_slots.is_available = false)
+      3. Fully booked dates (1 booking per day)
+    Banana-event dates are NOT blocked — they're still bookable but could be
+    marked "busy" by the frontend if desired.
     """
     db = get_db()
     settings = get_settings()
+    today = date.today()
 
     if month:
         try:
-            year, mo = month.split("-")
-            start = f"{year}-{mo}-01"
-            mo_int = int(mo)
-            if mo_int == 12:
-                end = f"{int(year)+1}-01-01"
-            else:
-                end = f"{year}-{mo_int+1:02d}-01"
-        except ValueError:
+            year, mo = int(month.split("-")[0]), int(month.split("-")[1])
+        except (ValueError, IndexError):
             raise HTTPException(status_code=400, detail="month must be YYYY-MM")
     else:
-        now = datetime.now(timezone.utc)
-        month = f"{now.year}-{now.month:02d}"
-        start = f"{now.year}-{now.month:02d}-01"
-        mo_int = now.month
-        if mo_int == 12:
-            end = f"{now.year+1}-01-01"
-        else:
-            end = f"{now.year}-{mo_int+1:02d}-01"
+        year, mo = today.year, today.month
+        month = f"{year}-{mo:02d}"
 
-    slots = (
+    _, days_in_month = monthrange(year, mo)
+
+    # All dates in the month
+    all_dates = [date(year, mo, d) for d in range(1, days_in_month + 1)]
+
+    # Filter out past dates
+    all_dates = [d for d in all_dates if d >= today]
+
+    # Load admin-blocked dates from schedule_slots
+    start_str = f"{year}-{mo:02d}-01"
+    end_str = f"{year}-{mo + 1:02d}-01" if mo < 12 else f"{year + 1}-01-01"
+    slots_res = (
         db.table("schedule_slots")
-        .select("*")
-        .gte("date", start)
-        .order("date")
+        .select("date, is_available, label, max_bookings")
+        .gte("date", start_str)
         .execute()
     ).data or []
 
-    # Filter to before end of month
-    slots = [s for s in slots if str(s["date"]) < end]
+    slot_map: dict[str, dict] = {}
+    for s in slots_res:
+        ds = str(s["date"])[:10]
+        if ds < end_str:
+            slot_map[ds] = s
 
     # Count bookings per date
     proposals_res = (
@@ -73,34 +89,45 @@ async def get_available_dates(month: Optional[str] = None):
         .execute()
     ).data or []
 
-    booked_dates: dict[str, int] = {}
+    booked_counts: dict[str, int] = {}
     for p in proposals_res:
         if p.get("booked_at"):
-            date_str = str(p["booked_at"])[:10]
-            booked_dates[date_str] = booked_dates.get(date_str, 0) + 1
+            ds = str(p["booked_at"])[:10]
+            booked_counts[ds] = booked_counts.get(ds, 0) + 1
 
-    # Fetch Alan's banana-colored events — these block dates from customer booking
-    alan_blocked = set(get_banana_event_dates(
+    # Fetch banana events — these dates are "busy" but still requestable
+    alan_busy = set(get_banana_event_dates(
         month=month,
         credentials_json=settings.google_calendar_credentials_json,
         calendar_id=settings.google_calendar_id,
     ))
 
     available = []
-    for slot in slots:
-        if not slot.get("is_available"):
+    for d in all_dates:
+        ds = d.isoformat()
+        slot = slot_map.get(ds)
+
+        # Admin explicitly blocked this date
+        if slot and not slot.get("is_available", True):
             continue
-        date_str = str(slot["date"])
-        if date_str in alan_blocked:
-            continue  # Alan already has an appointment this day
-        booked = booked_dates.get(date_str, 0)
-        spots = slot["max_bookings"] - booked
-        if spots > 0:
-            available.append({
-                "date": date_str,
-                "label": slot.get("label") or "",
-                "spots_remaining": spots,
-            })
+
+        # Check max bookings (default 1, or whatever admin set)
+        max_bookings = slot["max_bookings"] if slot else 1
+        booked = booked_counts.get(ds, 0)
+        if booked >= max_bookings:
+            continue
+
+        label = ""
+        if slot and slot.get("label"):
+            label = slot["label"]
+        elif ds in alan_busy:
+            label = "busy"
+
+        available.append({
+            "date": ds,
+            "label": label,
+            "spots_remaining": max_bookings - booked,
+        })
 
     return available
 
