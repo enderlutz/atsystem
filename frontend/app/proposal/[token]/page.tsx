@@ -1481,7 +1481,7 @@ export default function ProposalPage() {
                                   <p className="text-[8px] leading-none mt-0.5 font-semibold" style={{ color: "#9CA3AF" }}>requested</p>
                                 )}
                                 {!selectionLabel && !isRequested && isUnavailable && (
-                                  <p className="text-[7px] leading-none mt-0.5 font-medium" style={{ color: "#9CA3AF" }}>booked</p>
+                                  <p className="text-[6px] leading-tight mt-0.5 font-medium" style={{ color: "#9CA3AF" }}>request date<br/>currently booked</p>
                                 )}
                                 {!selectionLabel && !isRequested && isAvailable && (
                                   <p className="text-[8px] leading-none mt-0.5 font-semibold" style={{ color: C.green }}>
