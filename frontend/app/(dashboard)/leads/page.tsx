@@ -7,7 +7,7 @@ import { toast } from "sonner";
 import { formatDate } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Search, CheckCircle2, Circle, Flame, LayoutGrid, List, Send, Sparkles, Zap } from "lucide-react";
+import { Search, CheckCircle2, Circle, Flame, LayoutGrid, List, Send, Sparkles, Zap, Archive } from "lucide-react";
 import {
   DndContext,
   type DragEndEvent,
@@ -250,6 +250,8 @@ export default function LeadsPage() {
   const [newLeadCount, setNewLeadCount] = useState(0);
   const [newBannerDismissed, setNewBannerDismissed] = useState(false);
   const [activeDragLead, setActiveDragLead] = useState<Lead | null>(null);
+  const [confirmArchiveId, setConfirmArchiveId] = useState<string | null>(null);
+  const [archivingId, setArchivingId] = useState<string | null>(null);
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
@@ -366,6 +368,22 @@ export default function LeadsPage() {
       toast.error(e instanceof Error ? e.message : "Failed to send estimate");
     } finally {
       setQuickApprovingId(null);
+    }
+  };
+
+  const handleArchive = async (leadId: string) => {
+    setArchivingId(leadId);
+    setLeads((prev) => prev.filter((l) => l.id !== leadId));
+    try {
+      await api.archiveLead(leadId);
+      toast.success("Lead archived");
+    } catch (e) {
+      console.error(e);
+      toast.error("Failed to archive lead");
+      await loadData(); // restore on error
+    } finally {
+      setArchivingId(null);
+      setConfirmArchiveId(null);
     }
   };
 
@@ -694,25 +712,59 @@ export default function LeadsPage() {
                               </div>
                             )}
 
-                            {/* Footer: responded + date + view */}
-                            <div className="flex items-center justify-between pt-0.5">
-                              <div className="flex items-center gap-1 text-xs text-muted-foreground">
-                                {lead.customer_responded ? (
-                                  <>
-                                    <CheckCircle2 className="h-3 w-3 text-green-600" />
-                                    <span>Responded</span>
-                                  </>
-                                ) : (
-                                  <>
-                                    <Circle className="h-3 w-3 text-gray-300" />
-                                    <span className="text-gray-400">{formatDate(lead.created_at)}</span>
-                                  </>
-                                )}
+                            {/* Footer: responded + date + view + archive */}
+                            {confirmArchiveId === lead.id ? (
+                              <div className="flex items-center justify-between gap-2 pt-0.5">
+                                <span className="text-xs text-muted-foreground">Archive this lead?</span>
+                                <div className="flex gap-1">
+                                  <Button
+                                    size="sm"
+                                    variant="destructive"
+                                    className="h-6 text-xs px-2"
+                                    disabled={archivingId === lead.id}
+                                    onClick={(e) => { e.stopPropagation(); handleArchive(lead.id); }}
+                                  >
+                                    {archivingId === lead.id ? "…" : "Archive"}
+                                  </Button>
+                                  <Button
+                                    size="sm"
+                                    variant="outline"
+                                    className="h-6 text-xs px-2"
+                                    onClick={(e) => { e.stopPropagation(); setConfirmArchiveId(null); }}
+                                  >
+                                    Cancel
+                                  </Button>
+                                </div>
                               </div>
-                              <Button size="sm" variant="outline" className="h-6 text-xs px-2" asChild onMouseEnter={() => prefetchLead(lead.id)}>
-                                <Link href={`/leads/${lead.id}`}>View</Link>
-                              </Button>
-                            </div>
+                            ) : (
+                              <div className="flex items-center justify-between pt-0.5">
+                                <div className="flex items-center gap-1 text-xs text-muted-foreground">
+                                  {lead.customer_responded ? (
+                                    <>
+                                      <CheckCircle2 className="h-3 w-3 text-green-600" />
+                                      <span>Responded</span>
+                                    </>
+                                  ) : (
+                                    <>
+                                      <Circle className="h-3 w-3 text-gray-300" />
+                                      <span className="text-gray-400">{formatDate(lead.created_at)}</span>
+                                    </>
+                                  )}
+                                </div>
+                                <div className="flex items-center gap-1">
+                                  <button
+                                    title="Archive lead"
+                                    className="h-6 w-6 flex items-center justify-center rounded text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
+                                    onClick={(e) => { e.stopPropagation(); setConfirmArchiveId(lead.id); }}
+                                  >
+                                    <Archive className="h-3.5 w-3.5" />
+                                  </button>
+                                  <Button size="sm" variant="outline" className="h-6 text-xs px-2" asChild onMouseEnter={() => prefetchLead(lead.id)}>
+                                    <Link href={`/leads/${lead.id}`}>View</Link>
+                                  </Button>
+                                </div>
+                              </div>
+                            )}
                           </div>
                           </DraggableKanbanCard>
                         );
@@ -832,26 +884,58 @@ export default function LeadsPage() {
 
                   {/* Actions */}
                   <div className="flex items-center gap-2 shrink-0">
-                    {alreadySent ? (
-                      <span className="inline-flex items-center gap-1 text-xs text-green-600 font-medium">
-                        <CheckCircle2 className="h-3.5 w-3.5" /> Sent
-                      </span>
-                    ) : canApprove ? (
-                      <Button
-                        size="sm"
-                        className="h-7 text-xs px-2.5 bg-green-600 hover:bg-green-700 gap-1"
-                        disabled={quickApprovingId === est?.id}
-                        onClick={() => handleQuickApprove(lead)}
-                      >
-                        <Send className="h-3 w-3" />
-                        {quickApprovingId === est?.id ? "Sending…" : "Approve"}
-                      </Button>
-                    ) : (kanbanStatus === "green" || kanbanStatus === "yellow") && !lead.customer_responded ? (
-                      <span className="text-xs text-muted-foreground shrink-0">Awaiting reply</span>
-                    ) : null}
-                    <Button size="sm" variant="outline" className="h-7 text-xs px-2.5" asChild onMouseEnter={() => prefetchLead(lead.id)}>
-                      <Link href={`/leads/${lead.id}`}>View</Link>
-                    </Button>
+                    {confirmArchiveId === lead.id ? (
+                      <>
+                        <span className="text-xs text-muted-foreground">Archive?</span>
+                        <Button
+                          size="sm"
+                          variant="destructive"
+                          className="h-7 text-xs px-2"
+                          disabled={archivingId === lead.id}
+                          onClick={() => handleArchive(lead.id)}
+                        >
+                          {archivingId === lead.id ? "…" : "Yes"}
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="h-7 text-xs px-2"
+                          onClick={() => setConfirmArchiveId(null)}
+                        >
+                          No
+                        </Button>
+                      </>
+                    ) : (
+                      <>
+                        {alreadySent ? (
+                          <span className="inline-flex items-center gap-1 text-xs text-green-600 font-medium">
+                            <CheckCircle2 className="h-3.5 w-3.5" /> Sent
+                          </span>
+                        ) : canApprove ? (
+                          <Button
+                            size="sm"
+                            className="h-7 text-xs px-2.5 bg-green-600 hover:bg-green-700 gap-1"
+                            disabled={quickApprovingId === est?.id}
+                            onClick={() => handleQuickApprove(lead)}
+                          >
+                            <Send className="h-3 w-3" />
+                            {quickApprovingId === est?.id ? "Sending…" : "Approve"}
+                          </Button>
+                        ) : (kanbanStatus === "green" || kanbanStatus === "yellow") && !lead.customer_responded ? (
+                          <span className="text-xs text-muted-foreground shrink-0">Awaiting reply</span>
+                        ) : null}
+                        <button
+                          title="Archive lead"
+                          className="h-7 w-7 flex items-center justify-center rounded text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
+                          onClick={() => setConfirmArchiveId(lead.id)}
+                        >
+                          <Archive className="h-4 w-4" />
+                        </button>
+                        <Button size="sm" variant="outline" className="h-7 text-xs px-2.5" asChild onMouseEnter={() => prefetchLead(lead.id)}>
+                          <Link href={`/leads/${lead.id}`}>View</Link>
+                        </Button>
+                      </>
+                    )}
                   </div>
                 </div>
               );

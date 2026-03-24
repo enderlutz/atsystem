@@ -80,6 +80,8 @@ export const api = {
       method: "PUT",
       body: JSON.stringify(data),
     }),
+  archiveLead: (leadId: string) =>
+    request<{ status: string }>(`/api/leads/${leadId}/archive`, { method: "POST" }),
   archiveAllLeads: () =>
     request<{ status: string; count: number }>("/api/leads/archive-all", { method: "POST" }),
   getLeadMessages: (leadId: string) =>

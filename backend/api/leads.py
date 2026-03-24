@@ -322,6 +322,14 @@ async def get_lead_messages(lead_id: str):
     return {"messages": msgs}
 
 
+@router.post("/{lead_id}/archive")
+async def archive_lead(lead_id: str):
+    """Soft-archive a single lead — hides it from the dashboard without deleting it."""
+    db = get_db()
+    db.table("leads").update({"archived": True}).eq("id", lead_id).execute()
+    return {"status": "archived"}
+
+
 @router.post("/archive-all")
 async def archive_all_leads(_: dict = Depends(require_admin)):
     """Archive all current leads so they're hidden from the dashboard (not deleted)."""
