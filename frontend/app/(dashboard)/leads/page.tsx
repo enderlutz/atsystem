@@ -38,7 +38,7 @@ const WORKFLOW_LABELS: Record<string, string> = {
   additional_service: "Add-on",
   job_complete: "Job Complete (Review & Referral)",
   cold_nurture: "Cold Lead Nurture",
-  past_customer: "Past Customer",
+  past_customer: "Requote",
 };
 
 function prefetchLead(id: string) {
@@ -160,20 +160,20 @@ const COLUMNS: {
     dotCls: "bg-orange-400",
   },
   {
-    key: "green",
-    label: "Hot Lead (Send Proposal)",
-    description: "All criteria met — ready to approve and send proposal",
-    headerCls: "bg-green-100 border-green-200",
-    bgCls: "bg-green-50",
-    dotCls: "bg-green-500",
-  },
-  {
     key: "red",
     label: "Needs Review",
     description: "Outside zone, too small, 15+ yrs, or missing data — owner review required",
     headerCls: "bg-red-100 border-red-200",
     bgCls: "bg-red-50",
     dotCls: "bg-red-500",
+  },
+  {
+    key: "green",
+    label: "Hot Lead (Send Proposal)",
+    description: "All criteria met — ready to approve and send proposal",
+    headerCls: "bg-green-100 border-green-200",
+    bgCls: "bg-green-50",
+    dotCls: "bg-green-500",
   },
   {
     key: "sent",
@@ -241,8 +241,8 @@ const COLUMNS: {
   },
   {
     key: "past_customer",
-    label: "Past Customer",
-    description: "Previous customer — referral and repeat business sequence",
+    label: "Requote",
+    description: "Previous customer — requote for new or repeat service",
     headerCls: "bg-teal-100 border-teal-200",
     bgCls: "bg-teal-50",
     dotCls: "bg-teal-500",
@@ -280,7 +280,7 @@ const COLUMN_LABEL: Record<KanbanStatus, string> = {
   deposit_paid: "Deposit Paid",
   job_complete: "Job Complete",
   cold_nurture: "Cold Nurture",
-  past_customer: "Past Customer",
+  past_customer: "Requote",
 };
 
 const priorityColors: Record<string, string> = {
