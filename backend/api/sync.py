@@ -180,12 +180,14 @@ async def run_pipeline_sync(background_tasks: BackgroundTasks | None = None) -> 
         }
 
     # 2. Load existing leads (id, contact_id, tags, form_data)
-    existing_res = db.table("leads").select("id, ghl_contact_id, tags, form_data").eq("archived", False).execute()
+    # Include archived leads so we don't re-import them as new
+    existing_res = db.table("leads").select("id, ghl_contact_id, tags, form_data, archived").execute()
     existing_map = {
         r["ghl_contact_id"]: {
             "id": r["id"],
             "tags": r.get("tags") or [],
             "form_data": r.get("form_data") or {},
+            "archived": r.get("archived", False),
         }
         for r in (existing_res.data or [])
     }
@@ -228,8 +230,11 @@ async def run_pipeline_sync(background_tasks: BackgroundTasks | None = None) -> 
             lead_data["form_data"]["pipeline_stage"] = stage_name
 
             if contact_id in existing_ids:
-                # Refresh contact data + tags + priority for existing leads
                 existing = existing_map[contact_id]
+                # Skip archived leads entirely — don't update or re-import them
+                if existing.get("archived"):
+                    continue
+                # Refresh contact data + tags + priority for existing leads
                 lead_id = existing["id"]
                 current_tags = existing["tags"]
                 old_form_data = existing["form_data"]
