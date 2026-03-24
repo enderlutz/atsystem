@@ -1090,7 +1090,7 @@ export default function LeadsPage() {
             </div>
             {fd.additional_services && (
               <div className="mt-1.5 text-xs text-amber-700">
-                Add-ons: {String(fd.additional_services)}
+                Add-ons: {String(fd.additional_services as string)}
               </div>
             )}
             {tiers?.signature ? (
