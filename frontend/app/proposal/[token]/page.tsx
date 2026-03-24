@@ -398,6 +398,8 @@ export default function ProposalPage() {
         setSelectedDate(res.booked_at.slice(0, 10));
         setBackupDates((res.backup_dates || []).slice(0, 1));
         setStep(3);
+        // Signal that the customer left so dashboard doesn't show "Active"
+        api.reportProposalActivity(token, "left").catch(() => {});
       })
       .catch((e) => {
         setBookError(e instanceof Error ? e.message : "Payment verified but booking failed. Please call us at (832) 334-6528.");

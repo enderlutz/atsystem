@@ -761,9 +761,9 @@ export default function LeadsPage() {
                             })()}
 
                             {/* Funnel stage (sent column) */}
-                            {col.key === "sent" && (() => {
+                            {(col.key === "sent" || col.key === "deposit_paid") && (() => {
                               const stage = est?.proposal_funnel_stage;
-                              if (!stage || stage === "booked") return null;
+                              if (!stage) return null;
                               const STAGE_LABELS: Record<string, string> = {
                                 sent: "Not opened yet",
                                 opened: "Viewed",
@@ -772,6 +772,7 @@ export default function LeadsPage() {
                                 color_selected: "Color picked",
                                 date_selected: "Date picked",
                                 checkout_started: "At checkout",
+                                booked: "Deposit Paid",
                               };
                               return (
                                 <span className="text-xs text-blue-600 flex items-center gap-1">
