@@ -508,6 +508,10 @@ export interface DateRequest {
   requested_date: string;   // YYYY-MM-DD — alternate date customer wants
   selected_tier: string;
   tier_price: number;
+  color_display?: string | null;
+  hoa_label?: string | null;
+  linear_feet?: string | number | null;
+  fence_height?: string | number | null;
 }
 
 // --- Workflow Types ---

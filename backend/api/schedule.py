@@ -8,6 +8,7 @@ from db import get_db
 from api.auth import require_admin
 from config import get_settings
 from services.google_calendar import get_banana_event_dates, get_banana_events
+from services.ghl import send_message_to_contact
 
 router = APIRouter(tags=["schedule"])
 
@@ -343,7 +344,7 @@ async def get_date_requests(_: dict = Depends(require_admin)):
     db = get_db()
     proposals_res = (
         db.table("proposals")
-        .select("id, booked_at, backup_dates, lead_id, selected_tier, booked_tier_price")
+        .select("id, booked_at, backup_dates, lead_id, selected_tier, booked_tier_price, selected_color, color_mode, hoa_colors")
         .eq("status", "booked")
         .execute()
     ).data or []
@@ -354,7 +355,7 @@ async def get_date_requests(_: dict = Depends(require_admin)):
     lead_ids = list({p["lead_id"] for p in pending if p.get("lead_id")})
     lead_map: dict[str, dict] = {}
     if lead_ids:
-        leads_res = db.table("leads").select("id, contact_name, contact_phone, address").in_("id", lead_ids).execute()
+        leads_res = db.table("leads").select("id, contact_name, contact_phone, address, form_data").in_("id", lead_ids).execute()
         lead_map = {l["id"]: l for l in (leads_res.data or [])}
 
     result = []
@@ -362,6 +363,27 @@ async def get_date_requests(_: dict = Depends(require_admin)):
         lead = lead_map.get(p.get("lead_id", ""), {})
         backup = p["backup_dates"]
         requested_date = backup[0] if isinstance(backup, list) and backup else str(backup)
+
+        # Compute color display
+        color_mode = p.get("color_mode") or "gallery"
+        if color_mode == "gallery" and p.get("selected_color"):
+            color_display = p["selected_color"]
+        elif color_mode in ("hoa_only", "hoa_approved") and p.get("hoa_colors"):
+            hoa = p["hoa_colors"]
+            color_display = ", ".join(str(c) for c in hoa) if isinstance(hoa, list) else str(hoa)
+        elif color_mode == "custom":
+            color_display = "Custom color"
+        else:
+            color_display = None
+
+        if color_mode == "hoa_only":
+            hoa_label = "HOA Colors Only"
+        elif color_mode == "hoa_approved":
+            hoa_label = "HOA Approved"
+        else:
+            hoa_label = None
+
+        form_data = lead.get("form_data") or {}
         result.append({
             "proposal_id": p["id"],
             "customer_name": lead.get("contact_name") or "Unknown",
@@ -371,6 +393,10 @@ async def get_date_requests(_: dict = Depends(require_admin)):
             "requested_date": requested_date,
             "selected_tier": p.get("selected_tier") or "",
             "tier_price": float(p.get("booked_tier_price") or 0),
+            "color_display": color_display,
+            "hoa_label": hoa_label,
+            "linear_feet": form_data.get("linear_feet") or None,
+            "fence_height": form_data.get("fence_height") or None,
         })
 
     return sorted(result, key=lambda r: r["requested_date"])
@@ -378,9 +404,15 @@ async def get_date_requests(_: dict = Depends(require_admin)):
 
 @router.post("/api/admin/schedule/date-requests/{proposal_id}/approve")
 async def approve_date_request(proposal_id: str, _: dict = Depends(require_admin)):
-    """Admin — approve: swap booked_at to the requested date and clear backup_dates."""
+    """Admin — approve: swap booked_at to the requested date, clear backup_dates, and SMS the customer."""
     db = get_db()
-    row = db.table("proposals").select("id, backup_dates").eq("id", proposal_id).single().execute().data
+    row = (
+        db.table("proposals")
+        .select("id, backup_dates, lead_id")
+        .eq("id", proposal_id)
+        .single()
+        .execute()
+    ).data
     if not row or not row.get("backup_dates"):
         raise HTTPException(status_code=404, detail="Request not found")
 
@@ -402,6 +434,26 @@ async def approve_date_request(proposal_id: str, _: dict = Depends(require_admin
             "label": "",
             "max_bookings": 1,
         }).execute()
+
+    # SMS the customer with their updated date
+    if row.get("lead_id"):
+        lead = (
+            db.table("leads")
+            .select("contact_name, ghl_contact_id")
+            .eq("id", row["lead_id"])
+            .single()
+            .execute()
+        ).data or {}
+        ghl_contact_id = lead.get("ghl_contact_id")
+        if ghl_contact_id:
+            first = (lead.get("contact_name") or "there").split()[0]
+            friendly_date = new_booked_at.strftime("%A, %B %-d")
+            sms = (
+                f"Hi {first}! 🎉 Good news — we were able to get you on {friendly_date} "
+                f"for your fence restoration. Your booking has been updated to that date.\n\n"
+                f"See you then!\n— A&T's Fence Restoration"
+            )
+            send_message_to_contact(ghl_contact_id, sms)
 
     return {"status": "approved", "new_date": new_date_str}
 

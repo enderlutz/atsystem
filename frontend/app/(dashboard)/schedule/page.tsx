@@ -473,45 +473,76 @@ export default function SchedulePage() {
                 {dateRequests.map((req) => {
                   const isProcessing = processingRequest === req.proposal_id;
                   const fmtDate = (d: string) =>
+                    new Date(d + "T12:00:00").toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" });
+                  const fmtShort = (d: string) =>
                     new Date(d + "T12:00:00").toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
                   return (
-                    <div key={req.proposal_id} className="rounded-lg border bg-muted/20 px-4 py-3 space-y-2">
+                    <div key={req.proposal_id} className="rounded-lg border bg-muted/20 px-4 py-3 space-y-3">
+                      {/* Header row */}
                       <div className="flex items-start justify-between gap-3">
                         <div>
                           <p className="font-semibold text-sm leading-tight">{req.customer_name}</p>
                           {req.contact_phone && (
                             <p className="text-xs text-muted-foreground mt-0.5">{req.contact_phone}</p>
                           )}
+                          {req.address && (
+                            <p className="text-xs text-muted-foreground">{req.address}</p>
+                          )}
                         </div>
-                        <span className="inline-flex items-center rounded-full bg-blue-100 px-2 py-0.5 text-[11px] font-medium text-blue-800 capitalize whitespace-nowrap">
-                          {req.selected_tier}{req.tier_price > 0 ? ` — $${req.tier_price.toLocaleString("en-US", { maximumFractionDigits: 0 })}` : ""}
-                        </span>
+                        <div className="flex flex-col items-end gap-1">
+                          <span className="inline-flex items-center rounded-full bg-blue-100 px-2 py-0.5 text-[11px] font-medium text-blue-800 capitalize whitespace-nowrap">
+                            {req.selected_tier}{req.tier_price > 0 ? ` — $${req.tier_price.toLocaleString("en-US", { maximumFractionDigits: 0 })}` : ""}
+                          </span>
+                          {req.hoa_label && (
+                            <span className="inline-flex items-center rounded-full bg-purple-100 px-2 py-0.5 text-[11px] font-medium text-purple-800 whitespace-nowrap">
+                              {req.hoa_label}
+                            </span>
+                          )}
+                        </div>
                       </div>
-                      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs">
-                        <span className="text-muted-foreground">
-                          Confirmed: <span className="font-medium text-foreground">{fmtDate(req.booked_at)}</span>
-                        </span>
-                        <span className="text-orange-700">
-                          Requested: <span className="font-semibold">{fmtDate(req.requested_date)}</span>
-                        </span>
-                      </div>
-                      {req.address && (
-                        <p className="text-xs text-muted-foreground">{req.address}</p>
+
+                      {/* Job details */}
+                      {(req.color_display || req.linear_feet || req.fence_height) && (
+                        <div className="text-xs text-muted-foreground space-y-0.5 border-t pt-2">
+                          {req.color_display && (
+                            <p>Color: <span className="font-medium text-foreground">{req.color_display}</span></p>
+                          )}
+                          {req.linear_feet && (
+                            <p>Linear ft: <span className="font-medium text-foreground">{req.linear_feet}</span></p>
+                          )}
+                          {req.fence_height && (
+                            <p>Height: <span className="font-medium text-foreground">{req.fence_height}</span></p>
+                          )}
+                        </div>
                       )}
-                      <div className="flex gap-2 pt-1">
+
+                      {/* Date comparison */}
+                      <div className="rounded-md bg-background border px-3 py-2 space-y-1.5">
+                        <div className="flex items-center justify-between text-xs">
+                          <span className="text-muted-foreground">Confirmed booking</span>
+                          <span className="font-medium text-foreground">{fmtDate(req.booked_at)}</span>
+                        </div>
+                        <div className="flex items-center justify-between text-xs">
+                          <span className="text-orange-700 font-medium">Requesting instead</span>
+                          <span className="font-semibold text-orange-700">{fmtDate(req.requested_date)}</span>
+                        </div>
+                      </div>
+
+                      {/* Actions */}
+                      <div className="flex gap-2">
                         <Button
                           size="sm"
-                          className="h-7 text-xs gap-1.5"
+                          className="h-8 text-xs gap-1.5 flex-1"
                           onClick={() => handleApproveRequest(req.proposal_id)}
                           disabled={isProcessing}
                         >
                           <Check className="h-3 w-3" />
-                          {isProcessing ? "Updating…" : "Approve — move to " + fmtDate(req.requested_date)}
+                          {isProcessing ? "Updating…" : `Approve — ${fmtShort(req.requested_date)}`}
                         </Button>
                         <Button
                           size="sm"
                           variant="outline"
-                          className="h-7 text-xs"
+                          className="h-8 text-xs"
                           onClick={() => handleDeclineRequest(req.proposal_id)}
                           disabled={isProcessing}
                         >
