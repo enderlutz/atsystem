@@ -469,6 +469,7 @@ async def _finalize_booking(
         "status": "booked",
         "funnel_stage": "booked",
         "selected_tier": selected_tier,
+        "booked_tier_price": float(tier_price or 0),
         "booked_at": booked_dt.isoformat(),
         "calendar_event_id": calendar_event_id,
         "backup_dates": parsed_backup_dates,
