@@ -14,7 +14,7 @@ from api.sync import router as sync_router
 from api.proposals import router as proposals_router
 from api.schedule import router as schedule_router
 from api.workflow import router as workflow_router
-from services.poller import poll_ghl_contacts
+from services.poller import poll_ghl_contacts, sync_recent_messages
 from services.sms_worker import poll_sms_queue, poll_stage_timeouts
 
 logging.basicConfig(level=logging.INFO)
@@ -23,6 +23,7 @@ logging.basicConfig(level=logging.INFO)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     asyncio.create_task(poll_ghl_contacts())
+    asyncio.create_task(sync_recent_messages())
     # Workflow SMS workers — disabled until system is tested and ready
     # asyncio.create_task(poll_sms_queue())
     # asyncio.create_task(poll_stage_timeouts())

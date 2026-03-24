@@ -25,18 +25,19 @@ import { CSS } from "@dnd-kit/utilities";
 const LAST_VISIT_KEY = "atSystemLastVisitAt";
 
 const WORKFLOW_LABELS: Record<string, string> = {
-  new_lead: "New Lead",
-  asking_address: "Asking Address",
-  hot_lead: "Hot Lead",
-  proposal_sent: "Proposal Sent",
-  no_package_selection: "No Package",
-  package_selected: "Pkg Selected",
-  no_date_selected: "No Date",
-  date_selected: "Date Selected",
-  deposit_paid: "Deposit Paid",
+  new_lead: "New Lead (Waiting for Automation)",
+  new_build: "Address Correct but Not Measurable",
+  asking_address: "Asking for Address/ZIP (Automation)",
+  hot_lead: "Hot Lead (Send Proposal)",
+  proposal_sent: "Proposal Sent (Follow Ups to Open)",
+  no_package_selection: "No Package Selection",
+  package_selected: "Package Selection - No Color Chosen",
+  no_date_selected: "No Date Selected",
+  date_selected: "Date Selected, No Deposit",
+  deposit_paid: "Deposit Paid (CLOSED)",
   additional_service: "Add-on",
-  job_complete: "Complete",
-  cold_nurture: "Cold Nurture",
+  job_complete: "Job Complete (Review & Referral)",
+  cold_nurture: "Cold Lead Nurture",
   past_customer: "Past Customer",
 };
 
@@ -47,48 +48,79 @@ function prefetchLead(id: string) {
 const LEADS_CACHE_KEY = "at_leads_cache";
 const ESTIMATES_CACHE_KEY = "at_estimates_cache";
 
-type KanbanStatus = "gray" | "no_address" | "needs_info" | "green" | "yellow" | "red" | "follow_up" | "sent_addons" | "sent" | "booked";
+type KanbanStatus =
+  | "gray"
+  | "no_address"
+  | "needs_info"
+  | "green"
+  | "red"
+  | "sent"
+  | "no_package"
+  | "pkg_no_color"
+  | "no_date"
+  | "date_selected"
+  | "deposit_paid"
+  | "job_complete"
+  | "cold_nurture"
+  | "past_customer";
 
-// Tags that route a lead into "Needs More Information"
+// Tags that route a lead into "Address Correct but Not Measurable"
 const NEEDS_INFO_TAGS = new Set(["Needs height", "Age of the Fence", "Needs Info", "needs_info"]);
-// Tags that route a lead into "Follow Up Quote"
-const FOLLOW_UP_TAGS = new Set(["Follow Up Quote", "follow_up_quote", "Follow Up"]);
 
-// Queue sort order for kanban column (lower = higher priority action needed)
+// Workflow stages that map directly to kanban columns (highest priority routing)
+const WORKFLOW_STAGE_TO_COLUMN: Record<string, KanbanStatus> = {
+  past_customer: "past_customer",
+  cold_nurture: "cold_nurture",
+  job_complete: "job_complete",
+  deposit_paid: "deposit_paid",
+  date_selected: "date_selected",
+  no_date_selected: "no_date",
+  package_selected: "pkg_no_color",
+  no_package_selection: "no_package",
+  proposal_sent: "sent",
+  hot_lead: "green",
+  new_build: "needs_info",
+  asking_address: "no_address",
+  new_lead: "gray",
+};
+
+// Queue sort order for kanban column (lower = higher priority VA action needed)
 const COLUMN_QUEUE_ORDER: Record<KanbanStatus, number> = {
   green: 0,
-  yellow: 1,
-  needs_info: 2,
-  no_address: 3,
-  gray: 4,
-  follow_up: 5,
-  red: 6,
-  sent_addons: 7,
-  sent: 8,
-  booked: 9,
+  needs_info: 1,
+  no_address: 2,
+  gray: 3,
+  red: 4,
+  sent: 5,
+  no_package: 6,
+  pkg_no_color: 7,
+  no_date: 8,
+  date_selected: 9,
+  deposit_paid: 10,
+  job_complete: 11,
+  cold_nurture: 12,
+  past_customer: 13,
 };
 
 const PRIORITY_ORDER: Record<string, number> = { HOT: 0, HIGH: 1, MEDIUM: 2, LOW: 3 };
 
 function getKanbanStatus(lead: Lead, estimateMap: Map<string, Estimate>): KanbanStatus {
   const est = estimateMap.get(lead.id);
-  // Explicit VA override takes priority (allows moving sent leads to follow_up etc.)
+  // 1. Explicit VA override (drag-and-drop)
   if (lead.kanban_column) return lead.kanban_column as KanbanStatus;
-  // Booked proposals — customer has selected a package and date
-  if (est?.proposal_status === "booked") return "booked";
-  // Sent/approved leads: route to sent column based on additional services
+  // 2. Workflow stage drives column — covers the full post-proposal funnel automatically
+  if (lead.workflow_stage && WORKFLOW_STAGE_TO_COLUMN[lead.workflow_stage]) {
+    return WORKFLOW_STAGE_TO_COLUMN[lead.workflow_stage];
+  }
+  // 3. Pre-workflow fallback: lead/estimate status
   if (lead.status === "sent" || lead.status === "approved" || est?.status === "approved") {
-    const addSvcs = ((lead.form_data?.additional_services as string) || "").trim();
-    if (addSvcs) return "sent_addons";
     return "sent";
   }
   if (!lead.address || lead.address.trim() === "") return "no_address";
   if (lead.tags?.some((t) => NEEDS_INFO_TAGS.has(t))) return "needs_info";
-  if (lead.tags?.some((t) => FOLLOW_UP_TAGS.has(t))) return "follow_up";
   if (!est) return "gray";
   const approval = est.inputs?._approval_status;
   if (approval === "green") return "green";
-  if (approval === "yellow") return "yellow";
   if (approval === "red") return "red";
   return "gray";
 }
@@ -103,110 +135,150 @@ const COLUMNS: {
 }[] = [
   {
     key: "gray",
-    label: "New / Untouched",
-    description: "No estimate activity yet",
+    label: "New Lead (Waiting for Automation Response)",
+    description: "Lead just came in — automation hasn't completed yet",
     headerCls: "bg-gray-100 border-gray-200",
     bgCls: "bg-gray-50",
     dotCls: "bg-gray-400",
   },
   {
     key: "no_address",
-    label: "No Address",
-    description: "Missing address — can't estimate zone",
+    label: "Asking for Address/ZIP (Automation)",
+    description: "Automation is asking the customer for their address",
     headerCls: "bg-purple-100 border-purple-200",
     bgCls: "bg-purple-50",
     dotCls: "bg-purple-400",
   },
   {
     key: "needs_info",
-    label: "Needs More Information",
-    description: "Tagged: missing fence height, age, etc.",
+    label: "Address Correct but Not Measurable",
+    description: "Has address but missing height, age, or can't measure via satellite",
     headerCls: "bg-orange-100 border-orange-200",
     bgCls: "bg-orange-50",
     dotCls: "bg-orange-400",
   },
   {
     key: "green",
-    label: "Ready to Send",
-    description: "All criteria met — auto-send approved",
+    label: "Hot Lead (Send Proposal)",
+    description: "All criteria met — ready to approve and send proposal",
     headerCls: "bg-green-100 border-green-200",
     bgCls: "bg-green-50",
     dotCls: "bg-green-500",
   },
   {
-    key: "yellow",
-    label: "Add-ons Pending",
-    description: "Send fence quote, price add-ons separately",
-    headerCls: "bg-yellow-100 border-yellow-200",
-    bgCls: "bg-yellow-50",
-    dotCls: "bg-yellow-500",
-  },
-  {
     key: "red",
     label: "Needs Review",
-    description: "Outside zone, too small, 15+ yrs, or missing data",
+    description: "Outside zone, too small, 15+ yrs, or missing data — owner review required",
     headerCls: "bg-red-100 border-red-200",
     bgCls: "bg-red-50",
     dotCls: "bg-red-500",
   },
   {
-    key: "follow_up",
-    label: "Follow Up Quote",
-    description: "Quote sent — awaiting follow-up",
-    headerCls: "bg-sky-100 border-sky-200",
-    bgCls: "bg-sky-50",
-    dotCls: "bg-sky-500",
-  },
-  {
-    key: "sent_addons",
-    label: "Sent — Add-Ons Needed",
-    description: "Estimate sent. Additional services requested — follow up for a separate quote.",
-    headerCls: "bg-cyan-100 border-cyan-200",
-    bgCls: "bg-cyan-50",
-    dotCls: "bg-cyan-500",
-  },
-  {
     key: "sent",
-    label: "Estimate Sent",
-    description: "All 3 packages delivered to the customer",
+    label: "Proposal Sent (Follow Ups to Open)",
+    description: "All 3 packages sent — automation following up to get customer to open",
     headerCls: "bg-emerald-100 border-emerald-200",
     bgCls: "bg-emerald-50",
     dotCls: "bg-emerald-500",
   },
   {
-    key: "booked",
-    label: "Booked",
-    description: "Customer has selected a package and confirmed a date",
+    key: "no_package",
+    label: "No Package Selection",
+    description: "Customer opened proposal but hasn't chosen a package yet",
+    headerCls: "bg-sky-100 border-sky-200",
+    bgCls: "bg-sky-50",
+    dotCls: "bg-sky-500",
+  },
+  {
+    key: "pkg_no_color",
+    label: "Package Selection - No Color Chosen",
+    description: "Package selected — waiting on customer to pick a stain color",
+    headerCls: "bg-cyan-100 border-cyan-200",
+    bgCls: "bg-cyan-50",
+    dotCls: "bg-cyan-500",
+  },
+  {
+    key: "no_date",
+    label: "No Date Selected",
+    description: "Color chosen — customer hasn't picked a service date yet",
+    headerCls: "bg-yellow-100 border-yellow-200",
+    bgCls: "bg-yellow-50",
+    dotCls: "bg-yellow-500",
+  },
+  {
+    key: "date_selected",
+    label: "Date Selected, No Deposit",
+    description: "Date confirmed — waiting on deposit payment",
+    headerCls: "bg-amber-100 border-amber-200",
+    bgCls: "bg-amber-50",
+    dotCls: "bg-amber-500",
+  },
+  {
+    key: "deposit_paid",
+    label: "Deposit Paid (CLOSED)",
+    description: "Deposit received — job is locked in",
     headerCls: "bg-indigo-100 border-indigo-200",
     bgCls: "bg-indigo-50",
     dotCls: "bg-indigo-500",
   },
+  {
+    key: "job_complete",
+    label: "Job Complete (Review & Referral)",
+    description: "Job done — automation requesting review and referral",
+    headerCls: "bg-violet-100 border-violet-200",
+    bgCls: "bg-violet-50",
+    dotCls: "bg-violet-500",
+  },
+  {
+    key: "cold_nurture",
+    label: "Cold Lead Nurture",
+    description: "Lead went cold — long-term nurture sequence active",
+    headerCls: "bg-slate-100 border-slate-200",
+    bgCls: "bg-slate-50",
+    dotCls: "bg-slate-400",
+  },
+  {
+    key: "past_customer",
+    label: "Past Customer",
+    description: "Previous customer — referral and repeat business sequence",
+    headerCls: "bg-teal-100 border-teal-200",
+    bgCls: "bg-teal-50",
+    dotCls: "bg-teal-500",
+  },
 ];
 
 const COLUMN_BADGE: Record<KanbanStatus, string> = {
-  green: "bg-green-100 text-green-700",
-  yellow: "bg-yellow-100 text-yellow-700",
-  red: "bg-red-100 text-red-700",
   gray: "bg-gray-100 text-gray-600",
   no_address: "bg-purple-100 text-purple-700",
   needs_info: "bg-orange-100 text-orange-700",
-  follow_up: "bg-sky-100 text-sky-700",
-  sent_addons: "bg-cyan-100 text-cyan-700",
+  green: "bg-green-100 text-green-700",
+  red: "bg-red-100 text-red-700",
   sent: "bg-emerald-100 text-emerald-700",
-  booked: "bg-indigo-100 text-indigo-700",
+  no_package: "bg-sky-100 text-sky-700",
+  pkg_no_color: "bg-cyan-100 text-cyan-700",
+  no_date: "bg-yellow-100 text-yellow-700",
+  date_selected: "bg-amber-100 text-amber-700",
+  deposit_paid: "bg-indigo-100 text-indigo-700",
+  job_complete: "bg-violet-100 text-violet-700",
+  cold_nurture: "bg-slate-100 text-slate-600",
+  past_customer: "bg-teal-100 text-teal-700",
 };
 
 const COLUMN_LABEL: Record<KanbanStatus, string> = {
-  green: "Ready to Send",
-  yellow: "Add-ons Pending",
+  gray: "New Lead",
+  no_address: "Asking for Address",
+  needs_info: "Not Measurable",
+  green: "Hot Lead",
   red: "Needs Review",
-  gray: "New",
-  no_address: "No Address",
-  needs_info: "Needs Info",
-  follow_up: "Follow Up",
-  sent_addons: "Sent — Add-Ons",
-  sent: "Estimate Sent",
-  booked: "Booked",
+  sent: "Proposal Sent",
+  no_package: "No Package",
+  pkg_no_color: "No Color Chosen",
+  no_date: "No Date",
+  date_selected: "Date Selected",
+  deposit_paid: "Deposit Paid",
+  job_complete: "Job Complete",
+  cold_nurture: "Cold Nurture",
+  past_customer: "Past Customer",
 };
 
 const priorityColors: Record<string, string> = {
@@ -415,8 +487,9 @@ export default function LeadsPage() {
     if (!lead) return;
     const currentCol = getKanbanStatus(lead, estimateMap);
     if (currentCol === newCol) return;
-    // Block dragging into "sent" / "booked" columns — leads enter these automatically
-    if (newCol === "sent" || newCol === "sent_addons" || newCol === "booked") return;
+    // Block dragging into automated columns — these are driven by workflow stage
+    const AUTO_COLUMNS: KanbanStatus[] = ["sent", "no_package", "pkg_no_color", "no_date", "date_selected", "deposit_paid", "job_complete"];
+    if (AUTO_COLUMNS.includes(newCol)) return;
     // Optimistic update
     setLeads((prev) => prev.map((l) => l.id === leadId ? { ...l, kanban_column: newCol } : l));
     try {
@@ -602,13 +675,15 @@ export default function LeadsPage() {
                         const leadAddress = typeof lead.address === "string" ? lead.address : "";
                         const leadFormData = (lead.form_data || {}) as Record<string, unknown>;
                         const needsAddressConfirmation = Boolean(leadFormData.address_autocompleted) && !Boolean(leadFormData.address_confirmed);
+                        const hasAddons = Boolean(((leadFormData.additional_services as string) || "").trim());
+                        const addonsPending = hasAddons && !est?.additional_services_sent;
 
                         return (
                           <DraggableKanbanCard key={lead.id} leadId={lead.id}>
                           <div
                             className={`bg-white rounded-md border shadow-sm p-3 space-y-2 hover:shadow-md transition-shadow ${
                               isOwnerLead ? "opacity-80" : ""
-                            } ${newLeadIds.has(lead.id) ? "ring-2 ring-blue-300 ring-offset-1" : ""}`}
+                            } ${newLeadIds.has(lead.id) ? "ring-2 ring-blue-300 ring-offset-1" : ""} ${addonsPending ? "ring-2 ring-yellow-400 ring-offset-1" : ""}`}
                           >
                             {/* Name + priority */}
                             <div className="flex items-start justify-between gap-1">
@@ -647,6 +722,13 @@ export default function LeadsPage() {
                             {needsAddressConfirmation && (
                               <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-xs bg-amber-100 text-amber-700 border border-amber-200 font-medium">
                                 ⚠ Confirm address
+                              </span>
+                            )}
+
+                            {/* Add-ons needed badge */}
+                            {addonsPending && (
+                              <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-xs bg-yellow-100 text-yellow-700 border border-yellow-300 font-medium">
+                                ★ Add-ons estimate needed
                               </span>
                             )}
 
@@ -828,7 +910,7 @@ export default function LeadsPage() {
               const needsAddressConfirmation = Boolean(leadFormData.address_autocompleted) && !Boolean(leadFormData.address_confirmed);
               const isHot = leadPriority === "HOT";
               const isOwner = kanbanStatus === "red";
-              const canApprove = (kanbanStatus === "green" || kanbanStatus === "yellow")
+              const canApprove = kanbanStatus === "green"
                 && customerResponded
                 && est?.status === "pending"
                 && leadStatus !== "sent";
@@ -936,7 +1018,7 @@ export default function LeadsPage() {
                             <Send className="h-3 w-3" />
                             {quickApprovingId === est?.id ? "Sending…" : "Approve"}
                           </Button>
-                        ) : (kanbanStatus === "green" || kanbanStatus === "yellow") && !lead.customer_responded ? (
+                        ) : kanbanStatus === "green" && !lead.customer_responded ? (
                           <span className="text-xs text-muted-foreground shrink-0">Awaiting reply</span>
                         ) : null}
                         <button

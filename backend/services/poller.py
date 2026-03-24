@@ -2,8 +2,10 @@
 GHL Pipeline Poller — runs every 5 minutes to keep leads in sync with GHL.
 Imports new pipeline leads and refreshes data for existing ones.
 
-Also runs a follow-up SMS loop every 30 minutes:
-- 2 hours after a proposal is "viewed" (but not booked), send a follow-up text.
+Message Sync Poller — runs every 5 minutes as a safety net.
+Fetches recent conversations location-wide (2 API calls total) and backfills
+any inbound messages the webhook may have missed. Ensures speed-to-lead is
+maintained even during server restarts or transient webhook failures.
 """
 from __future__ import annotations
 
@@ -13,9 +15,9 @@ from datetime import datetime, timedelta, timezone
 
 logger = logging.getLogger(__name__)
 
-POLL_INTERVAL_SECONDS = 300   # 5 minutes
-FOLLOW_UP_INTERVAL_SECONDS = 1800  # 30 minutes
-FOLLOW_UP_DELAY_HOURS = 2
+POLL_INTERVAL_SECONDS = 300       # 5 minutes
+MESSAGE_SYNC_INTERVAL_SECONDS = 300  # 5 minutes
+MESSAGE_SYNC_LOOKBACK_MINUTES = 10   # check last 10 min for missed messages
 
 
 async def poll_ghl_contacts():
@@ -39,6 +41,137 @@ async def poll_ghl_contacts():
 
         await asyncio.sleep(POLL_INTERVAL_SECONDS)
 
+
+async def sync_recent_messages():
+    """Background loop: catch any inbound messages the webhook missed.
+
+    Strategy: fetch the 20 most recently active conversations location-wide
+    (2 GHL API calls total), filter to inbound messages in the last 10 minutes,
+    and backfill anything not already in our messages table.
+
+    If a new message is found, triggers the workflow engine exactly as the
+    webhook would — ensuring speed-to-lead is never compromised by a missed webhook.
+    """
+    await asyncio.sleep(15)  # Slight offset from contact poller startup
+    logger.info("Message sync poller started (every 5 minutes)")
+
+    while True:
+        try:
+            _run_message_sync()
+        except Exception as e:
+            logger.error(f"Message sync poll error: {e}")
+
+        await asyncio.sleep(MESSAGE_SYNC_INTERVAL_SECONDS)
+
+
+def _run_message_sync() -> None:
+    from db import get_db
+    from config import get_settings
+    from services.ghl import get_recent_location_conversations, get_conversation_messages_by_id
+
+    settings = get_settings()
+    db = get_db()
+    cutoff = datetime.now(timezone.utc) - timedelta(minutes=MESSAGE_SYNC_LOOKBACK_MINUTES)
+
+    # 1 API call — get the most recently active conversations across the location
+    conversations = get_recent_location_conversations(settings.ghl_location_id, limit=20)
+    if not conversations:
+        return
+
+    new_messages_found = 0
+
+    for conv in conversations:
+        # Conversations are sorted newest-first — stop once we pass the cutoff
+        last_msg_date_str = conv.get("lastMessageDate") or conv.get("dateUpdated") or ""
+        if last_msg_date_str:
+            try:
+                last_msg_dt = datetime.fromisoformat(last_msg_date_str.replace("Z", "+00:00"))
+                if last_msg_dt < cutoff:
+                    break
+            except ValueError:
+                pass
+
+        # Only care about conversations whose last message was inbound
+        if conv.get("lastMessageDirection") not in ("inbound", "incoming"):
+            continue
+
+        contact_id = conv.get("contactId") or conv.get("contact_id")
+        conv_id = conv.get("id")
+        if not contact_id or not conv_id:
+            continue
+
+        # Look up the lead
+        lead_res = db.table("leads").select("id").eq("ghl_contact_id", contact_id).single().execute()
+        if not lead_res.data:
+            continue
+        lead_id = lead_res.data["id"]
+
+        # 1 API call per conversation with recent inbound activity
+        messages = get_conversation_messages_by_id(conv_id)
+        if not messages:
+            continue
+
+        latest_new_body: str | None = None
+
+        for msg in messages:
+            direction = msg.get("direction", "")
+            if direction not in ("inbound", "incoming"):
+                continue
+
+            date_str = msg.get("dateAdded") or msg.get("createdAt") or ""
+            try:
+                msg_dt = datetime.fromisoformat(date_str.replace("Z", "+00:00"))
+                if msg_dt < cutoff:
+                    continue
+            except ValueError:
+                continue
+
+            ghl_message_id = msg.get("id") or msg.get("messageId")
+            body = msg.get("body") or msg.get("message") or ""
+
+            # Dedup — skip if already in our DB
+            if ghl_message_id:
+                exists = db.table("messages").select("id").eq("ghl_message_id", ghl_message_id).execute()
+                if exists.data:
+                    continue
+
+            # New message the webhook missed — store it
+            msg_row = {
+                "ghl_contact_id": contact_id,
+                "lead_id": lead_id,
+                "direction": "inbound",
+                "body": body,
+                "message_type": msg.get("messageType") or "SMS",
+                "date_added": date_str,
+            }
+            if ghl_message_id:
+                db.table("messages").upsert(
+                    {**msg_row, "ghl_message_id": ghl_message_id},
+                    on_conflict="ghl_message_id",
+                ).execute()
+            else:
+                db.table("messages").insert(msg_row).execute()
+
+            # Mark lead as responded
+            db.table("leads").update({
+                "customer_responded": True,
+                "customer_response_text": body[:500],
+            }).eq("id", lead_id).execute()
+
+            latest_new_body = body
+            new_messages_found += 1
+            logger.info(f"Message sync: backfilled missed inbound from contact {contact_id} (lead {lead_id})")
+
+        # Fire workflow once per lead using the latest new message
+        if latest_new_body is not None:
+            try:
+                from services.workflow import on_customer_reply
+                on_customer_reply(lead_id, latest_new_body)
+            except Exception as e:
+                logger.error(f"Message sync: workflow trigger failed for lead {lead_id}: {e}")
+
+    if new_messages_found:
+        logger.info(f"Message sync: backfilled {new_messages_found} missed message(s)")
 
 
 # NOTE: poll_proposal_follow_ups has been removed.

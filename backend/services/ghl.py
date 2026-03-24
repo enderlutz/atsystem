@@ -225,6 +225,51 @@ def format_estimate_for_client(estimate: dict, service_type: str, selected_tier:
 
 # ── Conversations (response detection) ───────────────────────────────
 
+def get_recent_location_conversations(location_id: str, limit: int = 20) -> list[dict]:
+    """Fetch the most recently active conversations for an entire location.
+    Returns conversations sorted by last message date descending.
+    Used by the message sync poller as a location-wide safety net — 1 API call
+    instead of N per-lead calls."""
+    try:
+        r = _client.get(
+            f"{GHL_BASE}/conversations/search",
+            headers=_headers(),
+            params={
+                "locationId": location_id,
+                "limit": limit,
+                "sort": "desc",
+                "sortBy": "last_message_date",
+            },
+            timeout=15,
+        )
+        r.raise_for_status()
+        return r.json().get("conversations", [])
+    except Exception as e:
+        logger.error(f"GHL get_recent_location_conversations failed: {e}")
+        return []
+
+
+def get_conversation_messages_by_id(conversation_id: str) -> list[dict]:
+    """Fetch messages for a specific conversation by ID."""
+    try:
+        r = _client.get(
+            f"{GHL_BASE}/conversations/{conversation_id}/messages",
+            headers=_headers(),
+            timeout=15,
+        )
+        if r.status_code == 401:
+            logger.error("GHL messages fetch 401: API key missing Conversations/Messages scope")
+            return []
+        r.raise_for_status()
+        messages_data = r.json().get("messages", {})
+        if isinstance(messages_data, dict):
+            return messages_data.get("messages", [])
+        return messages_data if isinstance(messages_data, list) else []
+    except Exception as e:
+        logger.error(f"GHL get_conversation_messages_by_id failed for {conversation_id}: {e}")
+        return []
+
+
 def _fetch_messages_for_contact(contact_id: str) -> list[dict]:
     """Shared helper: fetch all messages from GHL for a contact (any direction)."""
     r = _client.get(
