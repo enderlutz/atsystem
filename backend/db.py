@@ -34,7 +34,18 @@ _pool: psycopg2.pool.ThreadedConnectionPool | None = None
 def _get_pool() -> psycopg2.pool.ThreadedConnectionPool:
     global _pool
     if _pool is None:
-        _pool = psycopg2.pool.ThreadedConnectionPool(minconn=1, maxconn=8, dsn=_dsn())
+        _pool = psycopg2.pool.ThreadedConnectionPool(
+            minconn=1,
+            maxconn=8,
+            dsn=_dsn(),
+            # TCP keepalives — detect dead connections in ~30s instead of waiting
+            # for the OS default (which can be minutes). Prevents stale pool entries
+            # after Supabase timeouts or network blips.
+            keepalives=1,
+            keepalives_idle=30,      # seconds idle before sending a keepalive probe
+            keepalives_interval=10,  # seconds between probes
+            keepalives_count=3,      # failed probes before marking connection dead
+        )
     return _pool
 
 
@@ -43,13 +54,29 @@ def get_conn():
     p = _get_pool()
     conn = p.getconn()
     try:
+        # Health-check: if the connection died (Supabase timeout, network blip),
+        # discard it and get a fresh one instead of returning a dead connection.
+        if conn.closed:
+            p.putconn(conn, close=True)
+            conn = p.getconn()
         yield conn
         conn.commit()
+    except psycopg2.OperationalError:
+        # Connection-level failure — discard this connection entirely so the pool
+        # replaces it with a fresh one on the next request.
+        try:
+            conn.rollback()
+        except Exception:
+            pass
+        p.putconn(conn, close=True)
+        raise
     except Exception:
         conn.rollback()
         raise
     finally:
-        p.putconn(conn)
+        # Only return to pool if not already discarded above
+        if not conn.closed:
+            p.putconn(conn)
 
 
 class QueryResult:
