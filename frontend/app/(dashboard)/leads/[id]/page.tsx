@@ -278,8 +278,11 @@ export default function LeadDetailPage() {
       await api.approveEstimate(lead.estimate.id, "signature", forceSend);
       setEstimateSent(true);
       setLead({ ...lead, status: "sent" });
+      toast.success("All packages sent to client!");
     } catch (e: unknown) {
-      setApproveError(e instanceof Error ? e.message : "Failed to send estimate");
+      const msg = e instanceof Error ? e.message : "Failed to send estimate";
+      setApproveError(msg);
+      toast.error(msg);
     } finally {
       setApprovingEstimate(false);
     }
@@ -340,8 +343,11 @@ export default function LeadDetailPage() {
     try {
       await api.adminApproveEstimate(est.id, { force_send: forceSend });
       setEstimateSent(true);
+      toast.success("All packages sent to client!");
     } catch (e: unknown) {
-      setApproveError(e instanceof Error ? e.message : "Failed to approve");
+      const msg = e instanceof Error ? e.message : "Failed to approve";
+      setApproveError(msg);
+      toast.error(msg);
     } finally {
       setApprovingEstimate(false);
     }
@@ -358,8 +364,11 @@ export default function LeadDetailPage() {
       await api.adminApproveEstimate(est.id, { essential, signature, legacy, notes: adminNotes || undefined, force_send: forceSend });
       setEstimateSent(true);
       setAdminMode("view");
+      toast.success("Custom prices set & all packages sent!");
     } catch (e: unknown) {
-      setApproveError(e instanceof Error ? e.message : "Failed to approve with custom pricing");
+      const msg = e instanceof Error ? e.message : "Failed to approve with custom pricing";
+      setApproveError(msg);
+      toast.error(msg);
     } finally {
       setApprovingEstimate(false);
     }
@@ -373,14 +382,17 @@ export default function LeadDetailPage() {
       const essential = adminCustomEssential ? Number(adminCustomEssential) : undefined;
       const signature = adminCustomSignature ? Number(adminCustomSignature) : undefined;
       const legacy = adminCustomLegacy ? Number(adminCustomLegacy) : undefined;
-      const result = await api.saveCustomTiers(est.id, { essential, signature, legacy, notes: adminNotes || undefined });
+      await api.saveCustomTiers(est.id, { essential, signature, legacy, notes: adminNotes || undefined });
       // Refresh lead data to get updated tiers
       const refreshed = await api.getLead(lead!.id);
       leadDetailCache.set(id, refreshed);
       setLead(refreshed);
       setAdminMode("view");
+      toast.success("Custom prices saved");
     } catch (e: unknown) {
-      setApproveError(e instanceof Error ? e.message : "Failed to save custom prices");
+      const msg = e instanceof Error ? e.message : "Failed to save custom prices";
+      setApproveError(msg);
+      toast.error(msg);
     } finally {
       setApprovingEstimate(false);
     }
@@ -394,8 +406,11 @@ export default function LeadDetailPage() {
       await api.rejectEstimate(est.id, adminNotes || "");
       if (lead) setLead({ ...lead, status: "rejected" });
       setAdminMode("view");
+      toast.success("Estimate rejected");
     } catch (e: unknown) {
-      setApproveError(e instanceof Error ? e.message : "Failed to reject");
+      const msg = e instanceof Error ? e.message : "Failed to reject";
+      setApproveError(msg);
+      toast.error(msg);
     } finally {
       setApprovingEstimate(false);
     }
@@ -407,8 +422,10 @@ export default function LeadDetailPage() {
     try {
       await api.askForAddress(lead.id);
       setAddressAsked(true);
+      toast.success("Address request sent via SMS");
     } catch (e) {
       console.error(e);
+      toast.error("Failed to send address request");
     } finally {
       setAskingAddress(false);
     }
@@ -420,8 +437,10 @@ export default function LeadDetailPage() {
     try {
       await api.triggerNewBuild(lead.id);
       setNewBuildTriggered(true);
+      toast.success("New build workflow started");
     } catch (e) {
       console.error(e);
+      toast.error("Failed to trigger new build");
     } finally {
       setTriggeringNewBuild(false);
     }
@@ -433,8 +452,10 @@ export default function LeadDetailPage() {
     try {
       await api.sendDateLink(lead.id);
       setDateLinkSent(true);
+      toast.success("Booking link sent via SMS");
     } catch (e) {
       console.error(e);
+      toast.error("Failed to send booking link");
     } finally {
       setSendingDateLink(false);
     }
@@ -450,8 +471,10 @@ export default function LeadDetailPage() {
         ...lead,
         form_data: { ...lead.form_data, address_confirmed: true },
       });
+      toast.success("Address confirmed");
     } catch (e) {
       console.error(e);
+      toast.error("Failed to confirm address");
     } finally {
       setConfirmingAddress(false);
     }
@@ -463,8 +486,10 @@ export default function LeadDetailPage() {
     try {
       await api.markAdditionalServicesSent(lead.estimate.id);
       setAdditionalServicesSent(true);
+      toast.success("Marked as sent");
     } catch (e) {
       console.error(e);
+      toast.error("Failed to mark addons sent");
     } finally {
       setMarkingAddons(false);
     }
@@ -476,8 +501,10 @@ export default function LeadDetailPage() {
     try {
       await api.unmarkAdditionalServicesSent(lead.estimate.id);
       setAdditionalServicesSent(false);
+      toast.success("Marked as not sent");
     } catch (e) {
       console.error(e);
+      toast.error("Failed to unmark addons sent");
     } finally {
       setMarkingAddons(false);
     }

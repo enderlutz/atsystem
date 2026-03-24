@@ -408,9 +408,11 @@ export default function LeadsPage() {
     setLeads((prev) => prev.map((l) => l.id === leadId ? { ...l, kanban_column: newCol } : l));
     try {
       await api.updateLeadColumn(leadId, newCol);
+      toast.success(`Moved to ${COLUMNS.find((c) => c.key === newCol)?.label ?? newCol}`);
     } catch (e) {
       console.error(e);
       setLeads((prev) => prev.map((l) => l.id === leadId ? { ...l, kanban_column: lead.kanban_column ?? null } : l));
+      toast.error("Failed to move lead");
     }
   }, [leads, estimateMap]);
 
