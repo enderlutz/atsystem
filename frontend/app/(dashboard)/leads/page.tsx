@@ -492,7 +492,7 @@ export default function LeadsPage() {
     const currentCol = getKanbanStatus(lead, estimateMap);
     if (currentCol === newCol) return;
     // Block dragging into automated columns — these are driven by workflow stage
-    const AUTO_COLUMNS: KanbanStatus[] = ["sent", "no_package", "pkg_no_color", "no_date", "date_selected", "deposit_paid", "job_complete"];
+    const AUTO_COLUMNS: KanbanStatus[] = ["no_package", "pkg_no_color", "no_date", "date_selected", "deposit_paid", "job_complete"];
     if (AUTO_COLUMNS.includes(newCol)) return;
     // Optimistic update
     setLeads((prev) => prev.map((l) => l.id === leadId ? { ...l, kanban_column: newCol } : l));
