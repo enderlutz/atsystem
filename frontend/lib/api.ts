@@ -1,4 +1,6 @@
-const API_URL = process.env.NEXT_PUBLIC_API_URL || "https://atsystem-production.up.railway.app";
+// Use relative URLs so all requests go through the Next.js proxy (next.config.mjs → Railway).
+// This eliminates CORS entirely. The proxy destination is set via NEXT_PUBLIC_API_URL at build time.
+const API_URL = "";
 
 function getToken(): string | null {
   if (typeof document === "undefined") return null;
