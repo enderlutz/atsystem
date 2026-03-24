@@ -139,6 +139,10 @@ class QueryBuilder:
         self._wheres.append((col, "=", val))
         return self
 
+    def neq(self, col: str, val: object) -> QueryBuilder:
+        self._wheres.append((col, "!=", val))
+        return self
+
     def in_(self, col: str, vals: list) -> QueryBuilder:
         self._in_filters.append((col, vals))
         return self
