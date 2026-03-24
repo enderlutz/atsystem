@@ -14,7 +14,7 @@ import { Input } from "@/components/ui/input";
 import {
   ArrowLeft, MapPin, ExternalLink, Phone, Mail, User,
   CheckCircle2, MessageSquare, Tag, Calculator, RefreshCw,
-  Send, AlertTriangle, History, Zap, Pause, Play, Clock,
+  Send, AlertTriangle, History, Zap, Pause, Play, Clock, Camera,
 } from "lucide-react";
 
 const GOOGLE_MAPS_KEY = process.env.NEXT_PUBLIC_GOOGLE_MAPS_KEY || "";
@@ -855,6 +855,30 @@ export default function LeadDetailPage() {
               ))}
             </div>
           )}
+
+          {/* Workflow SMS shortcuts */}
+          <div className="flex gap-2 flex-wrap pt-3 mt-3 border-t">
+            <Button
+              variant="outline"
+              size="sm"
+              className="gap-1.5 text-xs"
+              onClick={handleAskForAddress}
+              disabled={askingAddress || addressAsked}
+            >
+              <MapPin className="h-3.5 w-3.5" />
+              {addressAsked ? "Address Request Sent ✓" : askingAddress ? "Sending…" : "Ask for Address / ZIP"}
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              className="gap-1.5 text-xs"
+              onClick={handleNewBuild}
+              disabled={triggeringNewBuild || newBuildTriggered}
+            >
+              <Camera className="h-3.5 w-3.5" />
+              {newBuildTriggered ? "Photo Request Sent ✓" : triggeringNewBuild ? "Sending…" : "Request Fence Photos"}
+            </Button>
+          </div>
         </CardContent>
       </Card>
 
