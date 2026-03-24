@@ -7,7 +7,7 @@ from pydantic import BaseModel
 from db import get_db
 from api.auth import require_admin
 from config import get_settings
-from services.google_calendar import get_banana_event_dates
+from services.google_calendar import get_banana_event_dates, get_banana_events
 
 router = APIRouter(tags=["schedule"])
 
@@ -201,8 +201,8 @@ async def get_admin_schedule(month: Optional[str] = None):
                 "fence_height": form_data.get("fence_height") or None,
             })
 
-    # Fetch Alan's banana-colored calendar events for the dashboard view
-    calendar_blocked = get_banana_event_dates(
+    # Fetch Alan's banana-colored calendar events for the dashboard view (with full details)
+    calendar_blocked = get_banana_events(
         month=month,
         credentials_json=settings.google_calendar_credentials_json,
         calendar_id=settings.google_calendar_id,

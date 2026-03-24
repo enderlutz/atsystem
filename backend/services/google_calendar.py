@@ -64,14 +64,14 @@ def create_calendar_event(
         return None
 
 
-def get_banana_event_dates(
+def get_banana_events(
     month: str,  # "YYYY-MM"
     credentials_json: str = "",
     calendar_id: str = "primary",
-) -> list[str]:
+) -> list[dict]:
     """
-    Returns dates (YYYY-MM-DD) that have banana/yellow-colored events on Alan's calendar.
-    These are treated as days he already has a client appointment — unavailable for new bookings.
+    Returns banana/yellow-colored events on Alan's calendar with full details.
+    Each entry: {date, summary, start_time (HH:MM AM/PM or None for all-day)}.
     Falls back to empty list if credentials aren't set or the API call fails.
     """
     if not credentials_json:
@@ -104,18 +104,49 @@ def get_banana_event_dates(
             orderBy="startTime",
         ).execute()
 
-        booked: set[str] = set()
+        events: list[dict] = []
+        seen_dates: set[str] = set()
         for event in result.get("items", []):
-            if event.get("colorId") == BANANA_COLOR_ID:
-                start_info = event.get("start", {})
-                # All-day events use "date"; timed events use "dateTime"
-                date_str = start_info.get("date") or (start_info.get("dateTime") or "")[:10]
-                if date_str:
-                    booked.add(date_str)
+            if event.get("colorId") != BANANA_COLOR_ID:
+                continue
+            start_info = event.get("start", {})
+            date_str = start_info.get("date") or (start_info.get("dateTime") or "")[:10]
+            if not date_str:
+                continue
+            # Parse time from dateTime if present (timed event)
+            start_time = None
+            if start_info.get("dateTime"):
+                try:
+                    dt = datetime.fromisoformat(start_info["dateTime"])
+                    start_time = dt.strftime("%-I:%M %p")
+                except Exception:
+                    pass
+            # Group multiple events on the same day — append to existing entry
+            if date_str in seen_dates:
+                for e in events:
+                    if e["date"] == date_str:
+                        e["summary"] = e["summary"] + " / " + (event.get("summary") or "Appointment")
+                        break
+            else:
+                seen_dates.add(date_str)
+                events.append({
+                    "date": date_str,
+                    "summary": event.get("summary") or "Appointment",
+                    "start_time": start_time,
+                })
 
-        logger.info(f"Found {len(booked)} banana-color event dates for {month}")
-        return sorted(booked)
+        logger.info(f"Found {len(events)} banana-color events for {month}")
+        return sorted(events, key=lambda e: e["date"])
 
     except Exception as e:
         logger.error(f"Failed to fetch banana calendar events: {e}")
         return []
+
+
+def get_banana_event_dates(
+    month: str,
+    credentials_json: str = "",
+    calendar_id: str = "primary",
+) -> list[str]:
+    """Returns just the dates (YYYY-MM-DD) of banana events — used by the public booking endpoint."""
+    return [e["date"] for e in get_banana_events(month, credentials_json, calendar_id)]

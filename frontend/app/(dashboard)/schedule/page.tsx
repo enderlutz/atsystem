@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { api, getCurrentUser, type AdminScheduleSlot, type ScheduleBooking } from "@/lib/api";
+import { api, getCurrentUser, type AdminScheduleSlot, type CalendarEvent, type ScheduleBooking } from "@/lib/api";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -29,7 +29,7 @@ export default function SchedulePage() {
   const [year, setYear] = useState(now.getFullYear());
   const [month, setMonth] = useState(now.getMonth()); // 0-indexed
   const [slots, setSlots] = useState<AdminScheduleSlot[]>([]);
-  const [calendarBlocked, setCalendarBlocked] = useState<string[]>([]);
+  const [calendarBlocked, setCalendarBlocked] = useState<CalendarEvent[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
   const [editSlot, setEditSlot] = useState<Partial<AdminScheduleSlot>>({});
@@ -66,7 +66,8 @@ export default function SchedulePage() {
   }, [monthStr]);
 
   const slotMap = Object.fromEntries(slots.map((s) => [s.date, s]));
-  const calendarBlockedSet = new Set(calendarBlocked);
+  const calendarBlockedSet = new Set(calendarBlocked.map((e) => e.date));
+  const calendarEventMap = Object.fromEntries(calendarBlocked.map((e) => [e.date, e]));
 
   // Build calendar grid
   const firstDay = new Date(year, month, 1).getDay(); // 0 = Sun
@@ -258,11 +259,18 @@ export default function SchedulePage() {
                   </button>
                 </div>
                 <div className="flex flex-wrap gap-1.5">
-                  {calendarBlockedSet.has(selectedDate) && (
-                    <Badge className="w-fit text-xs bg-amber-100 text-amber-800 border border-amber-300 hover:bg-amber-100">
-                      🗓 Alan&apos;s appointment (from Google Calendar)
-                    </Badge>
-                  )}
+                  {calendarBlockedSet.has(selectedDate) && (() => {
+                    const ev = calendarEventMap[selectedDate];
+                    return (
+                      <div className="rounded-md bg-amber-50 border border-amber-300 px-3 py-2 text-sm text-amber-900 space-y-0.5">
+                        <p className="font-semibold text-xs text-amber-700 uppercase tracking-wide">Alan&apos;s Google Calendar</p>
+                        <p className="font-medium">{ev?.summary || "Appointment"}</p>
+                        {ev?.start_time && (
+                          <p className="text-xs text-amber-700">{ev.start_time}</p>
+                        )}
+                      </div>
+                    );
+                  })()}
                   {slotMap[selectedDate] && (
                     <Badge variant={slotMap[selectedDate].is_available ? "success" : "pending"} className="w-fit text-xs">
                       {slotMap[selectedDate].booked_count > 0 ? `${slotMap[selectedDate].booked_count} booking(s)` : "No bookings yet"}
@@ -405,7 +413,7 @@ export default function SchedulePage() {
               {calendarBlocked.length > 0 && (
                 <div className="flex justify-between pt-1 border-t">
                   <span className="text-amber-700">Alan&apos;s appointments</span>
-                  <span className="font-medium text-amber-700">{calendarBlocked.length}</span>
+                  <span className="font-medium text-amber-700">{calendarBlockedSet.size}</span>
                 </div>
               )}
             </CardContent>

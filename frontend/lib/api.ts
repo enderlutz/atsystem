@@ -482,9 +482,15 @@ export interface AdminScheduleSlot {
   bookings?: ScheduleBooking[];
 }
 
+export interface CalendarEvent {
+  date: string;
+  summary: string;
+  start_time: string | null;
+}
+
 export interface AdminScheduleResponse {
   slots: AdminScheduleSlot[];
-  calendar_blocked: string[]; // dates with banana-colored events on Alan's calendar
+  calendar_blocked: CalendarEvent[];
 }
 
 // --- Workflow Types ---
