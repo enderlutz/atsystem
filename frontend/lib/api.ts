@@ -314,6 +314,15 @@ export const api = {
     }),
   getOverriddenStages: () =>
     request<{ overridden_stages: string[] }>("/api/workflow/templates/overrides"),
+  getAutomationLog: (params?: { lead_id?: string; event_type?: string; limit?: number; offset?: number }) => {
+    const qs = new URLSearchParams();
+    if (params?.lead_id) qs.set("lead_id", params.lead_id);
+    if (params?.event_type) qs.set("event_type", params.event_type);
+    if (params?.limit) qs.set("limit", String(params.limit));
+    if (params?.offset) qs.set("offset", String(params.offset));
+    const q = qs.toString();
+    return request<AutomationLogResponse>(`/api/workflow/log${q ? `?${q}` : ""}`);
+  },
 };
 
 // --- Beacon helper (for sendBeacon on page unload) ---
@@ -597,6 +606,21 @@ export interface WorkflowConfigItem {
   key: string;
   value: string;
   updated_at: string;
+}
+
+export interface AutomationLogEvent {
+  id: string;
+  lead_id: string;
+  event_type: string;
+  detail: string;
+  metadata: Record<string, unknown>;
+  created_at: string;
+  contact_name: string;
+}
+
+export interface AutomationLogResponse {
+  events: AutomationLogEvent[];
+  total: number;
 }
 
 export interface GhlPipelineStage {

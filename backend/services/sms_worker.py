@@ -126,9 +126,14 @@ def _process_pending_messages():
                     f"SMS worker: sent message {msg['id']} to {msg['ghl_contact_id']} "
                     f"(stage: {msg['stage']}, seq: {msg['sequence_index']})"
                 )
+                from services.activity_log import log_event
+                preview = msg["message_body"][:80] + ("..." if len(msg["message_body"]) > 80 else "")
+                log_event(msg["lead_id"], "sms_sent", f"Sent SMS: {preview}", {"stage": msg["stage"], "sequence_index": msg["sequence_index"]})
             else:
                 _update_message_status(db, msg["id"], "failed", error="GHL send_message returned false")
                 logger.warning(f"SMS worker: GHL send failed for message {msg['id']}")
+                from services.activity_log import log_event
+                log_event(msg["lead_id"], "sms_failed", "Failed to send SMS via GHL", {"stage": msg["stage"], "sequence_index": msg["sequence_index"]})
 
         except Exception as e:
             _update_message_status(db, msg["id"], "failed", error=str(e)[:500])

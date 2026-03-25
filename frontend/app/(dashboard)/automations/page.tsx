@@ -375,7 +375,7 @@ const STAGE_COLORS: Record<string, string> = {
 };
 
 export default function AutomationsPage() {
-  const [activeTab, setActiveTab] = useState<"overview" | "workflow">("overview");
+  const [activeTab, setActiveTab] = useState<"overview" | "workflow" | "log">("overview");
   const [editorOpen, setEditorOpen] = useState(false);
   const [editorStage, setEditorStage] = useState("");
   const [editorBranch, setEditorBranch] = useState<string | undefined>();
@@ -627,6 +627,17 @@ export default function AutomationsPage() {
         >
           <GitBranch className="h-3.5 w-3.5" />
           Workflow Diagram
+        </button>
+        <button
+          className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors flex items-center gap-1.5 ${
+            activeTab === "log"
+              ? "border-primary text-primary"
+              : "border-transparent text-muted-foreground hover:text-foreground"
+          }`}
+          onClick={() => setActiveTab("log")}
+        >
+          <Clock className="h-3.5 w-3.5" />
+          Activity Log
         </button>
       </div>
 
@@ -980,6 +991,150 @@ export default function AutomationsPage() {
         </CardContent>
       </Card>
       </>)}
+
+      {activeTab === "log" && <ActivityLog />}
     </div>
+  );
+}
+
+// ─── Activity Log Tab ──────────────────────────────────────────────────────────
+
+const EVENT_BADGES: Record<string, string> = {
+  stage_transition: "bg-blue-100 text-blue-700",
+  sms_queued: "bg-gray-100 text-gray-600",
+  sms_sent: "bg-green-100 text-green-700",
+  sms_failed: "bg-red-100 text-red-700",
+  sms_cancelled: "bg-orange-100 text-orange-700",
+  customer_reply: "bg-yellow-100 text-yellow-700",
+  proposal_opened: "bg-purple-100 text-purple-700",
+  package_selected: "bg-cyan-100 text-cyan-700",
+  color_selected: "bg-teal-100 text-teal-700",
+  date_selected: "bg-indigo-100 text-indigo-700",
+  deposit_paid: "bg-emerald-100 text-emerald-700",
+  deposit_started: "bg-emerald-50 text-emerald-600",
+  estimate_approved: "bg-green-100 text-green-700",
+  job_complete: "bg-violet-100 text-violet-700",
+  workflow_paused: "bg-amber-100 text-amber-700",
+  workflow_resumed: "bg-amber-100 text-amber-700",
+};
+
+const EVENT_LABELS: Record<string, string> = {
+  stage_transition: "Stage Change",
+  sms_queued: "SMS Queued",
+  sms_sent: "SMS Sent",
+  sms_failed: "SMS Failed",
+  sms_cancelled: "SMS Cancelled",
+  customer_reply: "Customer Reply",
+  proposal_opened: "Proposal Opened",
+  package_selected: "Package Selected",
+  color_selected: "Color Selected",
+  date_selected: "Date Selected",
+  deposit_paid: "Deposit Paid",
+  deposit_started: "Checkout Started",
+  estimate_approved: "Estimate Approved",
+  job_complete: "Job Complete",
+  workflow_paused: "Paused",
+  workflow_resumed: "Resumed",
+};
+
+function ActivityLog() {
+  const [events, setEvents] = useState<import("@/lib/api").AutomationLogEvent[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [filter, setFilter] = useState("");
+  const [total, setTotal] = useState(0);
+
+  const fetchLog = useCallback(async () => {
+    try {
+      const res = await api.getAutomationLog({
+        event_type: filter || undefined,
+        limit: 100,
+      });
+      setEvents(res.events);
+      setTotal(res.total);
+    } catch (e) {
+      console.error("Failed to load log:", e);
+    } finally {
+      setLoading(false);
+    }
+  }, [filter]);
+
+  useEffect(() => {
+    fetchLog();
+    const interval = setInterval(fetchLog, 30000);
+    return () => clearInterval(interval);
+  }, [fetchLog]);
+
+  const formatTime = (iso: string) => {
+    try {
+      return new Date(iso).toLocaleString("en-US", {
+        timeZone: "America/Chicago",
+        month: "short",
+        day: "numeric",
+        hour: "numeric",
+        minute: "2-digit",
+        hour12: true,
+      });
+    } catch {
+      return iso;
+    }
+  };
+
+  return (
+    <Card>
+      <CardHeader className="flex flex-row items-center justify-between">
+        <CardTitle className="text-lg">Activity Log</CardTitle>
+        <div className="flex items-center gap-2">
+          <select
+            value={filter}
+            onChange={(e) => { setFilter(e.target.value); setLoading(true); }}
+            className="border rounded px-2 py-1 text-sm bg-white"
+          >
+            <option value="">All events</option>
+            {Object.entries(EVENT_LABELS).map(([value, label]) => (
+              <option key={value} value={value}>{label}</option>
+            ))}
+          </select>
+          <span className="text-xs text-muted-foreground">{total} events</span>
+        </div>
+      </CardHeader>
+      <CardContent>
+        {loading ? (
+          <div className="flex justify-center py-8">
+            <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+          </div>
+        ) : events.length === 0 ? (
+          <p className="text-sm text-muted-foreground text-center py-8">
+            No automation events yet. Events will appear here as the workflow engine processes leads.
+          </p>
+        ) : (
+          <div className="space-y-1">
+            {events.map((evt) => (
+              <div
+                key={evt.id}
+                className="flex items-start gap-3 px-3 py-2 rounded-lg hover:bg-gray-50 text-sm"
+              >
+                <span className="text-xs text-muted-foreground whitespace-nowrap pt-0.5 w-28 shrink-0">
+                  {formatTime(evt.created_at)}
+                </span>
+                <span className={`shrink-0 px-1.5 py-0.5 rounded text-xs font-medium whitespace-nowrap ${EVENT_BADGES[evt.event_type] || "bg-gray-100 text-gray-600"}`}>
+                  {EVENT_LABELS[evt.event_type] || evt.event_type}
+                </span>
+                {evt.contact_name && (
+                  <a
+                    href={`/leads/${evt.lead_id}`}
+                    className="text-xs font-medium text-blue-600 hover:underline shrink-0 pt-0.5"
+                  >
+                    {evt.contact_name}
+                  </a>
+                )}
+                <span className="text-xs text-muted-foreground truncate pt-0.5">
+                  {evt.detail}
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
+      </CardContent>
+    </Card>
   );
 }

@@ -1852,6 +1852,66 @@ function WorkflowSection({ leadId, workflowStage, workflowPaused }: { leadId: st
           )}
         </div>
       )}
+
+      {/* Recent automation activity */}
+      <LeadActivityLog leadId={leadId} />
+    </div>
+  );
+}
+
+function LeadActivityLog({ leadId }: { leadId: string }) {
+  const [events, setEvents] = useState<import("@/lib/api").AutomationLogEvent[]>([]);
+
+  useEffect(() => {
+    api.getAutomationLog({ lead_id: leadId, limit: 10 })
+      .then((res) => setEvents(res.events))
+      .catch(() => {});
+  }, [leadId]);
+
+  if (events.length === 0) return null;
+
+  const EVENT_BADGE: Record<string, string> = {
+    stage_transition: "bg-blue-100 text-blue-700",
+    sms_sent: "bg-green-100 text-green-700",
+    sms_failed: "bg-red-100 text-red-700",
+    customer_reply: "bg-yellow-100 text-yellow-700",
+    proposal_opened: "bg-purple-100 text-purple-700",
+    package_selected: "bg-cyan-100 text-cyan-700",
+    deposit_paid: "bg-emerald-100 text-emerald-700",
+    estimate_approved: "bg-green-100 text-green-700",
+  };
+
+  const formatTime = (iso: string) => {
+    try {
+      return new Date(iso).toLocaleString("en-US", {
+        timeZone: "America/Chicago",
+        month: "short",
+        day: "numeric",
+        hour: "numeric",
+        minute: "2-digit",
+        hour12: true,
+      });
+    } catch {
+      return iso;
+    }
+  };
+
+  return (
+    <div className="mt-3 pt-3 border-t">
+      <p className="text-xs font-semibold text-muted-foreground mb-2">Recent Activity</p>
+      <div className="space-y-1.5">
+        {events.map((evt) => (
+          <div key={evt.id} className="flex items-start gap-2 text-xs">
+            <span className="text-muted-foreground whitespace-nowrap w-24 shrink-0">
+              {formatTime(evt.created_at)}
+            </span>
+            <span className={`shrink-0 px-1 py-0.5 rounded text-[10px] font-medium ${EVENT_BADGE[evt.event_type] || "bg-gray-100 text-gray-600"}`}>
+              {evt.event_type.replace(/_/g, " ")}
+            </span>
+            <span className="text-muted-foreground truncate">{evt.detail}</span>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }

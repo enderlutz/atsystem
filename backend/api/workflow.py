@@ -412,6 +412,49 @@ async def save_ghl_stage_map(body: StageMapRequest, _: dict = Depends(get_curren
     return {"status": "ok", "mapped": len(body.mapping)}
 
 
+# ── Activity Log ────────────────────────────────────────────────────
+
+@router.get("/log")
+async def get_automation_log(
+    lead_id: str | None = Query(default=None),
+    event_type: str | None = Query(default=None),
+    limit: int = Query(default=50, le=200),
+    offset: int = Query(default=0),
+    _: dict = Depends(get_current_user),
+):
+    """Paginated automation activity log."""
+    db = get_db()
+    query = db.table("automation_log").select(
+        "id, lead_id, event_type, detail, metadata, created_at"
+    )
+    if lead_id:
+        query = query.eq("lead_id", lead_id)
+    if event_type:
+        query = query.eq("event_type", event_type)
+    query = query.order("created_at", desc=True).limit(limit)
+    # Manual offset via Python since QueryBuilder may not support .offset()
+    res = query.execute()
+    rows = (res.data or [])[offset:offset + limit] if offset else (res.data or [])
+
+    # Enrich with lead names
+    lead_ids = list({r["lead_id"] for r in rows if r.get("lead_id")})
+    lead_names: dict[str, str] = {}
+    if lead_ids:
+        leads_res = db.table("leads").select("id, contact_name").in_("id", lead_ids).execute()
+        lead_names = {r["id"]: r.get("contact_name", "") for r in (leads_res.data or [])}
+
+    return {
+        "events": [
+            {
+                **row,
+                "contact_name": lead_names.get(row.get("lead_id", ""), ""),
+            }
+            for row in rows
+        ],
+        "total": len(res.data or []),
+    }
+
+
 # ── Template editing ────────────────────────────────────────────────
 
 class TemplateMessage(BaseModel):

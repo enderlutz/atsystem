@@ -13,6 +13,7 @@ from db import get_db
 from config import get_settings
 from services.ghl import send_message_to_contact, update_opportunity_stage
 from services.templates import get_stage_messages, render_message, get_current_season, get_current_month_name
+from services.activity_log import log_event
 
 logger = logging.getLogger(__name__)
 
@@ -205,9 +206,15 @@ def transition_stage(
         "workflow_paused": False,
     }).eq("id", lead_id).execute()
 
+    contact_name = lead.get("contact_name", "")
     logger.info(
         f"Workflow: lead {lead_id} transitioned "
         f"{current_stage or 'none'} -> {new_stage.value} (reason: {reason})"
+    )
+    log_event(
+        lead_id, "stage_transition",
+        f"{STAGE_LABELS.get(current_stage, current_stage or 'none')} → {STAGE_LABELS.get(new_stage.value, new_stage.value)}",
+        {"from_stage": current_stage, "to_stage": new_stage.value, "reason": reason, "contact_name": contact_name},
     )
 
     # 3. Enqueue new stage's messages
@@ -269,6 +276,7 @@ def enqueue_stage_messages(
         count += 1
 
     logger.info(f"Workflow: enqueued {count} messages for lead {lead_id} stage {stage}")
+    log_event(lead_id, "sms_queued", f"Scheduled {count} SMS for stage {STAGE_LABELS.get(stage, stage)}", {"stage": stage, "count": count})
     return count
 
 
@@ -321,6 +329,8 @@ def on_customer_reply(lead_id: str, message_text: str = "") -> None:
     cancelled = cancel_pending_messages(lead_id, reason="customer_replied")
     if cancelled:
         logger.info(f"Workflow: cancelled {cancelled} messages after customer reply (lead {lead_id})")
+
+    log_event(lead_id, "customer_reply", f"Customer replied in stage {STAGE_LABELS.get(current_stage or '', current_stage or 'unknown')}", {"stage": current_stage, "cancelled_messages": cancelled})
 
     if not current_stage:
         return
@@ -423,13 +433,14 @@ def on_proposal_event(lead_id: str, event: str) -> None:
     current = lead_res.data.get("workflow_stage")
 
     if event == "opened":
-        # Proposal was opened — move to PROPOSAL_SENT if in HOT_LEAD
+        log_event(lead_id, "proposal_opened", "Customer opened proposal link")
         if current in (Stage.HOT_LEAD.value, None):
             transition_stage(lead_id, Stage.PROPOSAL_SENT, reason="proposal_opened")
 
     elif event == "package_selected":
-        # Get the selected tier from the proposal
         metadata = _get_proposal_metadata(lead_id)
+        tier = metadata.get("selected_tier", "unknown")
+        log_event(lead_id, "package_selected", f"Customer chose {tier.title()} package", {"tier": tier})
         if current in (Stage.PROPOSAL_SENT.value, Stage.NO_PACKAGE.value, None):
             transition_stage(
                 lead_id, Stage.PACKAGE_SELECTED,
@@ -438,11 +449,13 @@ def on_proposal_event(lead_id: str, event: str) -> None:
             )
 
     elif event == "color_selected":
+        log_event(lead_id, "color_selected", "Customer chose a stain color")
         if current in (Stage.PACKAGE_SELECTED.value, None):
             transition_stage(lead_id, Stage.NO_DATE, reason="color_selected")
 
     elif event == "date_selected":
         metadata = _get_proposal_metadata(lead_id)
+        log_event(lead_id, "date_selected", f"Customer selected a date", {"booked_date": metadata.get("booked_date", "")})
         if current in (Stage.NO_DATE.value, None):
             transition_stage(
                 lead_id, Stage.DATE_SELECTED,
@@ -451,7 +464,7 @@ def on_proposal_event(lead_id: str, event: str) -> None:
             )
 
     elif event == "checkout_started":
-        # No stage transition — just informational
+        log_event(lead_id, "deposit_started", "Customer started checkout")
         logger.info(f"Workflow: lead {lead_id} started checkout")
 
 
@@ -492,6 +505,7 @@ def on_deposit_paid(lead_id: str) -> None:
         except ValueError:
             pass
 
+    log_event(lead_id, "deposit_paid", "Deposit payment received")
     transition_stage(lead_id, Stage.DEPOSIT_PAID, reason="deposit_paid", metadata=metadata)
 
 
@@ -500,10 +514,12 @@ def on_job_complete(lead_id: str) -> None:
     db = get_db()
     now = datetime.now(timezone.utc).isoformat()
     db.table("leads").update({"job_completed_at": now}).eq("id", lead_id).execute()
+    log_event(lead_id, "job_complete", "VA marked job as complete")
     transition_stage(lead_id, Stage.JOB_COMPLETE, reason="job_marked_complete")
 
 
 def on_estimate_sent(lead_id: str) -> None:
     """Called when an estimate is approved and the proposal link is sent.
     Transitions the lead to HOT_LEAD stage."""
+    log_event(lead_id, "estimate_approved", "Estimate approved, proposal link sent")
     transition_stage(lead_id, Stage.HOT_LEAD, reason="estimate_sent")
