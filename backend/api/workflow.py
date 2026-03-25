@@ -410,3 +410,173 @@ async def save_ghl_stage_map(body: StageMapRequest, _: dict = Depends(get_curren
         }).execute()
 
     return {"status": "ok", "mapped": len(body.mapping)}
+
+
+# ── Template editing ────────────────────────────────────────────────
+
+class TemplateMessage(BaseModel):
+    delay_seconds: int
+    message_body: str
+
+
+class TemplateSaveRequest(BaseModel):
+    branch: str | None = None
+    messages: list[TemplateMessage]
+
+
+class TemplatePreviewRequest(BaseModel):
+    message_body: str
+    sample_data: dict = {}
+
+
+class TemplateTestSendRequest(BaseModel):
+    message_body: str
+    contact_id: str | None = None
+
+
+@router.get("/templates/overrides")
+async def get_overridden_stages(_: dict = Depends(get_current_user)):
+    """Return list of stages that have user overrides."""
+    db = get_db()
+    res = db.table("workflow_templates").select("stage").execute()
+    stages = list({r["stage"] for r in (res.data or [])})
+    return {"overridden_stages": stages}
+
+
+@router.get("/templates/{stage}")
+async def get_stage_templates(
+    stage: str,
+    branch: str | None = Query(default=None),
+    _: dict = Depends(get_current_user),
+):
+    """Return effective templates for a stage (overrides if exist, else defaults)."""
+    from services.templates import get_default_stage_messages, _load_template_overrides
+
+    overrides = _load_template_overrides(stage, branch)
+    is_overridden = overrides is not None
+
+    if is_overridden:
+        messages = overrides
+    else:
+        messages = get_default_stage_messages(stage, branch)
+
+    return {
+        "stage": stage,
+        "branch": branch,
+        "is_overridden": is_overridden,
+        "messages": [
+            {"sequence_index": i, "delay_seconds": d, "message_body": m}
+            for i, (d, m) in enumerate(messages)
+        ],
+    }
+
+
+@router.put("/templates/{stage}")
+async def save_stage_templates(
+    stage: str,
+    body: TemplateSaveRequest,
+    _: dict = Depends(get_current_user),
+):
+    """Save full message chain as overrides for a stage."""
+    db = get_db()
+    now = datetime.now(timezone.utc).isoformat()
+
+    # Delete existing overrides for this stage+branch
+    q = db.table("workflow_templates").delete().eq("stage", stage)
+    if body.branch:
+        q = q.eq("branch", body.branch)
+    else:
+        q = q.is_("branch", "null")
+    q.execute()
+
+    # Insert new overrides
+    for i, msg in enumerate(body.messages):
+        db.table("workflow_templates").insert({
+            "stage": stage,
+            "sequence_index": i,
+            "branch": body.branch,
+            "delay_seconds": msg.delay_seconds,
+            "message_body": msg.message_body,
+            "updated_at": now,
+        }).execute()
+
+    return {"status": "ok", "saved": len(body.messages)}
+
+
+@router.delete("/templates/{stage}")
+async def reset_stage_templates(
+    stage: str,
+    branch: str | None = Query(default=None),
+    _: dict = Depends(get_current_user),
+):
+    """Delete all overrides for a stage, reverting to hardcoded defaults."""
+    db = get_db()
+    q = db.table("workflow_templates").delete().eq("stage", stage)
+    if branch:
+        q = q.eq("branch", branch)
+    else:
+        q = q.is_("branch", "null")
+    q.execute()
+    return {"status": "ok"}
+
+
+@router.post("/templates/preview")
+async def preview_template(body: TemplatePreviewRequest, _: dict = Depends(get_current_user)):
+    """Render a template with sample data."""
+    from services.templates import render_message
+
+    sample = {
+        "first_name": "John",
+        "proposal_link": "https://proposal.atpressurewash.com/sample",
+        "review_link": "https://g.page/review/sample",
+        "date": "April 5th",
+        "address": "123 Oak St, Houston TX",
+        "incentive": "15% off your next service",
+        "referral_bonus": "$50 off",
+        "stripe_link": "https://checkout.stripe.com/sample",
+        "month": "April",
+        "entry_color_name": "Natural Cedar",
+        "entry_color_link": "https://example.com/color.jpg",
+        "signature_color_chart": "https://example.com/sig-chart.jpg",
+        "legacy_color_chart": "https://example.com/leg-chart.jpg",
+        "color_1": "Dark Walnut",
+        "color_2": "Canyon Brown",
+        "selected_tier": "Signature",
+    }
+    sample.update(body.sample_data)
+    rendered = render_message(body.message_body, sample)
+    return {"rendered": rendered}
+
+
+@router.post("/templates/test-send")
+async def test_send_template(body: TemplateTestSendRequest, _: dict = Depends(get_current_user)):
+    """Send a rendered test message to a GHL contact."""
+    from services.ghl import send_message_to_contact
+    from services.templates import render_message
+
+    contact_id = body.contact_id
+    if not contact_id:
+        # Fall back to config
+        db = get_db()
+        res = db.table("workflow_config").select("value").eq("key", "test_sms_contact_id").execute()
+        if res.data:
+            contact_id = res.data[0]["value"]
+
+    if not contact_id:
+        raise HTTPException(400, "No contact_id provided and test_sms_contact_id not configured")
+
+    # Render with sample data
+    sample = {
+        "first_name": "Test",
+        "proposal_link": "https://proposal.atpressurewash.com/test",
+        "date": "April 5th",
+        "address": "123 Test St",
+        "month": "April",
+    }
+    rendered = render_message(body.message_body, sample)
+    success = send_message_to_contact(contact_id, rendered)
+
+    if not success:
+        raise HTTPException(500, "Failed to send test SMS via GHL")
+
+    return {"status": "sent", "rendered": rendered}

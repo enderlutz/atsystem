@@ -292,6 +292,28 @@ export const api = {
     request<{ status: string; new_stage: string }>(`/api/workflow/leads/${leadId}/new-build`, { method: "POST" }),
   sendDateLink: (leadId: string) =>
     request<{ status: string; new_stage: string; url: string }>(`/api/workflow/leads/${leadId}/send-date-link`, { method: "POST" }),
+  // Template editing
+  getStageTemplates: (stage: string, branch?: string) =>
+    request<StageTemplateResponse>(`/api/workflow/templates/${stage}${branch ? `?branch=${branch}` : ""}`),
+  saveStageTemplates: (stage: string, body: { branch?: string | null; messages: { delay_seconds: number; message_body: string }[] }) =>
+    request<{ status: string; saved: number }>(`/api/workflow/templates/${stage}`, {
+      method: "PUT",
+      body: JSON.stringify(body),
+    }),
+  resetStageTemplates: (stage: string, branch?: string) =>
+    request<{ status: string }>(`/api/workflow/templates/${stage}${branch ? `?branch=${branch}` : ""}`, { method: "DELETE" }),
+  previewTemplate: (messageBody: string, sampleData?: Record<string, string>) =>
+    request<{ rendered: string }>("/api/workflow/templates/preview", {
+      method: "POST",
+      body: JSON.stringify({ message_body: messageBody, sample_data: sampleData || {} }),
+    }),
+  testSendTemplate: (messageBody: string, contactId?: string) =>
+    request<{ status: string; rendered: string }>("/api/workflow/templates/test-send", {
+      method: "POST",
+      body: JSON.stringify({ message_body: messageBody, contact_id: contactId }),
+    }),
+  getOverriddenStages: () =>
+    request<{ overridden_stages: string[] }>("/api/workflow/templates/overrides"),
 };
 
 // --- Beacon helper (for sendBeacon on page unload) ---
@@ -586,6 +608,19 @@ export interface GhlPipeline {
   id: string;
   name: string;
   stages: GhlPipelineStage[];
+}
+
+export interface StageTemplateMessage {
+  sequence_index: number;
+  delay_seconds: number;
+  message_body: string;
+}
+
+export interface StageTemplateResponse {
+  stage: string;
+  branch: string | null;
+  is_overridden: boolean;
+  messages: StageTemplateMessage[];
 }
 
 // Module-level cache for prefetched lead detail data — persists across client-side navigations

@@ -10,6 +10,10 @@ Templates use {first_name}, {proposal_link}, {review_link}, {date},
 """
 from __future__ import annotations
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 
 def render_message(template: str, context: dict) -> str:
     """Substitute placeholders in a template string."""
@@ -19,20 +23,61 @@ def render_message(template: str, context: dict) -> str:
     return result
 
 
+def _load_template_overrides(stage: str, branch: str | None = None) -> list[tuple[int, str]] | None:
+    """Load user-edited templates from workflow_templates table.
+    Returns None if no overrides exist (fall back to hardcoded)."""
+    try:
+        from db import get_db
+        db = get_db()
+        query = db.table("workflow_templates").select("delay_seconds, message_body").eq("stage", stage)
+        if branch:
+            query = query.eq("branch", branch)
+        else:
+            query = query.is_("branch", "null")
+        res = query.order("sequence_index").execute()
+        if not res.data:
+            return None
+        return [(r["delay_seconds"], r["message_body"]) for r in res.data]
+    except Exception as e:
+        logger.warning(f"Failed to load template overrides for {stage}: {e}")
+        return None
+
+
 def get_stage_messages(stage: str, metadata: dict | None = None) -> list[tuple[int, str]]:
     """Returns [(delay_seconds, template_string), ...] for a stage.
 
-    For stage 6 (package_selected), metadata['selected_tier'] determines
-    which initial message branch is used (entry/signature/legacy).
+    Checks workflow_templates DB table for user overrides first.
+    Falls back to hardcoded templates if no overrides exist.
     """
     metadata = metadata or {}
 
+    # Determine branch for branching stages
+    branch = None
+    if stage == "package_selected":
+        branch = metadata.get("selected_tier", "signature")
+
+    # Check DB overrides first
+    overrides = _load_template_overrides(stage, branch)
+    if overrides is not None:
+        return overrides
+
+    # Fall back to hardcoded templates
     if stage == "package_selected":
         return _get_package_selected_messages(metadata.get("selected_tier", "signature"))
 
     if stage == "deposit_paid":
         return _get_deposit_paid_messages(metadata)
 
+    return STAGE_TEMPLATES.get(stage, [])
+
+
+def get_default_stage_messages(stage: str, branch: str | None = None) -> list[tuple[int, str]]:
+    """Return hardcoded defaults for a stage (ignoring DB overrides).
+    Used by the API to show what the defaults are."""
+    if stage == "package_selected":
+        return _get_package_selected_messages(branch or "signature")
+    if stage == "deposit_paid":
+        return _get_deposit_paid_messages({})
     return STAGE_TEMPLATES.get(stage, [])
 
 

@@ -10,6 +10,7 @@ import {
   Zap, MessageSquare, Clock, Pause, Send, X, Save, Settings2, Link2, Check, Loader2,
   GitBranch,
 } from "lucide-react";
+import TemplateEditor from "@/components/dashboard/template-editor";
 
 // ─── Workflow Diagram ──────────────────────────────────────────────────────────
 
@@ -19,6 +20,8 @@ interface ChainNode {
   type: NodeType;
   label: string;
   detail?: string;
+  stageKey?: string;
+  branch?: string;
 }
 
 interface WFBranch {
@@ -44,15 +47,20 @@ const NODE_STYLES: Record<NodeType, string> = {
   manual: "bg-orange-100 border border-orange-400 text-orange-800",
 };
 
-function NodeChip({ node }: { node: ChainNode }) {
+function NodeChip({ node, onClick }: { node: ChainNode; onClick?: () => void }) {
+  const isEditable = !!node.stageKey && (node.type === "action" || node.type === "wait");
   return (
     <span
-      className={`inline-flex flex-col items-center rounded-md px-2 py-1 text-xs font-medium leading-tight ${NODE_STYLES[node.type]}`}
+      className={`inline-flex flex-col items-center rounded-md px-2 py-1 text-xs font-medium leading-tight ${NODE_STYLES[node.type]} ${isEditable ? "cursor-pointer hover:ring-2 hover:ring-blue-400/50 hover:shadow-sm transition-all" : ""}`}
       title={node.detail}
+      onClick={isEditable ? onClick : undefined}
     >
       {node.label}
       {node.detail && (
         <span className="text-[10px] font-normal opacity-70 mt-0.5">{node.detail}</span>
+      )}
+      {isEditable && (
+        <span className="text-[9px] font-normal opacity-50 mt-0.5">click to edit</span>
       )}
     </span>
   );
@@ -65,7 +73,7 @@ const WORKFLOW_DEFINITIONS: WorkflowDef[] = [
     dot: "bg-blue-500",
     chain: [
       { type: "trigger", label: "New lead arrives" },
-      { type: "action", label: "Send intro SMS ×3", detail: "Now → 1hr → 24hr" },
+      { type: "action", label: "Send intro SMS ×3", detail: "Now → 1hr → 24hr", stageKey: "new_lead" },
       { type: "condition", label: "Customer replies?" },
     ],
     branches: [
@@ -80,7 +88,7 @@ const WORKFLOW_DEFINITIONS: WorkflowDef[] = [
     dot: "bg-orange-400",
     chain: [
       { type: "manual", label: "VA clicks 'Ask for Address'" },
-      { type: "action", label: "Send address request ×2", detail: "Now → 24hr" },
+      { type: "action", label: "Send address request ×2", detail: "Now → 24hr", stageKey: "asking_address" },
       { type: "wait", label: "VA reviews reply" },
       { type: "end", label: "→ Hot Lead (manual)" },
     ],
@@ -91,7 +99,7 @@ const WORKFLOW_DEFINITIONS: WorkflowDef[] = [
     dot: "bg-orange-400",
     chain: [
       { type: "manual", label: "VA clicks 'New Build'" },
-      { type: "action", label: "Send photos/in-person SMS ×2", detail: "Now → 24hr" },
+      { type: "action", label: "Send photos/in-person SMS ×2", detail: "Now → 24hr", stageKey: "new_build" },
       { type: "wait", label: "Customer chooses option" },
       { type: "end", label: "→ VA handles" },
     ],
@@ -102,18 +110,18 @@ const WORKFLOW_DEFINITIONS: WorkflowDef[] = [
     dot: "bg-teal-500",
     chain: [
       { type: "trigger", label: "Estimate approved & sent" },
-      { type: "action", label: "Proposal link SMS", detail: "Immediate" },
+      { type: "action", label: "Proposal link SMS", detail: "Immediate", stageKey: "proposal_sent" },
       { type: "wait", label: "Customer opens?" },
     ],
     branches: [
       {
         label: "NO — follow-ups",
         nodes: [
-          { type: "action", label: "4hr follow-up" },
-          { type: "action", label: "Day 2" },
-          { type: "action", label: "Day 4" },
-          { type: "action", label: "Day 5" },
-          { type: "action", label: "Day 6" },
+          { type: "action", label: "4hr follow-up", stageKey: "proposal_sent" },
+          { type: "action", label: "Day 2", stageKey: "proposal_sent" },
+          { type: "action", label: "Day 4", stageKey: "proposal_sent" },
+          { type: "action", label: "Day 5", stageKey: "proposal_sent" },
+          { type: "action", label: "Day 6", stageKey: "proposal_sent" },
         ],
       },
       { label: "YES — opened", nodes: [{ type: "end", label: "→ WF5" }] },
@@ -132,11 +140,11 @@ const WORKFLOW_DEFINITIONS: WorkflowDef[] = [
       {
         label: "NO",
         nodes: [
-          { type: "action", label: "\"Signature is popular\" SMS", detail: "Immediate" },
-          { type: "action", label: "Day 1" },
-          { type: "action", label: "Day 3 (review)" },
-          { type: "action", label: "Day 5" },
-          { type: "action", label: "Day 6" },
+          { type: "action", label: "\"Signature is popular\" SMS", detail: "Immediate", stageKey: "no_package_selection" },
+          { type: "action", label: "Day 1", stageKey: "no_package_selection" },
+          { type: "action", label: "Day 3 (review)", stageKey: "no_package_selection" },
+          { type: "action", label: "Day 5", stageKey: "no_package_selection" },
+          { type: "action", label: "Day 6", stageKey: "no_package_selection" },
           { type: "end", label: "7d → Cold Nurture" },
         ],
       },
@@ -149,7 +157,7 @@ const WORKFLOW_DEFINITIONS: WorkflowDef[] = [
     dot: "bg-cyan-400",
     chain: [
       { type: "trigger", label: "Package selected" },
-      { type: "action", label: "Tier color chart SMS", detail: "Immediate + 2hr + Day 2" },
+      { type: "action", label: "Tier color chart SMS", detail: "Immediate + 2hr + Day 2", stageKey: "package_selected" },
       { type: "condition", label: "Customer texts color?" },
     ],
     branches: [
@@ -176,10 +184,10 @@ const WORKFLOW_DEFINITIONS: WorkflowDef[] = [
     dot: "bg-indigo-500",
     chain: [
       { type: "trigger", label: "Color chosen, no date" },
-      { type: "action", label: "\"Openings available\" SMS", detail: "Immediate" },
-      { type: "action", label: "4hr nudge" },
-      { type: "action", label: "Day 2 (urgency)" },
-      { type: "action", label: "Day 4 (personal)" },
+      { type: "action", label: "\"Openings available\" SMS", detail: "Immediate", stageKey: "no_date_selected" },
+      { type: "action", label: "4hr nudge", stageKey: "no_date_selected" },
+      { type: "action", label: "Day 2 (urgency)", stageKey: "no_date_selected" },
+      { type: "action", label: "Day 4 (personal)", stageKey: "no_date_selected" },
     ],
   },
   {
@@ -194,17 +202,17 @@ const WORKFLOW_DEFINITIONS: WorkflowDef[] = [
       {
         label: "NO (left)",
         nodes: [
-          { type: "action", label: "Deposit reminder", detail: "1 min" },
-          { type: "action", label: "2hr reminder" },
-          { type: "action", label: "Day 1" },
-          { type: "action", label: "Day 2" },
+          { type: "action", label: "Deposit reminder", detail: "1 min", stageKey: "date_selected" },
+          { type: "action", label: "2hr reminder", stageKey: "date_selected" },
+          { type: "action", label: "Day 1", stageKey: "date_selected" },
+          { type: "action", label: "Day 2", stageKey: "date_selected" },
         ],
       },
       {
         label: "YES (active)",
         nodes: [
-          { type: "wait", label: "15 min" },
-          { type: "action", label: "Deposit reminder" },
+          { type: "wait", label: "15 min", stageKey: "date_selected" },
+          { type: "action", label: "Deposit reminder", stageKey: "date_selected" },
         ],
       },
     ],
@@ -215,11 +223,11 @@ const WORKFLOW_DEFINITIONS: WorkflowDef[] = [
     dot: "bg-green-600",
     chain: [
       { type: "trigger", label: "Deposit paid" },
-      { type: "action", label: "Confirmation SMS", detail: "Immediate" },
-      { type: "action", label: "Day-before reminder", detail: "6 PM eve" },
-      { type: "action", label: "Job-day SMS", detail: "7 AM" },
+      { type: "action", label: "Confirmation SMS", detail: "Immediate", stageKey: "deposit_paid" },
+      { type: "action", label: "Day-before reminder", detail: "6 PM eve", stageKey: "deposit_paid" },
+      { type: "action", label: "Job-day SMS", detail: "7 AM", stageKey: "deposit_paid" },
       { type: "manual", label: "VA marks complete" },
-      { type: "action", label: "Review request + referral", detail: "Now + Day 3" },
+      { type: "action", label: "Review request + referral", detail: "Now + Day 3", stageKey: "job_complete" },
       { type: "end", label: "14d → Re-quote Past Leads" },
     ],
   },
@@ -253,7 +261,7 @@ const WORKFLOW_DEFINITIONS: WorkflowDef[] = [
   },
 ];
 
-function WorkflowDiagram() {
+function WorkflowDiagram({ onEditStage, overriddenStages }: { onEditStage: (stageKey: string, branch?: string) => void; overriddenStages: Set<string> }) {
   const legend: { type: NodeType; label: string }[] = [
     { type: "trigger", label: "Trigger / event" },
     { type: "action", label: "Send SMS / action" },
@@ -262,6 +270,18 @@ function WorkflowDiagram() {
     { type: "manual", label: "VA manual action" },
     { type: "end", label: "Stage transition" },
   ];
+
+  const handleNodeClick = (node: ChainNode) => {
+    if (node.stageKey) onEditStage(node.stageKey, node.branch);
+  };
+
+  // Collect which stageKeys appear in each workflow
+  const wfStageKeys = (wf: WorkflowDef): string[] => {
+    const keys = new Set<string>();
+    for (const n of wf.chain) if (n.stageKey) keys.add(n.stageKey);
+    for (const b of wf.branches || []) for (const n of b.nodes) if (n.stageKey) keys.add(n.stageKey);
+    return Array.from(keys);
+  };
 
   return (
     <div className="space-y-4">
@@ -274,54 +294,63 @@ function WorkflowDiagram() {
         ))}
       </div>
 
-      {WORKFLOW_DEFINITIONS.map((wf) => (
-        <Card key={wf.id} className="overflow-hidden">
-          <CardHeader className="py-3 px-4">
-            <CardTitle className="text-sm flex items-center gap-2">
-              <div className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${wf.dot}`} />
-              {wf.title}
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="px-4 pb-3 space-y-2">
-            {/* Main chain */}
-            <div className="flex flex-wrap items-start gap-1">
-              {wf.chain.map((node, i) => (
-                <div key={i} className="flex items-start gap-1">
-                  <NodeChip node={node} />
-                  {i < wf.chain.length - 1 && (
-                    <span className="text-muted-foreground text-xs pt-1.5">→</span>
-                  )}
-                </div>
-              ))}
-            </div>
-
-            {/* Branches */}
-            {wf.branches && (
-              <div className="space-y-1.5 ml-2 pl-3 border-l-2 border-muted">
-                {wf.branches.map((branch, bi) => (
-                  <div key={bi} className="flex flex-wrap items-start gap-1">
-                    <span className="text-xs font-medium text-muted-foreground pt-1 flex-shrink-0">
-                      {branch.label}:
-                    </span>
-                    {branch.nodes.map((node, ni) => (
-                      <div key={ni} className="flex items-start gap-1">
-                        <NodeChip node={node} />
-                        {ni < branch.nodes.length - 1 && (
-                          <span className="text-muted-foreground text-xs pt-1.5">→</span>
-                        )}
-                      </div>
-                    ))}
+      {WORKFLOW_DEFINITIONS.map((wf) => {
+        const stageKeys = wfStageKeys(wf);
+        const hasOverride = stageKeys.some((k) => overriddenStages.has(k));
+        return (
+          <Card key={wf.id} className="overflow-hidden">
+            <CardHeader className="py-3 px-4">
+              <CardTitle className="text-sm flex items-center gap-2">
+                <div className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${wf.dot}`} />
+                {wf.title}
+                {hasOverride && (
+                  <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] bg-blue-100 text-blue-700 font-medium">
+                    ✏️ Customized
+                  </span>
+                )}
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="px-4 pb-3 space-y-2">
+              {/* Main chain */}
+              <div className="flex flex-wrap items-start gap-1">
+                {wf.chain.map((node, i) => (
+                  <div key={i} className="flex items-start gap-1">
+                    <NodeChip node={node} onClick={() => handleNodeClick(node)} />
+                    {i < wf.chain.length - 1 && (
+                      <span className="text-muted-foreground text-xs pt-1.5">→</span>
+                    )}
                   </div>
                 ))}
               </div>
-            )}
 
-            {wf.note && (
-              <p className="text-xs text-muted-foreground italic border-t pt-2">{wf.note}</p>
-            )}
-          </CardContent>
-        </Card>
-      ))}
+              {/* Branches */}
+              {wf.branches && (
+                <div className="space-y-1.5 ml-2 pl-3 border-l-2 border-muted">
+                  {wf.branches.map((branch, bi) => (
+                    <div key={bi} className="flex flex-wrap items-start gap-1">
+                      <span className="text-xs font-medium text-muted-foreground pt-1 flex-shrink-0">
+                        {branch.label}:
+                      </span>
+                      {branch.nodes.map((node, ni) => (
+                        <div key={ni} className="flex items-start gap-1">
+                          <NodeChip node={node} onClick={() => handleNodeClick(node)} />
+                          {ni < branch.nodes.length - 1 && (
+                            <span className="text-muted-foreground text-xs pt-1.5">→</span>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {wf.note && (
+                <p className="text-xs text-muted-foreground italic border-t pt-2">{wf.note}</p>
+              )}
+            </CardContent>
+          </Card>
+        );
+      })}
     </div>
   );
 }
@@ -347,6 +376,11 @@ const STAGE_COLORS: Record<string, string> = {
 
 export default function AutomationsPage() {
   const [activeTab, setActiveTab] = useState<"overview" | "workflow">("overview");
+  const [editorOpen, setEditorOpen] = useState(false);
+  const [editorStage, setEditorStage] = useState("");
+  const [editorBranch, setEditorBranch] = useState<string | undefined>();
+  const [editorLabel, setEditorLabel] = useState("");
+  const [overriddenStages, setOverriddenStages] = useState<Set<string>>(new Set());
   const [stats, setStats] = useState<WorkflowStats | null>(null);
   const [queue, setQueue] = useState<QueuedMessage[]>([]);
   const [config, setConfig] = useState<WorkflowConfigItem[]>([]);
@@ -359,6 +393,15 @@ export default function AutomationsPage() {
   const [loadingPipelines, setLoadingPipelines] = useState(false);
   const [savingMap, setSavingMap] = useState(false);
   const [mapSaved, setMapSaved] = useState(false);
+
+  const fetchOverrides = useCallback(async () => {
+    try {
+      const res = await api.getOverriddenStages();
+      setOverriddenStages(new Set(res.overridden_stages));
+    } catch (e) {
+      console.error("Failed to load overrides:", e);
+    }
+  }, []);
 
   const fetchData = useCallback(async () => {
     try {
@@ -375,7 +418,8 @@ export default function AutomationsPage() {
     } finally {
       setLoading(false);
     }
-  }, []);
+    fetchOverrides();
+  }, [fetchOverrides]);
 
   useEffect(() => {
     fetchData();
@@ -586,7 +630,42 @@ export default function AutomationsPage() {
         </button>
       </div>
 
-      {activeTab === "workflow" && <WorkflowDiagram />}
+      {activeTab === "workflow" && (
+        <WorkflowDiagram
+          overriddenStages={overriddenStages}
+          onEditStage={(stageKey, branch) => {
+            // Find label from WORKFLOW_STAGES
+            const wfStages = [
+              { value: "new_lead", label: "New lead (waiting for automation response)" },
+              { value: "asking_address", label: "Asking for Address/ZIP (Automation)" },
+              { value: "new_build", label: "Address Correct but Not Measurable" },
+              { value: "hot_lead", label: "Hot lead (send proposal)" },
+              { value: "proposal_sent", label: "Proposal sent(follow ups to open)" },
+              { value: "no_package_selection", label: "no package selection" },
+              { value: "package_selected", label: "package selection-no color chosen" },
+              { value: "no_date_selected", label: "no date selected" },
+              { value: "date_selected", label: "date selected, no deposit" },
+              { value: "deposit_paid", label: "Deposit paid (CLOSED)" },
+              { value: "job_complete", label: "job complete(review & referral)" },
+              { value: "cold_nurture", label: "Cold Lead Nurture" },
+            ];
+            const found = wfStages.find((s) => s.value === stageKey);
+            setEditorStage(stageKey);
+            setEditorBranch(branch);
+            setEditorLabel(found?.label || stageKey);
+            setEditorOpen(true);
+          }}
+        />
+      )}
+
+      <TemplateEditor
+        stage={editorStage}
+        stageLabel={editorLabel}
+        branch={editorBranch}
+        open={editorOpen}
+        onClose={() => setEditorOpen(false)}
+        onSaved={() => fetchOverrides()}
+      />
 
       {activeTab === "overview" && (<>
 
