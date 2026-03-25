@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback, type ReactNode } from "react";
+import { useEffect, useState, useCallback, useRef, type ReactNode } from "react";
 import Link from "next/link";
 import { api, leadDetailCache, type Lead, type Estimate } from "@/lib/api";
 import { toast } from "sonner";
@@ -369,6 +369,10 @@ export default function LeadsPage() {
   const [archivingId, setArchivingId] = useState<string | null>(null);
   const [hoveredLeadId, setHoveredLeadId] = useState<string | null>(null);
   const [hoverPos, setHoverPos] = useState<{ x: number; y: number } | null>(null);
+  const [hoverData, setHoverData] = useState<{ log: import("@/lib/api").AutomationLogEvent[]; queue: import("@/lib/api").QueuedMessage[] } | null>(null);
+  const [hoverDataLoading, setHoverDataLoading] = useState(false);
+  const hoverCardRef = useRef<HTMLDivElement>(null);
+  const hoverTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
@@ -717,11 +721,31 @@ export default function LeadsPage() {
                               isOwnerLead ? "opacity-80" : ""
                             } ${newLeadIds.has(lead.id) ? "ring-2 ring-blue-300 ring-offset-1" : ""} ${addonsPending ? "ring-2 ring-yellow-400 ring-offset-1" : ""}`}
                             onMouseEnter={(e) => {
+                              if (hoverTimeoutRef.current) clearTimeout(hoverTimeoutRef.current);
                               const rect = e.currentTarget.getBoundingClientRect();
                               setHoveredLeadId(lead.id);
                               setHoverPos({ x: rect.right + 8, y: rect.top });
+                              // Fetch activity log + scheduled messages
+                              setHoverData(null);
+                              setHoverDataLoading(true);
+                              Promise.allSettled([
+                                api.getAutomationLog({ lead_id: lead.id, limit: 5 }),
+                                api.getMessageQueue(`lead_id=${lead.id}&status=pending`),
+                              ]).then(([logRes, queueRes]) => {
+                                setHoverData({
+                                  log: logRes.status === "fulfilled" ? logRes.value.events : [],
+                                  queue: queueRes.status === "fulfilled" ? queueRes.value : [],
+                                });
+                                setHoverDataLoading(false);
+                              });
                             }}
-                            onMouseLeave={() => { setHoveredLeadId(null); setHoverPos(null); }}
+                            onMouseLeave={() => {
+                              hoverTimeoutRef.current = setTimeout(() => {
+                                setHoveredLeadId(null);
+                                setHoverPos(null);
+                                setHoverData(null);
+                              }, 200);
+                            }}
                           >
                             {/* Name + priority */}
                             <div className="flex items-start justify-between gap-1">
@@ -1093,11 +1117,55 @@ export default function LeadsPage() {
         const tiers = hEst?.inputs?._tiers as Record<string, number> | undefined;
         const fd = (hLead.form_data || {}) as Record<string, unknown>;
         const posLeft = hoverPos.x + 280 > window.innerWidth ? hoverPos.x - 296 : hoverPos.x;
-        const posTop = Math.min(hoverPos.y, window.innerHeight - 320);
+        const posTop = Math.min(hoverPos.y, window.innerHeight - 400);
+
+        const formatTime = (iso: string) => {
+          try {
+            return new Date(iso).toLocaleString("en-US", {
+              timeZone: "America/Chicago", month: "short", day: "numeric",
+              hour: "numeric", minute: "2-digit", hour12: true,
+            });
+          } catch { return iso; }
+        };
+
+        const formatRelative = (iso: string) => {
+          const diff = new Date(iso).getTime() - Date.now();
+          const mins = Math.round(diff / 60000);
+          if (mins < 0) return "overdue";
+          if (mins < 60) return `in ${mins}m`;
+          const hrs = Math.round(mins / 60);
+          if (hrs < 24) return `in ${hrs}h`;
+          return `in ${Math.round(hrs / 24)}d`;
+        };
+
+        const EVENT_BADGE: Record<string, string> = {
+          stage_transition: "bg-blue-100 text-blue-700",
+          sms_sent: "bg-green-100 text-green-700",
+          sms_failed: "bg-red-100 text-red-700",
+          sms_queued: "bg-gray-100 text-gray-600",
+          customer_reply: "bg-yellow-100 text-yellow-700",
+          proposal_opened: "bg-purple-100 text-purple-700",
+          package_selected: "bg-cyan-100 text-cyan-700",
+          deposit_paid: "bg-emerald-100 text-emerald-700",
+          estimate_approved: "bg-green-100 text-green-700",
+        };
+
+        const handleCancelMsg = async (msgId: string) => {
+          try {
+            await api.cancelQueuedMessage(msgId);
+            setHoverData((prev) => prev ? { ...prev, queue: prev.queue.filter((m) => m.id !== msgId) } : prev);
+          } catch (e) {
+            console.error("Failed to cancel message:", e);
+          }
+        };
+
         return (
           <div
-            className="fixed z-50 w-68 bg-white border border-gray-200 rounded-lg shadow-xl p-3.5 text-sm pointer-events-none"
-            style={{ left: posLeft, top: posTop, width: 272 }}
+            ref={hoverCardRef}
+            className="fixed z-50 bg-white border border-gray-200 rounded-lg shadow-xl p-3.5 text-sm overflow-y-auto"
+            style={{ left: posLeft, top: posTop, width: 320, maxHeight: 480 }}
+            onMouseEnter={() => { if (hoverTimeoutRef.current) clearTimeout(hoverTimeoutRef.current); }}
+            onMouseLeave={() => { setHoveredLeadId(null); setHoverPos(null); setHoverData(null); }}
           >
             <div className="font-semibold text-base leading-tight mb-1">{hLead.contact_name || "—"}</div>
             {hLead.contact_phone && (
@@ -1146,6 +1214,57 @@ export default function LeadsPage() {
                   <span key={tag} className="px-1.5 py-0.5 rounded text-xs bg-gray-100 text-gray-500">{tag}</span>
                 ))}
               </div>
+            )}
+
+            {/* Scheduled Messages */}
+            {hoverData && hoverData.queue.length > 0 && (
+              <div className="mt-2 pt-2 border-t">
+                <div className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide mb-1">Scheduled Messages</div>
+                <div className="space-y-1">
+                  {hoverData.queue.slice(0, 4).map((m) => (
+                    <div key={m.id} className="flex items-start gap-1.5 group">
+                      <div className="min-w-0 flex-1">
+                        <div className="text-[10px] text-muted-foreground">{formatRelative(m.send_at)}</div>
+                        <p className="text-xs text-muted-foreground line-clamp-1">{m.message_body}</p>
+                      </div>
+                      <button
+                        onClick={() => handleCancelMsg(m.id)}
+                        className="shrink-0 px-1 py-0.5 rounded text-[10px] text-red-500 hover:bg-red-50 opacity-0 group-hover:opacity-100 transition-opacity"
+                        title="Cancel this message"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  ))}
+                  {hoverData.queue.length > 4 && (
+                    <div className="text-[10px] text-muted-foreground">+{hoverData.queue.length - 4} more</div>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* Activity Log */}
+            {hoverData && hoverData.log.length > 0 && (
+              <div className="mt-2 pt-2 border-t">
+                <div className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wide mb-1">Recent Activity</div>
+                <div className="space-y-1">
+                  {hoverData.log.map((evt) => (
+                    <div key={evt.id} className="flex items-start gap-1.5">
+                      <span className="text-[10px] text-muted-foreground whitespace-nowrap w-16 shrink-0">
+                        {formatTime(evt.created_at)}
+                      </span>
+                      <span className={`shrink-0 px-1 py-0.5 rounded text-[9px] font-medium ${EVENT_BADGE[evt.event_type] || "bg-gray-100 text-gray-600"}`}>
+                        {evt.event_type.replace(/_/g, " ")}
+                      </span>
+                      <span className="text-[10px] text-muted-foreground truncate">{evt.detail}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {hoverDataLoading && (
+              <div className="mt-2 pt-2 border-t text-[10px] text-muted-foreground">Loading activity...</div>
             )}
           </div>
         );

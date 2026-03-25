@@ -150,6 +150,7 @@ async def get_message_queue(
     _: dict = Depends(get_current_user),
     status: Optional[str] = Query(None),
     stage: Optional[str] = Query(None),
+    lead_id: Optional[str] = Query(None),
     limit: int = Query(50, le=200),
 ):
     """List scheduled/sent messages across all leads."""
@@ -165,6 +166,9 @@ async def get_message_queue(
 
     if stage:
         query = query.eq("stage", stage)
+
+    if lead_id:
+        query = query.eq("lead_id", lead_id)
 
     res = query.order("send_at").limit(limit).execute()
 
