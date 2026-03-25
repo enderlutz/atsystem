@@ -567,7 +567,7 @@ async def test_send_template(body: TemplateTestSendRequest, _: dict = Depends(ge
 
     # Pull real lead data for this contact
     lead_res = db.table("leads").select(
-        "contact_name, address, form_data"
+        "id, contact_name, address, form_data"
     ).eq("ghl_contact_id", contact_id).execute()
 
     lead = lead_res.data[0] if lead_res.data else {}
@@ -584,9 +584,10 @@ async def test_send_template(body: TemplateTestSendRequest, _: dict = Depends(ge
     cfg_res = db.table("workflow_config").select("key, value").execute()
     cfg = {r["key"]: r["value"] for r in (cfg_res.data or [])}
 
-    # Check for a proposal token
-    prop_res = db.table("proposals").select("token").eq("ghl_contact_id", contact_id).execute()
-    proposal_token = prop_res.data[0]["token"] if prop_res.data else "test"
+    # Check for a proposal token (proposals link via lead_id, not ghl_contact_id)
+    lead_id = lead.get("id", "")
+    prop_res = db.table("proposals").select("token").eq("lead_id", lead_id).execute() if lead_id else None
+    proposal_token = prop_res.data[0]["token"] if prop_res and prop_res.data else "test"
     from config import get_settings
     settings = get_settings()
     proposal_base = settings.proposal_base_url or settings.frontend_url or "https://proposal.atpressurewash.com"
