@@ -80,6 +80,23 @@ def _process_pending_messages():
                 _update_message_status(db, msg["id"], "cancelled", cancel_reason="stage_changed")
                 continue
 
+            # Quiet hours: non-immediate messages only send 6 AM – 10 PM Central.
+            # A message is "immediate" if send_at is within 2 minutes of created_at.
+            created = datetime.fromisoformat(msg["created_at"].replace("Z", "+00:00"))
+            scheduled = datetime.fromisoformat(msg["send_at"].replace("Z", "+00:00"))
+            was_immediate = abs((scheduled - created).total_seconds()) < 120
+
+            if not was_immediate:
+                now_central = datetime.now(CENTRAL_TZ)
+                if now_central.hour < 6 or now_central.hour >= 22:
+                    next_6am = now_central.replace(hour=6, minute=0, second=0, microsecond=0)
+                    if now_central.hour >= 22:
+                        next_6am += timedelta(days=1)
+                    new_send_at = next_6am.astimezone(timezone.utc).isoformat()
+                    db.table("sms_queue").update({"send_at": new_send_at}).eq("id", msg["id"]).execute()
+                    logger.info(f"SMS worker: deferred msg {msg['id']} to 6 AM Central (quiet hours)")
+                    continue
+
             # WF8: For the first DATE_SELECTED message, defer to 15 min if customer is still active
             if (
                 msg["stage"] == "date_selected"
