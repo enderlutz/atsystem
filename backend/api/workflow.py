@@ -565,13 +565,49 @@ async def test_send_template(body: TemplateTestSendRequest, _: dict = Depends(ge
     if not contact_id:
         raise HTTPException(400, "No contact_id provided and test_sms_contact_id not configured")
 
-    # Render with sample data
+    # Pull real lead data for this contact
+    lead_res = db.table("leads").select(
+        "contact_name, address, form_data"
+    ).eq("ghl_contact_id", contact_id).execute()
+
+    lead = lead_res.data[0] if lead_res.data else {}
+    contact_name = lead.get("contact_name", "")
+    first_name = contact_name.split()[0] if contact_name else "Friend"
+    address = lead.get("address", "")
+    form_data = lead.get("form_data") or {}
+
+    # Build context from real lead data + config values
+    from datetime import datetime as dt
+    month = dt.now().strftime("%B")
+
+    # Load workflow config for template variables
+    cfg_res = db.table("workflow_config").select("key, value").execute()
+    cfg = {r["key"]: r["value"] for r in (cfg_res.data or [])}
+
+    # Check for a proposal token
+    prop_res = db.table("proposals").select("token").eq("ghl_contact_id", contact_id).execute()
+    proposal_token = prop_res.data[0]["token"] if prop_res.data else "test"
+    from config import get_settings
+    settings = get_settings()
+    proposal_base = settings.proposal_base_url or settings.frontend_url or "https://proposal.atpressurewash.com"
+
     sample = {
-        "first_name": "Test",
-        "proposal_link": "https://proposal.atpressurewash.com/test",
-        "date": "April 5th",
-        "address": "123 Test St",
-        "month": "April",
+        "first_name": first_name,
+        "proposal_link": f"{proposal_base}/proposal/{proposal_token}",
+        "date": form_data.get("booked_date", "TBD"),
+        "address": address,
+        "month": month,
+        "review_link": cfg.get("google_review_link", ""),
+        "incentive": cfg.get("cold_lead_incentive", ""),
+        "referral_bonus": cfg.get("referral_bonus", ""),
+        "stripe_link": "https://checkout.stripe.com/test",
+        "entry_color_name": cfg.get("entry_color_name", ""),
+        "entry_color_link": cfg.get("entry_color_link", ""),
+        "signature_color_chart": cfg.get("signature_color_chart", ""),
+        "legacy_color_chart": cfg.get("legacy_color_chart", ""),
+        "color_1": cfg.get("popular_color_1", ""),
+        "color_2": cfg.get("popular_color_2", ""),
+        "selected_tier": form_data.get("selected_tier", "Signature"),
     }
     rendered = render_message(body.message_body, sample)
     success = send_message_to_contact(contact_id, rendered)
