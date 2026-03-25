@@ -133,7 +133,7 @@ export default function TemplateEditor({ stage, stageLabel, branch, open, onClos
     setTestSending(index);
     setTestResult(null);
     try {
-      const result = await api.testSendTemplate(messages[index].message_body);
+      const result = await api.testSendTemplate(messages[index].message_body, { stage, sequenceIndex: index });
       setTestResult(`Test SMS sent: "${result.rendered.slice(0, 60)}..."`);
       setTimeout(() => setTestResult(null), 5000);
     } catch (e) {

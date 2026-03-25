@@ -488,6 +488,8 @@ class TemplatePreviewRequest(BaseModel):
 class TemplateTestSendRequest(BaseModel):
     message_body: str
     contact_id: str | None = None
+    stage: str | None = None
+    sequence_index: int = 0
 
 
 @router.get("/templates/overrides")
@@ -667,9 +669,17 @@ async def test_send_template(body: TemplateTestSendRequest, _: dict = Depends(ge
         "selected_tier": form_data.get("selected_tier", "Signature"),
     }
     rendered = render_message(body.message_body, sample)
-    success = send_message_to_contact(contact_id, rendered)
+
+    # Get attachments if stage is specified
+    attachments = None
+    if body.stage is not None:
+        from services.templates import get_message_attachments
+        attach_context = {"proposal_base_url": proposal_base}
+        attachments = get_message_attachments(body.stage, body.sequence_index, attach_context) or None
+
+    success = send_message_to_contact(contact_id, rendered, attachments=attachments)
 
     if not success:
         raise HTTPException(500, "Failed to send test SMS via GHL")
 
-    return {"status": "sent", "rendered": rendered}
+    return {"status": "sent", "rendered": rendered, "attachments": attachments}
