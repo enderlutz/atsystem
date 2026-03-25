@@ -202,23 +202,32 @@ async def cancel_message(message_id: str, _: dict = Depends(get_current_user)):
 
 @router.post("/queue/{message_id}/send-now")
 async def send_now(message_id: str, _: dict = Depends(get_current_user)):
-    """Force-send a scheduled message immediately."""
+    """Force-send a scheduled message immediately (atomic claim)."""
     from services.ghl import send_message_to_contact
 
     db = get_db()
-    res = db.table("sms_queue").select("*").eq("id", message_id).eq("status", "pending").single().execute()
-    if not res.data:
-        raise HTTPException(status_code=404, detail="Message not found or already sent")
+    now = datetime.now(timezone.utc).isoformat()
 
-    msg = res.data
+    # Atomically claim the message — prevents background worker from also sending it
+    claim_res = db.table("sms_queue").update({
+        "sent_at": now,
+    }).eq("id", message_id).eq("status", "pending").execute()
+
+    if not claim_res.data:
+        raise HTTPException(status_code=404, detail="Message not found or already sent/cancelled")
+
+    msg = claim_res.data[0]
     sent = send_message_to_contact(msg["ghl_contact_id"], msg["message_body"])
 
-    now = datetime.now(timezone.utc).isoformat()
     if sent:
-        db.table("sms_queue").update({"status": "sent", "sent_at": now}).eq("id", message_id).execute()
+        db.table("sms_queue").update({"status": "sent"}).eq("id", message_id).execute()
         return {"status": "sent"}
     else:
-        db.table("sms_queue").update({"status": "failed", "error_message": "GHL send failed"}).eq("id", message_id).execute()
+        db.table("sms_queue").update({
+            "status": "failed",
+            "sent_at": None,
+            "error_message": "GHL send failed",
+        }).eq("id", message_id).execute()
         raise HTTPException(status_code=502, detail="Failed to send via GHL")
 
 

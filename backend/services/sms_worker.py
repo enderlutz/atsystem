@@ -184,14 +184,50 @@ def _process_pending_messages():
                 preview = msg["message_body"][:80] + ("..." if len(msg["message_body"]) > 80 else "")
                 log_event(msg["lead_id"], "sms_sent", f"Sent SMS: {preview}", {"stage": msg["stage"], "sequence_index": msg["sequence_index"]})
             else:
-                _update_message_status(db, msg["id"], "failed", error="GHL send_message returned false")
-                logger.warning(f"SMS worker: GHL send failed for message {msg['id']}")
-                from services.activity_log import log_event
-                log_event(msg["lead_id"], "sms_failed", "Failed to send SMS via GHL", {"stage": msg["stage"], "sequence_index": msg["sequence_index"]})
+                _handle_send_failure(db, msg, "GHL send_message returned false")
 
         except Exception as e:
-            _update_message_status(db, msg["id"], "failed", error=str(e)[:500])
-            logger.error(f"SMS worker: error processing message {msg['id']}: {e}")
+            _handle_send_failure(db, msg, str(e)[:500])
+
+
+MAX_SEND_ATTEMPTS = 3
+RETRY_DELAYS = [300, 900]  # 5 min, then 15 min before final failure
+
+
+def _handle_send_failure(db, msg: dict, error: str):
+    """Handle a failed SMS send with retry logic (up to 3 attempts)."""
+    from services.activity_log import log_event
+
+    # Track attempts via error_message prefix: "attempt:N|actual error"
+    prev_error = msg.get("error_message") or ""
+    if prev_error.startswith("attempt:"):
+        try:
+            attempt = int(prev_error.split("|")[0].split(":")[1]) + 1
+        except (IndexError, ValueError):
+            attempt = 2
+    else:
+        attempt = 1
+
+    if attempt < MAX_SEND_ATTEMPTS:
+        # Retry: reset status to pending, push send_at forward
+        retry_delay = RETRY_DELAYS[attempt - 1] if attempt - 1 < len(RETRY_DELAYS) else 900
+        new_send_at = (datetime.now(timezone.utc) + timedelta(seconds=retry_delay)).isoformat()
+        db.table("sms_queue").update({
+            "status": "pending",
+            "sent_at": None,
+            "error_message": f"attempt:{attempt}|{error}",
+            "send_at": new_send_at,
+        }).eq("id", msg["id"]).execute()
+        logger.warning(
+            f"SMS worker: send failed for msg {msg['id']} (attempt {attempt}/{MAX_SEND_ATTEMPTS}), "
+            f"retrying in {retry_delay}s — {error}"
+        )
+        log_event(msg["lead_id"], "sms_retry", f"SMS send failed (attempt {attempt}), retrying in {retry_delay // 60}min", {"stage": msg["stage"], "error": error})
+    else:
+        # Final failure after all retries exhausted
+        _update_message_status(db, msg["id"], "failed", error=f"attempt:{attempt}|{error}")
+        logger.error(f"SMS worker: msg {msg['id']} permanently failed after {attempt} attempts — {error}")
+        log_event(msg["lead_id"], "sms_failed", f"SMS permanently failed after {attempt} attempts", {"stage": msg["stage"], "error": error})
 
 
 def _update_message_status(
@@ -341,6 +377,7 @@ def _schedule_booking_reminders(db, lead: dict, now: datetime):
             prop_res.data[0]["booked_at"].replace("Z", "+00:00")
         )
     except ValueError:
+        logger.error(f"Booking reminders: malformed booked_at for lead {lead['id']}: {prop_res.data[0].get('booked_at')}")
         return
 
     name = (lead.get("contact_name") or "").strip()
