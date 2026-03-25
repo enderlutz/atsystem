@@ -134,6 +134,43 @@ def _process_pending_messages():
                         except ValueError:
                             pass
 
+            # Multi-instance claim guard: atomically mark as sent_at=now while still pending.
+            # If another instance already changed status, this returns no rows.
+            claim_ts = datetime.now(timezone.utc).isoformat()
+            claim_res = (
+                db.table("sms_queue")
+                .update({"sent_at": claim_ts})
+                .eq("id", msg["id"])
+                .eq("status", "pending")
+                .execute()
+            )
+            if not claim_res.data:
+                logger.info(f"SMS worker: msg {msg['id']} already claimed or cancelled, skipping")
+                continue
+
+            # Race condition guard: re-check stage right before sending
+            recheck = db.table("leads").select("workflow_stage").eq("id", msg["lead_id"]).single().execute()
+            if recheck.data and recheck.data.get("workflow_stage") != msg["stage"]:
+                _update_message_status(db, msg["id"], "cancelled", cancel_reason="stage_changed_at_send")
+                continue
+
+            # Sent-recently guard: skip if identical message sent to this contact in last 5 min
+            five_min_ago = (datetime.now(timezone.utc) - timedelta(minutes=5)).isoformat()
+            recent_sent = (
+                db.table("sms_queue")
+                .select("id, sent_at")
+                .eq("ghl_contact_id", msg["ghl_contact_id"])
+                .eq("status", "sent")
+                .eq("message_body", msg["message_body"])
+                .order("sent_at", desc=True)
+                .limit(1)
+                .execute()
+            )
+            if recent_sent.data and (recent_sent.data[0].get("sent_at", "") > five_min_ago):
+                _update_message_status(db, msg["id"], "cancelled", cancel_reason="duplicate_body_recently_sent")
+                logger.warning(f"SMS worker: skipping msg {msg['id']} — identical message sent in last 5 min")
+                continue
+
             # Send via GHL
             sent = send_message_to_contact(msg["ghl_contact_id"], msg["message_body"])
 

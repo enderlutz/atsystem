@@ -256,6 +256,21 @@ def enqueue_stage_messages(
         return 0
 
     db = get_db()
+
+    # Dedup guard: skip if pending messages already exist for this lead+stage
+    existing = (
+        db.table("sms_queue")
+        .select("id")
+        .eq("lead_id", lead_id)
+        .eq("stage", stage)
+        .eq("status", "pending")
+        .limit(1)
+        .execute()
+    )
+    if existing.data:
+        logger.warning(f"Workflow: skipping enqueue for lead {lead_id} stage {stage} — pending messages already exist")
+        return 0
+
     now = datetime.now(timezone.utc)
     count = 0
 
