@@ -171,20 +171,25 @@ def update_opportunity_stage(opportunity_id: str, stage_id: str) -> bool:
 
 # ── Messaging ─────────────────────────────────────────────────────────
 
-def send_message_to_contact(contact_id: str, message: str) -> bool:
-    """Send an SMS message to a contact via GHL."""
+def send_message_to_contact(contact_id: str, message: str, attachments: list[str] | None = None) -> bool:
+    """Send an SMS/MMS message to a contact via GHL.
+
+    attachments: optional list of public image URLs to send as MMS.
+    """
     settings = get_settings()
     try:
-        payload = {
+        payload: dict = {
             "type": "SMS",
             "contactId": contact_id,
             "message": message,
             "locationId": settings.ghl_location_id,
         }
+        if attachments:
+            payload["attachments"] = attachments
         r = _client.post(f"{GHL_BASE}/conversations/messages", headers=_headers(),
                        json=payload, timeout=10)
         r.raise_for_status()
-        logger.info(f"GHL message sent to contact {contact_id}")
+        logger.info(f"GHL message sent to contact {contact_id}" + (f" with {len(attachments)} attachment(s)" if attachments else ""))
         return True
     except Exception as e:
         logger.error(f"GHL send_message failed: {e}")

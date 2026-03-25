@@ -85,11 +85,13 @@ def get_default_stage_messages(stage: str, branch: str | None = None) -> list[tu
 
 _NEW_LEAD = [
     (0,
-     "Hey {first_name}! It's Amy with A&T's Fence Staining! So glad y'all "
-     "reached out to us. Before we put together your free estimate, is there "
-     "anything we should know about your fence? Like the condition, any gates, "
-     "or anything you're worried about? We want to make sure we take good "
-     "care of y'all!"),
+     "Hey {first_name}, this is Amy with A&T's Pressure Washing & Fence "
+     "Restoration. We just received your inquiry, thanks for reaching out "
+     "to us! You likely saw us on an ad or in one of the home-improvement "
+     "magazines. While we're working on your quote are there any questions "
+     "you have for us or any more information you would like to add for us "
+     "to create your quote?\n\n"
+     "Btw, this is a fence we just finished up nearby!"),
     (3600,  # 1 hour
      "Hey {first_name}, just checking back in! We really do want to make "
      "sure we give y'all the best estimate we can. Anything specific about "
@@ -415,6 +417,24 @@ _PAST_CUSTOMER = [
      "fence renewal. Let me know if you'd like us to put together an updated "
      "estimate for you, we'd love to take care of y'all again! - Amy"),
 ]
+
+
+# -- Attachments map ----------------------------------------------------------
+# Maps (stage, sequence_index) → list of public image URLs to attach as MMS.
+# Only messages listed here will include attachments.
+
+STAGE_ATTACHMENTS: dict[tuple[str, int], list[str]] = {
+    ("new_lead", 0): ["{proposal_base_url}/images/fence-before-after.jpg"],
+}
+
+
+def get_message_attachments(stage: str, sequence_index: int, context: dict | None = None) -> list[str]:
+    """Return attachment URLs for a specific message, with placeholders rendered."""
+    urls = STAGE_ATTACHMENTS.get((stage, sequence_index), [])
+    if not urls:
+        return []
+    context = context or {}
+    return [render_message(url, context) for url in urls]
 
 
 # -- Master template map ------------------------------------------------------

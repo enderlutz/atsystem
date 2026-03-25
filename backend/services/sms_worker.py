@@ -171,8 +171,15 @@ def _process_pending_messages():
                 logger.warning(f"SMS worker: skipping msg {msg['id']} — identical message sent in last 5 min")
                 continue
 
+            # Get attachments for this message (if any)
+            from services.templates import get_message_attachments
+            from config import get_settings
+            settings = get_settings()
+            attach_context = {"proposal_base_url": settings.proposal_base_url or settings.frontend_url or ""}
+            attachments = get_message_attachments(msg["stage"], msg["sequence_index"], attach_context)
+
             # Send via GHL
-            sent = send_message_to_contact(msg["ghl_contact_id"], msg["message_body"])
+            sent = send_message_to_contact(msg["ghl_contact_id"], msg["message_body"], attachments=attachments or None)
 
             if sent:
                 _update_message_status(db, msg["id"], "sent")
