@@ -8,8 +8,11 @@ from __future__ import annotations
 import asyncio
 import logging
 from datetime import datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 
 logger = logging.getLogger(__name__)
+
+CENTRAL_TZ = ZoneInfo("America/Chicago")
 
 SMS_WORKER_INTERVAL = 60       # seconds
 TIMEOUT_CHECK_INTERVAL = 300   # 5 minutes
@@ -288,22 +291,27 @@ def _schedule_booking_reminders(db, lead: dict, now: datetime):
         "address": lead.get("address") or "",
     }
 
-    # Day-before reminder: 6 PM the day before the job
-    day_before = booked_at.replace(hour=18, minute=0, second=0) - timedelta(days=1)
-    if day_before > now:
+    # Convert booked_at to Central time for scheduling
+    booked_central = booked_at.astimezone(CENTRAL_TZ)
+
+    # Day-before reminder: 6 PM Central the day before the job
+    day_before_central = booked_central.replace(hour=18, minute=0, second=0) - timedelta(days=1)
+    day_before_utc = day_before_central.astimezone(timezone.utc)
+    if day_before_utc > now:
         _schedule_if_not_exists(
             db, lead_id, "deposit_paid", 10,
             render_message(DEPOSIT_PAID_DAY_BEFORE_TEMPLATE, context),
-            day_before, lead.get("ghl_contact_id", ""),
+            day_before_utc, lead.get("ghl_contact_id", ""),
         )
 
-    # Job-day morning: 7 AM on the job day
-    job_morning = booked_at.replace(hour=7, minute=0, second=0)
-    if job_morning > now:
+    # Job-day morning: 7 AM Central on the job day
+    job_morning_central = booked_central.replace(hour=7, minute=0, second=0)
+    job_morning_utc = job_morning_central.astimezone(timezone.utc)
+    if job_morning_utc > now:
         _schedule_if_not_exists(
             db, lead_id, "deposit_paid", 11,
             render_message(DEPOSIT_PAID_JOB_DAY_TEMPLATE, context),
-            job_morning, lead.get("ghl_contact_id", ""),
+            job_morning_utc, lead.get("ghl_contact_id", ""),
         )
 
 
