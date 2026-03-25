@@ -424,7 +424,7 @@ _PAST_CUSTOMER = [
 # Only messages listed here will include attachments.
 
 STAGE_ATTACHMENTS: dict[tuple[str, int], list[str]] = {
-    ("new_lead", 0): ["{proposal_base_url}/images/fence-before-after.jpg"],
+    ("new_lead", 0): ["{proposal_base_url}/images/fence-before-after.png"],
 }
 
 
