@@ -107,16 +107,30 @@ async def sync_ghl_contacts(background_tasks: BackgroundTasks):
     }
 
 
-FENCE_PIPELINE_NAME = "FENCE STAINING NEW AUTOMATION FLOW"
+FENCE_PIPELINE_NAME = "Interactive Proposal"
 TARGET_STAGES = {
-    "New Lead": "MEDIUM",
-    "HOT LEAD_SEND ESTIMATE": "HOT",
+    "New lead (waiting for automation response)": "MEDIUM",
+    "Asking for Address/ZIP (Automation)": "MEDIUM",
+    "Address Correct but Not Measurable": "MEDIUM",
+    "Needs Review": "HOT",
+    "Hot lead (send proposal)": "HOT",
+    "Re-quote Past Leads": "MEDIUM",
+    "Proposal sent(follow ups to open)": "MEDIUM",
+    "no package selection": "MEDIUM",
+    "package selection-no color chosen": "MEDIUM",
+    "no date selected": "MEDIUM",
+    "date selected, no deposit": "MEDIUM",
+    "Deposit paid (CLOSED)": "LOW",
+    "Declined Estimate": "LOW",
+    "Planning for future": "LOW",
+    "job complete(review & referral)": "LOW",
+    "Cold Lead Nurture": "LOW",
 }
 
 INTERACTIVE_PIPELINE_NAME = "Interactive Proposal"
 IP_STAGE_NEW_LEAD   = "New lead (waiting for automation response)"
 IP_STAGE_HOT_LEAD   = "Hot lead (send proposal)"
-IP_STAGE_NO_ADDRESS = "Asking For address/zip"
+IP_STAGE_NO_ADDRESS = "Asking for Address/ZIP (Automation)"
 
 
 def _resolve_ip_stage(
@@ -130,7 +144,7 @@ def _resolve_ip_stage(
         return None
     if not address.strip() or not zip_code.strip():
         return ip_stage_map.get(IP_STAGE_NO_ADDRESS)
-    if stage_name == "HOT LEAD_SEND ESTIMATE":
+    if stage_name == "Hot lead (send proposal)":
         return ip_stage_map.get(IP_STAGE_HOT_LEAD)
     return ip_stage_map.get(IP_STAGE_NEW_LEAD)
 

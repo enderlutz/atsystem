@@ -25,20 +25,21 @@ import { CSS } from "@dnd-kit/utilities";
 const LAST_VISIT_KEY = "atSystemLastVisitAt";
 
 const WORKFLOW_LABELS: Record<string, string> = {
-  new_lead: "New Lead (Waiting for Automation)",
-  new_build: "Address Correct but Not Measurable",
+  new_lead: "New lead (waiting for automation response)",
   asking_address: "Asking for Address/ZIP (Automation)",
-  hot_lead: "Hot Lead (Send Proposal)",
-  proposal_sent: "Proposal Sent (Follow Ups to Open)",
-  no_package_selection: "No Package Selection",
-  package_selected: "Package Selection - No Color Chosen",
-  no_date_selected: "No Date Selected",
-  date_selected: "Date Selected, No Deposit",
-  deposit_paid: "Deposit Paid (CLOSED)",
-  additional_service: "Add-on",
-  job_complete: "Job Complete (Review & Referral)",
+  new_build: "Address Correct but Not Measurable",
+  hot_lead: "Hot lead (send proposal)",
+  requote: "Re-quote Past Leads",
+  proposal_sent: "Proposal sent(follow ups to open)",
+  no_package_selection: "no package selection",
+  package_selected: "package selection-no color chosen",
+  no_date_selected: "no date selected",
+  date_selected: "date selected, no deposit",
+  deposit_paid: "Deposit paid (CLOSED)",
+  declined_estimate: "Declined Estimate",
+  planning_future: "Planning for future",
+  job_complete: "job complete(review & referral)",
   cold_nurture: "Cold Lead Nurture",
-  past_customer: "Requote",
 };
 
 function prefetchLead(id: string) {
@@ -52,32 +53,37 @@ type KanbanStatus =
   | "gray"
   | "no_address"
   | "needs_info"
-  | "green"
   | "red"
+  | "green"
+  | "requote"
   | "sent"
   | "no_package"
   | "pkg_no_color"
   | "no_date"
   | "date_selected"
   | "deposit_paid"
+  | "declined"
+  | "planning"
   | "job_complete"
-  | "cold_nurture"
-  | "past_customer";
+  | "cold_nurture";
 
 // Tags that route a lead into "Address Correct but Not Measurable"
 const NEEDS_INFO_TAGS = new Set(["Needs height", "Age of the Fence", "Needs Info", "needs_info"]);
 
 // Workflow stages that map directly to kanban columns (highest priority routing)
 const WORKFLOW_STAGE_TO_COLUMN: Record<string, KanbanStatus> = {
-  past_customer: "past_customer",
+  past_customer: "requote",
   cold_nurture: "cold_nurture",
   job_complete: "job_complete",
+  planning_future: "planning",
+  declined_estimate: "declined",
   deposit_paid: "deposit_paid",
   date_selected: "date_selected",
   no_date_selected: "no_date",
   package_selected: "pkg_no_color",
   no_package_selection: "no_package",
   proposal_sent: "sent",
+  requote: "requote",
   hot_lead: "green",
   new_build: "needs_info",
   asking_address: "no_address",
@@ -91,15 +97,17 @@ const COLUMN_QUEUE_ORDER: Record<KanbanStatus, number> = {
   no_address: 2,
   gray: 3,
   red: 4,
-  sent: 5,
-  no_package: 6,
-  pkg_no_color: 7,
-  no_date: 8,
-  date_selected: 9,
-  deposit_paid: 10,
-  job_complete: 11,
-  cold_nurture: 12,
-  past_customer: 13,
+  requote: 5,
+  sent: 6,
+  no_package: 7,
+  pkg_no_color: 8,
+  no_date: 9,
+  date_selected: 10,
+  deposit_paid: 11,
+  declined: 12,
+  planning: 13,
+  job_complete: 14,
+  cold_nurture: 15,
 };
 
 const PRIORITY_ORDER: Record<string, number> = { HOT: 0, HIGH: 1, MEDIUM: 2, LOW: 3 };
@@ -137,7 +145,7 @@ const COLUMNS: {
 }[] = [
   {
     key: "gray",
-    label: "New Lead (Waiting for Automation Response)",
+    label: "New lead (waiting for automation response)",
     description: "Lead just came in — automation hasn't completed yet",
     headerCls: "bg-gray-100 border-gray-200",
     bgCls: "bg-gray-50",
@@ -169,15 +177,23 @@ const COLUMNS: {
   },
   {
     key: "green",
-    label: "Hot Lead (Send Proposal)",
+    label: "Hot lead (send proposal)",
     description: "All criteria met — ready to approve and send proposal",
     headerCls: "bg-green-100 border-green-200",
     bgCls: "bg-green-50",
     dotCls: "bg-green-500",
   },
   {
+    key: "requote",
+    label: "Re-quote Past Leads",
+    description: "Previous customer — re-quote for new or repeat service",
+    headerCls: "bg-teal-100 border-teal-200",
+    bgCls: "bg-teal-50",
+    dotCls: "bg-teal-500",
+  },
+  {
     key: "sent",
-    label: "Proposal Sent (Follow Ups to Open)",
+    label: "Proposal sent(follow ups to open)",
     description: "All 3 packages sent — automation following up to get customer to open",
     headerCls: "bg-emerald-100 border-emerald-200",
     bgCls: "bg-emerald-50",
@@ -185,7 +201,7 @@ const COLUMNS: {
   },
   {
     key: "no_package",
-    label: "No Package Selection",
+    label: "no package selection",
     description: "Customer opened proposal but hasn't chosen a package yet",
     headerCls: "bg-sky-100 border-sky-200",
     bgCls: "bg-sky-50",
@@ -193,7 +209,7 @@ const COLUMNS: {
   },
   {
     key: "pkg_no_color",
-    label: "Package Selection - No Color Chosen",
+    label: "package selection-no color chosen",
     description: "Package selected — waiting on customer to pick a stain color",
     headerCls: "bg-cyan-100 border-cyan-200",
     bgCls: "bg-cyan-50",
@@ -201,7 +217,7 @@ const COLUMNS: {
   },
   {
     key: "no_date",
-    label: "No Date Selected",
+    label: "no date selected",
     description: "Color chosen — customer hasn't picked a service date yet",
     headerCls: "bg-yellow-100 border-yellow-200",
     bgCls: "bg-yellow-50",
@@ -209,7 +225,7 @@ const COLUMNS: {
   },
   {
     key: "date_selected",
-    label: "Date Selected, No Deposit",
+    label: "date selected, no deposit",
     description: "Date confirmed — waiting on deposit payment",
     headerCls: "bg-amber-100 border-amber-200",
     bgCls: "bg-amber-50",
@@ -217,15 +233,31 @@ const COLUMNS: {
   },
   {
     key: "deposit_paid",
-    label: "Deposit Paid (CLOSED)",
+    label: "Deposit paid (CLOSED)",
     description: "Deposit received — job is locked in",
     headerCls: "bg-indigo-100 border-indigo-200",
     bgCls: "bg-indigo-50",
     dotCls: "bg-indigo-500",
   },
   {
+    key: "declined",
+    label: "Declined Estimate",
+    description: "Customer declined the estimate",
+    headerCls: "bg-rose-100 border-rose-200",
+    bgCls: "bg-rose-50",
+    dotCls: "bg-rose-400",
+  },
+  {
+    key: "planning",
+    label: "Planning for future",
+    description: "Customer interested but planning for a future date",
+    headerCls: "bg-blue-100 border-blue-200",
+    bgCls: "bg-blue-50",
+    dotCls: "bg-blue-400",
+  },
+  {
     key: "job_complete",
-    label: "Job Complete (Review & Referral)",
+    label: "job complete(review & referral)",
     description: "Job done — automation requesting review and referral",
     headerCls: "bg-violet-100 border-violet-200",
     bgCls: "bg-violet-50",
@@ -239,48 +271,44 @@ const COLUMNS: {
     bgCls: "bg-slate-50",
     dotCls: "bg-slate-400",
   },
-  {
-    key: "past_customer",
-    label: "Requote",
-    description: "Previous customer — requote for new or repeat service",
-    headerCls: "bg-teal-100 border-teal-200",
-    bgCls: "bg-teal-50",
-    dotCls: "bg-teal-500",
-  },
 ];
 
 const COLUMN_BADGE: Record<KanbanStatus, string> = {
   gray: "bg-gray-100 text-gray-600",
   no_address: "bg-purple-100 text-purple-700",
   needs_info: "bg-orange-100 text-orange-700",
-  green: "bg-green-100 text-green-700",
   red: "bg-red-100 text-red-700",
+  green: "bg-green-100 text-green-700",
+  requote: "bg-teal-100 text-teal-700",
   sent: "bg-emerald-100 text-emerald-700",
   no_package: "bg-sky-100 text-sky-700",
   pkg_no_color: "bg-cyan-100 text-cyan-700",
   no_date: "bg-yellow-100 text-yellow-700",
   date_selected: "bg-amber-100 text-amber-700",
   deposit_paid: "bg-indigo-100 text-indigo-700",
+  declined: "bg-rose-100 text-rose-700",
+  planning: "bg-blue-100 text-blue-700",
   job_complete: "bg-violet-100 text-violet-700",
   cold_nurture: "bg-slate-100 text-slate-600",
-  past_customer: "bg-teal-100 text-teal-700",
 };
 
 const COLUMN_LABEL: Record<KanbanStatus, string> = {
   gray: "New Lead",
   no_address: "Asking for Address",
   needs_info: "Not Measurable",
-  green: "Hot Lead",
   red: "Needs Review",
+  green: "Hot Lead",
+  requote: "Re-quote",
   sent: "Proposal Sent",
   no_package: "No Package",
   pkg_no_color: "No Color Chosen",
   no_date: "No Date",
   date_selected: "Date Selected",
   deposit_paid: "Deposit Paid",
+  declined: "Declined",
+  planning: "Planning",
   job_complete: "Job Complete",
   cold_nurture: "Cold Nurture",
-  past_customer: "Requote",
 };
 
 const priorityColors: Record<string, string> = {
