@@ -92,7 +92,7 @@ _NEW_LEAD = [
      "you have for us or any more information you would like to add for us "
      "to create your quote?\n\n"
      "Btw, this is a fence we just finished up nearby!"),
-    (3600,  # 1 hour
+    (10800,  # 3 hours
      "Hey {first_name}, just checking back in! We really do want to make "
      "sure we give y'all the best estimate we can. Anything specific about "
      "your fence we should know about?"),
