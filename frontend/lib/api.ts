@@ -307,10 +307,10 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ message_body: messageBody, sample_data: sampleData || {} }),
     }),
-  testSendTemplate: (messageBody: string, opts?: { contactId?: string; stage?: string; sequenceIndex?: number }) =>
+  testSendTemplate: (messageBody: string, opts?: { contactId?: string; stage?: string; sequenceIndex?: number; branch?: string }) =>
     request<{ status: string; rendered: string; attachments?: string[] }>("/api/workflow/templates/test-send", {
       method: "POST",
-      body: JSON.stringify({ message_body: messageBody, contact_id: opts?.contactId, stage: opts?.stage, sequence_index: opts?.sequenceIndex ?? 0 }),
+      body: JSON.stringify({ message_body: messageBody, contact_id: opts?.contactId, stage: opts?.stage, sequence_index: opts?.sequenceIndex ?? 0, branch: opts?.branch }),
     }),
   getOverriddenStages: () =>
     request<{ overridden_stages: string[] }>("/api/workflow/templates/overrides"),

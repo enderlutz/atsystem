@@ -490,6 +490,7 @@ class TemplateTestSendRequest(BaseModel):
     contact_id: str | None = None
     stage: str | None = None
     sequence_index: int = 0
+    branch: str | None = None
 
 
 @router.get("/templates/overrides")
@@ -675,7 +676,13 @@ async def test_send_template(body: TemplateTestSendRequest, _: dict = Depends(ge
     if body.stage is not None:
         from services.templates import get_message_attachments
         attach_context = {"proposal_base_url": proposal_base}
-        attachments = get_message_attachments(body.stage, body.sequence_index, attach_context) or None
+        # Determine branch: use explicit branch, or look up from proposal
+        branch = body.branch
+        if not branch and body.stage == "package_selected" and lead_id:
+            prop_tier = db.table("proposals").select("selected_tier").eq("lead_id", lead_id).order("created_at", desc=True).limit(1).execute()
+            if prop_tier.data:
+                branch = prop_tier.data[0].get("selected_tier")
+        attachments = get_message_attachments(body.stage, body.sequence_index, attach_context, branch=branch) or None
 
     success = send_message_to_contact(contact_id, rendered, attachments=attachments)
 
