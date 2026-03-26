@@ -134,6 +134,43 @@ def _process_pending_messages():
                         except ValueError:
                             pass
 
+            # WF6: For package_selected first message, wait until 3 min after customer leaves page
+            if (
+                msg["stage"] == "package_selected"
+                and msg["sequence_index"] == 0
+            ):
+                prop_res_ps = (
+                    db.table("proposals")
+                    .select("last_active_at, left_page_at")
+                    .eq("lead_id", msg["lead_id"])
+                    .order("created_at", desc=True)
+                    .limit(1)
+                    .execute()
+                )
+                if prop_res_ps.data:
+                    left_at = prop_res_ps.data[0].get("left_page_at")
+                    last_active = prop_res_ps.data[0].get("last_active_at")
+
+                    if not left_at:
+                        # Customer hasn't left the page yet — defer by 1 min and check again
+                        new_send_at = (datetime.now(timezone.utc) + timedelta(minutes=1)).isoformat()
+                        db.table("sms_queue").update({"send_at": new_send_at}).eq("id", msg["id"]).execute()
+                        logger.info(f"SMS worker: deferred package_selected msg {msg['id']} — customer still on page")
+                        continue
+
+                    try:
+                        left_dt = datetime.fromisoformat(left_at.replace("Z", "+00:00"))
+                        since_left = (datetime.now(timezone.utc) - left_dt).total_seconds()
+                        if since_left < 180:
+                            # Left less than 3 min ago — defer until 3 min mark
+                            wait = int(180 - since_left) + 5  # small buffer
+                            new_send_at = (datetime.now(timezone.utc) + timedelta(seconds=wait)).isoformat()
+                            db.table("sms_queue").update({"send_at": new_send_at}).eq("id", msg["id"]).execute()
+                            logger.info(f"SMS worker: deferred package_selected msg {msg['id']} — customer left {int(since_left)}s ago, waiting for 3 min")
+                            continue
+                    except ValueError:
+                        pass
+
             # Multi-instance claim guard: atomically mark as sent_at=now while still pending.
             # If another instance already changed status, this returns no rows.
             claim_ts = datetime.now(timezone.utc).isoformat()
