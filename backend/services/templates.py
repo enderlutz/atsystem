@@ -90,7 +90,8 @@ _NEW_LEAD = [
      "to us! You likely saw us on an ad or in one of the home-improvement "
      "magazines. While we're working on your quote are there any questions "
      "you have for us or any more information you would like to add for us "
-     "to create your quote?\n\n"
+     "to create your quote?"),
+    (60,  # 1 minute
      "Btw, this is a fence we just finished up nearby!"),
     (10800,  # 3 hours
      "Hey {first_name}, just checking back in! We really do want to make "
@@ -424,7 +425,7 @@ _PAST_CUSTOMER = [
 # Only messages listed here will include attachments.
 
 STAGE_ATTACHMENTS: dict[tuple[str, int], list[str]] = {
-    ("new_lead", 0): ["{proposal_base_url}/images/fence-before-after.jpg"],
+    ("new_lead", 1): ["{proposal_base_url}/images/fence-before-after.jpg"],
 }
 
 
