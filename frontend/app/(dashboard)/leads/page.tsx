@@ -367,6 +367,8 @@ export default function LeadsPage() {
   const [activeDragLead, setActiveDragLead] = useState<Lead | null>(null);
   const [confirmArchiveId, setConfirmArchiveId] = useState<string | null>(null);
   const [archivingId, setArchivingId] = useState<string | null>(null);
+  const prevLeadIdsRef = useRef<Set<string>>(new Set());
+  const prevRespondedRef = useRef<Set<string>>(new Set());
   const [hoveredLeadId, setHoveredLeadId] = useState<string | null>(null);
   const [hoverPos, setHoverPos] = useState<{ x: number; y: number } | null>(null);
   const [hoverData, setHoverData] = useState<{ log: import("@/lib/api").AutomationLogEvent[]; queue: import("@/lib/api").QueuedMessage[] } | null>(null);
@@ -389,6 +391,33 @@ export default function LeadsPage() {
     } catch {
       return; // silently skip on error — next poll will retry
     }
+    // Detect new leads and new customer replies before updating state
+    const prevIds = prevLeadIdsRef.current;
+    const prevResponded = prevRespondedRef.current;
+
+    if (prevIds.size > 0) {
+      // New leads toast
+      for (const lead of leadsData) {
+        if (!prevIds.has(lead.id)) {
+          toast("New lead: " + (lead.contact_name || "Unknown"), {
+            description: lead.address || lead.contact_phone || "",
+          });
+        }
+      }
+      // Customer replied toast
+      for (const lead of leadsData) {
+        if (lead.customer_responded && !prevResponded.has(lead.id)) {
+          toast("New message from " + (lead.contact_name || "Unknown"), {
+            description: "Customer replied — check their conversation",
+          });
+        }
+      }
+    }
+
+    // Update refs for next poll
+    prevLeadIdsRef.current = new Set(leadsData.map((l) => l.id));
+    prevRespondedRef.current = new Set(leadsData.filter((l) => l.customer_responded).map((l) => l.id));
+
     setLeads(leadsData);
     const map = new Map<string, Estimate>();
     for (const est of estimatesData) {
