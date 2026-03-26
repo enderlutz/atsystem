@@ -284,7 +284,7 @@ def enqueue_stage_messages(
             # Get attachments for this message
             from services.templates import STAGE_ATTACHMENTS
             settings = get_settings()
-            base_url = settings.PROPOSAL_BASE_URL or settings.FRONTEND_URL
+            base_url = settings.proposal_base_url or settings.frontend_url
             attach_urls = None
             stage_attach = STAGE_ATTACHMENTS.get(stage)
             if stage_attach:
