@@ -369,6 +369,7 @@ export default function LeadsPage() {
   const [archivingId, setArchivingId] = useState<string | null>(null);
   const prevLeadIdsRef = useRef<Set<string>>(new Set());
   const prevRespondedRef = useRef<Set<string>>(new Set());
+  const notifiedMsgIdsRef = useRef<Set<string>>(new Set());
   const [hoveredLeadId, setHoveredLeadId] = useState<string | null>(null);
   const [hoverPos, setHoverPos] = useState<{ x: number; y: number } | null>(null);
   const [hoverData, setHoverData] = useState<{ log: import("@/lib/api").AutomationLogEvent[]; queue: import("@/lib/api").QueuedMessage[] } | null>(null);
@@ -463,11 +464,34 @@ export default function LeadsPage() {
       .catch(console.error)
       .finally(() => setLoading(false));
 
+    // Check for upcoming SMS messages (due in next 5 min) and show toast
+    const checkUpcomingSms = () => {
+      api.getMessageQueue("status=pending&limit=20").then((messages) => {
+        const now = Date.now();
+        const fiveMin = 5 * 60 * 1000;
+        for (const msg of messages) {
+          const sendAt = new Date(msg.send_at).getTime();
+          const diff = sendAt - now;
+          if (diff > 0 && diff <= fiveMin && !notifiedMsgIdsRef.current.has(msg.id)) {
+            notifiedMsgIdsRef.current.add(msg.id);
+            const mins = Math.max(1, Math.round(diff / 60000));
+            toast(`SMS sending in ${mins}min → ${msg.contact_name || "Unknown"}`, {
+              description: msg.message_body.slice(0, 80) + (msg.message_body.length > 80 ? "..." : ""),
+            });
+          }
+        }
+      }).catch(() => {});
+    };
+
     // Auto-refresh every 60 seconds — picks up new leads synced from GHL by the backend poller
     const interval = setInterval(() => {
       loadData();
+      checkUpcomingSms();
       api.getSyncStatus().then((s) => setLastSyncAt(s.last_sync_at)).catch(() => {});
     }, 60 * 1000);
+
+    // Initial check for upcoming SMS
+    checkUpcomingSms();
 
     // Reload when tab becomes visible again (e.g. after editing a lead detail page)
     const handleVisibilityChange = () => {
