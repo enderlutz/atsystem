@@ -277,9 +277,44 @@ def enqueue_stage_messages(
     for i, (delay_seconds, template) in enumerate(messages):
         rendered = render_message(template, context)
         send_at = now + timedelta(seconds=delay_seconds)
+        msg_id = str(uuid.uuid4())
+
+        # Send immediate messages (delay=0) right now instead of queuing
+        if delay_seconds == 0:
+            # Get attachments for this message
+            from services.templates import STAGE_ATTACHMENTS
+            settings = get_settings()
+            base_url = settings.PROPOSAL_BASE_URL or settings.FRONTEND_URL
+            attach_urls = None
+            stage_attach = STAGE_ATTACHMENTS.get(stage)
+            if stage_attach:
+                branch = metadata.get("selected_tier", metadata.get("branch"))
+                if branch and branch in stage_attach:
+                    attach_urls = [f"{base_url}{p}" for p in stage_attach[branch]]
+                elif None in stage_attach:
+                    attach_urls = [f"{base_url}{p}" for p in stage_attach[None]]
+
+            success = send_message_to_contact(ghl_contact_id, rendered, attachments=attach_urls)
+            db.table("sms_queue").insert({
+                "id": msg_id,
+                "lead_id": lead_id,
+                "stage": stage,
+                "sequence_index": i,
+                "message_body": rendered,
+                "send_at": now.isoformat(),
+                "ghl_contact_id": ghl_contact_id,
+                "status": "sent" if success else "failed",
+                "sent_at": now.isoformat() if success else None,
+            }).execute()
+            if success:
+                log_event(lead_id, "sms_sent", f"Sent immediately: {rendered[:60]}...", {"stage": stage, "sequence_index": i})
+            else:
+                log_event(lead_id, "sms_failed", f"Immediate send failed: {rendered[:60]}...", {"stage": stage, "sequence_index": i})
+            count += 1
+            continue
 
         db.table("sms_queue").insert({
-            "id": str(uuid.uuid4()),
+            "id": msg_id,
             "lead_id": lead_id,
             "stage": stage,
             "sequence_index": i,
