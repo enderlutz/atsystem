@@ -248,27 +248,28 @@ _PACKAGE_ENTRY_FIRST = (
     0,
     "Great choice on the Entry package, {first_name}! Now let's get your "
     "stain color picked out. The Entry package comes in {entry_color_name}. "
-    "Here's what it looks like! Do you like this color or did you have "
-    "something else in mind? Just let us know and we'll make sure you get "
-    "exactly what you're looking for!"
+    "I have attached an image of what it looks like below. Do you like this "
+    "color or did you have something else in mind? Just let us know and "
+    "we'll make sure you get exactly what you're looking for!"
 )
 
 _PACKAGE_SIGNATURE_FIRST = (
     0,
     "Oh I love that you went with the Signature package, {first_name}! Now "
-    "let's pick your stain color. Here's a look at all your options! These "
-    "are the most popular ones: {color_1} and {color_2}. Do you like any "
-    "of these or do you have another color in mind? Just let us know, we "
-    "want to make sure y'all get exactly what you're looking for!"
+    "let's pick your stain color. I have attached an image of the color "
+    "options below. These are the most popular ones: {color_1} and "
+    "{color_2}. Do you like any of these or do you have another color in "
+    "mind? Just let us know, we want to make sure y'all get exactly what "
+    "you're looking for!"
 )
 
 _PACKAGE_LEGACY_FIRST = (
     0,
     "Excellent choice going with the Legacy package, {first_name}! You get "
-    "access to our full premium color lineup. Our most popular ones are "
-    "{color_1} and {color_2}. Do you like any of these or did you have "
-    "another color in mind? We want to make sure you get exactly the look "
-    "you're going for!"
+    "access to our full premium color lineup. I have attached an image of "
+    "all the color options below. Our most popular ones are {color_1} and "
+    "{color_2}. Do you like any of these or did you have another color in "
+    "mind? We want to make sure you get exactly the look you're going for!"
 )
 
 
