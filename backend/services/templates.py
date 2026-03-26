@@ -248,9 +248,9 @@ _PACKAGE_ENTRY_FIRST = (
     0,
     "Great choice on the Entry package, {first_name}! Now let's get your "
     "stain color picked out. The Entry package comes in {entry_color_name}. "
-    "Here's what it looks like on a real fence: {entry_color_link}. "
-    "Do you like this color or did you have something else in mind? Just "
-    "let us know and we'll make sure you get exactly what you're looking for!"
+    "Here's what it looks like! Do you like this color or did you have "
+    "something else in mind? Just let us know and we'll make sure you get "
+    "exactly what you're looking for!"
 )
 
 _PACKAGE_SIGNATURE_FIRST = (
@@ -478,6 +478,7 @@ _PAST_CUSTOMER = [
 
 STAGE_ATTACHMENTS: dict[tuple, list[str]] = {
     ("new_lead", 1): ["{proposal_base_url}/images/fence-before-after.jpg"],
+    ("package_selected", 0, "entry"): ["{proposal_base_url}/images/essential-color-chart.jpeg"],
     ("package_selected", 0, "signature"): ["{proposal_base_url}/images/signature-color-chart.jpeg"],
     ("package_selected", 0, "legacy"): ["{proposal_base_url}/images/legacy-color-chart.jpeg"],
 }
