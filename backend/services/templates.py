@@ -256,20 +256,19 @@ _PACKAGE_ENTRY_FIRST = (
 _PACKAGE_SIGNATURE_FIRST = (
     0,
     "Oh I love that you went with the Signature package, {first_name}! Now "
-    "let's pick your stain color. Here's a look at all your options: "
-    "{signature_color_chart}. These are the most popular ones: {color_1} "
-    "and {color_2}. Do you like any of these or do you have another color "
-    "in mind? Just let us know, we want to make sure y'all get exactly "
-    "what you're looking for!"
+    "let's pick your stain color. Here's a look at all your options! These "
+    "are the most popular ones: {color_1} and {color_2}. Do you like any "
+    "of these or do you have another color in mind? Just let us know, we "
+    "want to make sure y'all get exactly what you're looking for!"
 )
 
 _PACKAGE_LEGACY_FIRST = (
     0,
     "Excellent choice going with the Legacy package, {first_name}! You get "
-    "access to our full premium color lineup. Here's the whole collection: "
-    "{legacy_color_chart}. Our most popular ones are {color_1} and "
-    "{color_2}. Do you like any of these or did you have another color in "
-    "mind? We want to make sure you get exactly the look you're going for!"
+    "access to our full premium color lineup. Our most popular ones are "
+    "{color_1} and {color_2}. Do you like any of these or did you have "
+    "another color in mind? We want to make sure you get exactly the look "
+    "you're going for!"
 )
 
 
@@ -474,17 +473,22 @@ _PAST_CUSTOMER = [
 
 
 # -- Attachments map ----------------------------------------------------------
-# Maps (stage, sequence_index) → list of public image URLs to attach as MMS.
-# Only messages listed here will include attachments.
+# Maps (stage, sequence_index) or (stage, sequence_index, branch) → list of
+# public image URLs to attach as MMS.
 
-STAGE_ATTACHMENTS: dict[tuple[str, int], list[str]] = {
+STAGE_ATTACHMENTS: dict[tuple, list[str]] = {
     ("new_lead", 1): ["{proposal_base_url}/images/fence-before-after.jpg"],
+    ("package_selected", 0, "signature"): ["{proposal_base_url}/images/signature-color-chart.jpeg"],
+    ("package_selected", 0, "legacy"): ["{proposal_base_url}/images/legacy-color-chart.jpeg"],
 }
 
 
-def get_message_attachments(stage: str, sequence_index: int, context: dict | None = None) -> list[str]:
+def get_message_attachments(stage: str, sequence_index: int, context: dict | None = None, branch: str | None = None) -> list[str]:
     """Return attachment URLs for a specific message, with placeholders rendered."""
-    urls = STAGE_ATTACHMENTS.get((stage, sequence_index), [])
+    # Try branch-specific key first, then generic
+    urls = STAGE_ATTACHMENTS.get((stage, sequence_index, branch), []) if branch else []
+    if not urls:
+        urls = STAGE_ATTACHMENTS.get((stage, sequence_index), [])
     if not urls:
         return []
     context = context or {}

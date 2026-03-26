@@ -176,7 +176,15 @@ def _process_pending_messages():
             from config import get_settings
             settings = get_settings()
             attach_context = {"proposal_base_url": settings.proposal_base_url or settings.frontend_url or ""}
-            attachments = get_message_attachments(msg["stage"], msg["sequence_index"], attach_context)
+
+            # Determine branch for package_selected stage
+            attach_branch = None
+            if msg["stage"] == "package_selected":
+                prop_res = db.table("proposals").select("selected_tier").eq("lead_id", msg["lead_id"]).order("created_at", desc=True).limit(1).execute()
+                if prop_res.data:
+                    attach_branch = prop_res.data[0].get("selected_tier") or "signature"
+
+            attachments = get_message_attachments(msg["stage"], msg["sequence_index"], attach_context, branch=attach_branch)
 
             # Send via GHL
             sent = send_message_to_contact(msg["ghl_contact_id"], msg["message_body"], attachments=attachments or None)
