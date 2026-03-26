@@ -118,6 +118,20 @@ _NEW_BUILD = [
      "Hey {first_name}! Just circling back on this! We just need either some "
      "fence photos or to schedule a quick free visit so we can get your "
      "estimate put together. Which works best for you?"),
+    (172800,  # Day 2
+     "Hey {first_name}! Quick follow-up on your fence estimate. If snapping "
+     "a few photos is easier, just send them right here in this text thread "
+     "and we'll get your quote put together from those. Super easy!"),
+    (345600,  # Day 4
+     "Hi {first_name}, this is Amy! I know getting photos together can be a "
+     "hassle so if you'd rather just have us swing by for a free 5-minute "
+     "measurement, we're happy to do that too. Just let us know what works "
+     "best for y'all!"),
+    (604800,  # Day 7
+     "Hey {first_name}, just one last follow-up from me! We'd really love "
+     "to get your fence looking beautiful. Whenever you're ready, just send "
+     "us some photos or let us know about scheduling a quick visit. We're "
+     "here for you! - Amy"),
 ]
 
 # -- Stage 2: Asking for Address / ZIP ----------------------------------------
@@ -135,6 +149,20 @@ _ASKING_ADDRESS = [
      "through Google Earth so there's no site visit or anything like that. "
      "Just drop your address and ZIP and we'll have your estimate ready for "
      "you same day!"),
+    (172800,  # Day 2
+     "Hey {first_name}! Just wanted to check in one more time. We've got "
+     "your estimate almost ready to go, we just need your address and ZIP "
+     "to finish measuring. It literally takes us 5 minutes once we have it!"),
+    (345600,  # Day 4
+     "Hi {first_name}, this is Amy with A&T's. I know life gets busy so "
+     "I just wanted to gently follow up! Whenever you get a chance, just "
+     "text us your address and we'll get your free estimate right over to "
+     "you. No rush at all!"),
+    (604800,  # Day 7
+     "Hey {first_name}, just one last little check-in from me! If you're "
+     "still interested in getting your fence taken care of, we'd love to "
+     "help. Just send your address whenever you're ready and we'll handle "
+     "the rest. Wishing y'all all the best! - Amy"),
 ]
 
 # -- Stage 3: Hot Lead - Send Proposal ----------------------------------------
@@ -170,6 +198,11 @@ _PROPOSAL_SENT = [
     (518400,  # Day 6
      "Hey {first_name}, last little check-in from me! Your estimate is still "
      "right here whenever you're ready: {proposal_link} — Amy"),
+    (691200,  # Day 8
+     "Hey {first_name}! I know I've been reaching out a lot but I just don't "
+     "want you to miss out. Your personalized estimate is still saved and "
+     "ready for you: {proposal_link}. If you have any questions at all, I'm "
+     "right here! - Amy"),
 ]
 
 # -- Stage 5: No Package Selection --------------------------------------------
@@ -215,27 +248,28 @@ _PACKAGE_ENTRY_FIRST = (
     0,
     "Great choice on the Entry package, {first_name}! Now let's get your "
     "stain color picked out. The Entry package comes in {entry_color_name}. "
-    "Here's what it looks like on a real fence: {entry_color_link}. If you "
-    "love it, just go ahead and select it in your proposal and we'll get you "
-    "moving right along to scheduling!"
+    "Here's what it looks like on a real fence: {entry_color_link}. "
+    "Do you like this color or did you have something else in mind? Just "
+    "let us know and we'll make sure you get exactly what you're looking for!"
 )
 
 _PACKAGE_SIGNATURE_FIRST = (
     0,
     "Oh I love that you went with the Signature package, {first_name}! Now "
-    "let's pick your stain color. You've got 6 gorgeous options to choose "
-    "from. Here's a quick look at all of them: {signature_color_chart}. Our "
-    "most popular ones are {color_1} and {color_2}. Just pick your favorite "
-    "in the proposal and we'll get you on the schedule!"
+    "let's pick your stain color. Here's a look at all your options: "
+    "{signature_color_chart}. These are the most popular ones: {color_1} "
+    "and {color_2}. Do you like any of these or do you have another color "
+    "in mind? Just let us know, we want to make sure y'all get exactly "
+    "what you're looking for!"
 )
 
 _PACKAGE_LEGACY_FIRST = (
     0,
     "Excellent choice going with the Legacy package, {first_name}! You get "
-    "access to our full premium color lineup with 6 beautiful options. "
-    "Here's the whole collection: {legacy_color_chart}. Our Legacy customers "
-    "just love {color_1} and {color_2}. Pick your color in the proposal and "
-    "we'll get your date all set!"
+    "access to our full premium color lineup. Here's the whole collection: "
+    "{legacy_color_chart}. Our most popular ones are {color_1} and "
+    "{color_2}. Do you like any of these or did you have another color in "
+    "mind? We want to make sure you get exactly the look you're going for!"
 )
 
 
@@ -258,7 +292,9 @@ _NO_DATE = [
      "if you want to snag one before they're gone! {proposal_link}"),
     (14400,  # 4 hours
      "Quick reminder, scheduling only takes about 30 seconds! Pick a day "
-     "that works for you right here: {proposal_link}"),
+     "that works for you right here: {proposal_link}. If none of the "
+     "available dates work for you, just let us know and we'll see what "
+     "we can do!"),
     (172800,  # Day 2
      "Heads up {first_name}, our {month} slots are filling up fast around "
      "your area. You might want to get your date locked in so you're not "
@@ -266,8 +302,18 @@ _NO_DATE = [
     (345600,  # Day 4
      "Hey {first_name}, this is Amy with A&T's Fence Staining. I just "
      "wanted to personally reach out and make sure we get you taken care of. "
-     "Is there a certain timeframe that works best for y'all? And is there "
-     "anything else I can help with? I'm here for you!"),
+     "Is there a certain timeframe that works best for y'all? If the dates "
+     "you saw didn't work, just let me know and we'll figure something out!"),
+    (518400,  # Day 6
+     "Hey {first_name}! Did you have another date in mind that wasn't "
+     "showing as available? We can sometimes work around the schedule if "
+     "you let us know what works for y'all. Just reply with a date or "
+     "timeframe and I'll see what I can do!"),
+    (604800,  # Day 7
+     "Hey {first_name}, just one more check-in from me! We'd really love "
+     "to get your fence looking amazing. If there's anything holding you "
+     "back, whether it's the dates, timing, or anything else, I'm here to "
+     "help figure it out. - Amy"),
 ]
 
 # -- Stage 8: Date Selected / No Deposit --------------------------------------
@@ -290,6 +336,13 @@ _DATE_SELECTED = [
      "Hey {first_name}, just giving you one last heads up. We're going to "
      "need to release unconfirmed slots tomorrow morning. Get your $50 "
      "deposit taken care of real quick to keep your date: {stripe_link}"),
+    (604800,  # Day 7
+     "Hey {first_name}, this is Amy. I noticed your {date} date is still "
+     "unconfirmed and I just wanted to check in personally. Is there "
+     "anything we can help with or any questions about the deposit? We "
+     "really want to make sure we get y'all taken care of and I'd love "
+     "to know if there's something we could do better. Just reply and "
+     "let me know! - Amy"),
 ]
 
 # -- Stage 9: Deposit Paid (CLOSED) -------------------------------------------
