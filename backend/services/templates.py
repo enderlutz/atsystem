@@ -320,30 +320,30 @@ _NO_DATE = [
 # -- Stage 8: Date Selected / No Deposit --------------------------------------
 
 _DATE_SELECTED = [
-    (60,  # 1 minute — fires immediately if customer left; deferred to 15 min if still active
+    (0,  # Sends 5 min after customer exits proposal page (enforced by sms_worker gate)
      "Awesome, {first_name}! Your date is set for {date}! To get it locked "
      "in, we just need a $50 deposit that goes right toward your total. Only "
      "takes a minute: {stripe_link}. Just so you know, your spot isn't "
      "officially confirmed until the deposit comes through!"),
-    (7200,  # 2 hours
-     "Hey there! Just a quick reminder, your {date} appointment isn't "
+    (14400,  # 4 hours
+     "Hey {first_name}! Just a quick reminder, your {date} appointment isn't "
      "locked in yet until that $50 deposit is completed. I'd hate for you "
      "to lose your spot: {stripe_link}"),
-    (86400,  # Day 1 evening
+    (86400,  # Day 1
      "We're holding your {date} slot for you but we can't hang onto it for "
      "too much longer. You can take care of your deposit right here: "
      "{stripe_link}"),
     (172800,  # Day 2
-     "Hey {first_name}, just giving you one last heads up. We're going to "
-     "need to release unconfirmed slots tomorrow morning. Get your $50 "
-     "deposit taken care of real quick to keep your date: {stripe_link}"),
-    (604800,  # Day 7
-     "Hey {first_name}, this is Amy. I noticed your {date} date is still "
-     "unconfirmed and I just wanted to check in personally. Is there "
-     "anything we can help with or any questions about the deposit? We "
-     "really want to make sure we get y'all taken care of and I'd love "
-     "to know if there's something we could do better. Just reply and "
-     "let me know! - Amy"),
+     "Hey {first_name}, just checking in — is there anything holding you up "
+     "on the deposit? Whether it's timing, questions about the process, or "
+     "anything else, I'm happy to help! Your {date} slot is still available: "
+     "{stripe_link}"),
+    (259200,  # Day 3
+     "Hey {first_name}, this is Amy. Last check-in from me on this! Your "
+     "{date} date is still unconfirmed and I just wanted to see how we can "
+     "help. Is there anything we could do better or any questions about the "
+     "deposit? We really want to make sure we get y'all taken care of. "
+     "Just reply and let me know! - Amy"),
 ]
 
 # -- Stage 9: Deposit Paid (CLOSED) -------------------------------------------

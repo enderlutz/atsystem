@@ -97,45 +97,8 @@ def _process_pending_messages():
                     logger.info(f"SMS worker: deferred msg {msg['id']} to 6 AM Central (quiet hours)")
                     continue
 
-            # WF8: For the first DATE_SELECTED message, defer to 15 min if customer is still active
-            if (
-                msg["stage"] == "date_selected"
-                and msg["sequence_index"] == 0
-            ):
-                prop_res = (
-                    db.table("proposals")
-                    .select("last_active_at")
-                    .eq("lead_id", msg["lead_id"])
-                    .neq("status", "booked")
-                    .order("created_at", desc=True)
-                    .limit(1)
-                    .execute()
-                )
-                if prop_res.data:
-                    last_active = prop_res.data[0].get("last_active_at")
-                    if last_active:
-                        try:
-                            la_dt = datetime.fromisoformat(
-                                last_active.replace("Z", "+00:00")
-                            )
-                            if (datetime.now(timezone.utc) - la_dt).total_seconds() < 300:
-                                # Customer still active — defer by 15 min from now
-                                new_send_at = (
-                                    datetime.now(timezone.utc) + timedelta(minutes=15)
-                                ).isoformat()
-                                db.table("sms_queue").update(
-                                    {"send_at": new_send_at}
-                                ).eq("id", msg["id"]).execute()
-                                logger.info(
-                                    f"SMS worker: deferred date_selected msg {msg['id']} "
-                                    f"by 15 min (customer still active)"
-                                )
-                                continue
-                        except ValueError:
-                            pass
-
-            # WF5/WF6/WF7: For proposal-driven stages, wait 5 min after customer leaves the page
-            PROPOSAL_EXIT_STAGES = {"no_package_selection", "package_selected", "no_date_selected"}
+            # WF5/WF6/WF7/WF8: For proposal-driven stages, wait 5 min after customer leaves the page
+            PROPOSAL_EXIT_STAGES = {"no_package_selection", "package_selected", "no_date_selected", "date_selected"}
             if (
                 msg["stage"] in PROPOSAL_EXIT_STAGES
                 and msg["sequence_index"] == 0
