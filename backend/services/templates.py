@@ -208,11 +208,12 @@ _PROPOSAL_SENT = [
 # -- Stage 5: No Package Selection --------------------------------------------
 
 _NO_PACKAGE = [
-    (0,  # Immediate — 15-min wait already happened in PROPOSAL_SENT stage
+    (0,  # Sends 5 min after customer exits proposal page (enforced by sms_worker gate)
      "Hey {first_name}! I noticed you took a look at your estimate, that's "
-     "great! Our most popular option is the Signature package. It gives you "
-     "beautiful results and honestly the best value. Need a hand choosing? "
-     "Just holler and I'll walk y'all through it!"),
+     "awesome! A lot of our customers end up going with the Signature package "
+     "because it includes a deeper clean, premium stain with more color options, "
+     "and a longer-lasting finish. It's honestly the best bang for your buck! "
+     "Need a hand deciding? Just holler and I'll walk y'all through it!"),
     (86400,  # Day 1
      "Just a heads up, our schedule tends to fill up pretty quick around "
      "your area! If you want to grab your spot, you can pick your package "
@@ -286,7 +287,7 @@ def _get_package_selected_messages(tier: str) -> list[tuple[int, str]]:
 # -- Stage 7: No Date Selected ------------------------------------------------
 
 _NO_DATE = [
-    (0,
+    (0,  # Sends 5 min after customer exits proposal page (enforced by sms_worker gate)
      "Hey {first_name}! I see you picked your color, love it! You just "
      "haven't grabbed a date yet. We've got openings in your area next week "
      "if you want to snag one before they're gone! {proposal_link}"),
