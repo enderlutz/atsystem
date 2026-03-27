@@ -287,6 +287,7 @@ export default function ProposalPage() {
   const { token } = useParams<{ token: string }>();
   const searchParams = useSearchParams();
   const skipToDate = searchParams.get("step") === "date";
+  const isPreview = searchParams.get("preview") === "true";
   const [proposal, setProposal] = useState<ProposalData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -399,7 +400,7 @@ export default function ProposalPage() {
         setBackupDates((res.backup_dates || []).slice(0, 1));
         setStep(3);
         // Signal that the customer left so dashboard doesn't show "Active"
-        api.reportProposalActivity(token, "left").catch(() => {});
+        api.reportProposalActivity(token, "left");
       })
       .catch((e) => {
         setBookError(e instanceof Error ? e.message : "Payment verified but booking failed. Please call us at (832) 334-6528.");
@@ -408,9 +409,16 @@ export default function ProposalPage() {
   }, [token]);
 
   const trackStage = (stage: string) => {
+    if (isPreview) return;
     if (reportedStages.current.has(stage)) return;
     reportedStages.current.add(stage);
-    api.updateProposalStage(token, stage).catch(() => {});
+    api.updateProposalStage(token, stage);
+  };
+
+  // In preview mode, skip all proposal data saves
+  const saveSelection = (data: Record<string, unknown>) => {
+    if (isPreview) return;
+    api.saveProposalSelection(token, data).catch(() => {});
   };
 
   const loadDates = async (month: string) => {
@@ -431,13 +439,14 @@ export default function ProposalPage() {
   useEffect(() => {
     if (!isColorComplete()) return;
     trackStage("color_selected");
+    if (isPreview) return;
     const colorName = getColorDisplayName();
     if (colorMode === "gallery") {
-      api.saveProposalSelection(token, { color_mode: "gallery", selected_color: colorName }).catch(() => {});
+      saveSelection({ color_mode: "gallery", selected_color: colorName });
     } else if (colorMode === "hoa_only") {
-      api.saveProposalSelection(token, { color_mode: "hoa_only", hoa_colors: getHoaColorNames() }).catch(() => {});
+      saveSelection({ color_mode: "hoa_only", hoa_colors: getHoaColorNames() });
     } else if (colorMode === "hoa_approved" || colorMode === "custom") {
-      api.saveProposalSelection(token, { color_mode: colorMode, custom_color: customColor || undefined }).catch(() => {});
+      saveSelection({ color_mode: colorMode, custom_color: customColor || undefined });
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedColor, hoaColors, customColor, hoaSendLater, customSendLater, colorMode, pkg]);
@@ -453,28 +462,28 @@ export default function ProposalPage() {
 
   // Activity tracking — heartbeat every 30s, detect tab switch / close
   useEffect(() => {
-    if (!token || status === "booked") return;
+    if (!token || status === "booked" || isPreview) return;
     const beaconUrl = getActivityBeaconUrl(token);
     const sendBeacon = (type: "heartbeat" | "left") => {
       try {
         navigator.sendBeacon(beaconUrl, JSON.stringify({ type }));
       } catch {
         // Fallback — fire-and-forget fetch
-        fetch(beaconUrl, { method: "POST", body: JSON.stringify({ type }), headers: { "Content-Type": "application/json" }, keepalive: true }).catch(() => {});
+        fetch(beaconUrl, { method: "POST", body: JSON.stringify({ type }), headers: { "Content-Type": "application/json" }, keepalive: true });
       }
     };
     // Initial heartbeat
-    api.reportProposalActivity(token, "heartbeat").catch(() => {});
+    api.reportProposalActivity(token, "heartbeat");
     // Periodic heartbeat
     const timer = setInterval(() => {
-      api.reportProposalActivity(token, "heartbeat").catch(() => {});
+      api.reportProposalActivity(token, "heartbeat");
     }, 30_000);
     // Visibility change — tab switch
     const onVisChange = () => {
       if (document.hidden) {
         sendBeacon("left");
       } else {
-        api.reportProposalActivity(token, "heartbeat").catch(() => {});
+        api.reportProposalActivity(token, "heartbeat");
       }
     };
     // Page close / navigate away
@@ -498,7 +507,7 @@ export default function ProposalPage() {
       setSelectedColor(0);
     }
     trackStage("package_selected");
-    api.saveProposalSelection(token, { selected_tier: p }).catch(() => {});
+    saveSelection({ selected_tier: p });
     setTimeout(() => colorRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 100);
   };
 
@@ -536,6 +545,7 @@ export default function ProposalPage() {
   };
 
   const handleCheckout = async () => {
+    if (isPreview) { alert("Preview mode — checkout disabled"); return; }
     if (!selectedDate || !proposal || !pkg) return;
     const emailTrimmed = contactEmail.trim();
     if (emailTrimmed && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailTrimmed)) {
@@ -935,7 +945,7 @@ export default function ProposalPage() {
                         const isActive = colorMode === mode;
                         return (
                           <button key={mode}
-                            onClick={() => { setColorMode(mode); trackStage("hoa_selected"); api.saveProposalSelection(token, { color_mode: mode }).catch(() => {}); }}
+                            onClick={() => { setColorMode(mode); trackStage("hoa_selected"); saveSelection({ color_mode: mode }); }}
                             className="w-full text-left rounded-xl p-3 border-2 transition-all"
                             style={{
                               background: isActive ? "rgba(28,34,53,0.06)" : C.cardLight,
@@ -1336,7 +1346,7 @@ export default function ProposalPage() {
                           )}
 
                           {colorMode !== "gallery" && (
-                            <button onClick={() => { setColorMode("gallery"); setHoaColors([]); setCustomColor(""); api.saveProposalSelection(token, { color_mode: "gallery", hoa_colors: [], selected_color: undefined }).catch(() => {}); }}
+                            <button onClick={() => { setColorMode("gallery"); setHoaColors([]); setCustomColor(""); saveSelection({ color_mode: "gallery", hoa_colors: [], selected_color: undefined }); }}
                               style={{ color: C.textMuted }} className="text-xs underline">
                               ← Back to standard color gallery
                             </button>

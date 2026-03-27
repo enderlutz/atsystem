@@ -1731,7 +1731,7 @@ export default function LeadDetailPage() {
               </div>
             </div>
             <iframe
-              src={`/proposal/${previewToken}`}
+              src={`/proposal/${previewToken}?preview=true`}
               style={{ width: "100%", flex: 1, minHeight: 580, border: "none" }}
               title="Customer Proposal Preview"
             />
