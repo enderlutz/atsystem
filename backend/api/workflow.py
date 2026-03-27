@@ -340,6 +340,17 @@ async def ask_for_address(lead_id: str, _: dict = Depends(get_current_user)):
     return {"status": "ok", "new_stage": Stage.ASKING_ADDRESS.value}
 
 
+# ── VA shortcut: confirm detected address ─────────────────────────────
+
+@router.post("/leads/{lead_id}/confirm-address")
+async def confirm_address(lead_id: str, _: dict = Depends(get_current_user)):
+    """VA confirms the auto-detected address is correct. Clears pending_address and transitions to HOT_LEAD."""
+    db = get_db()
+    db.table("leads").update({"pending_address": False}).eq("id", lead_id).execute()
+    transition_stage(lead_id, Stage.HOT_LEAD, reason="va_confirmed_address")
+    return {"status": "ok", "new_stage": Stage.HOT_LEAD.value}
+
+
 # ── VA shortcut: new build ────────────────────────────────────────────
 
 @router.post("/leads/{lead_id}/new-build")

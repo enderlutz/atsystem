@@ -5,6 +5,7 @@ Manages stage transitions, message scheduling, and GHL pipeline sync.
 from __future__ import annotations
 
 import logging
+import re
 import uuid
 from datetime import datetime, timezone, timedelta
 from enum import Enum
@@ -84,6 +85,52 @@ def _detect_color_in_message(text: str) -> str | None:
         if color in text_lower:
             # Return title-cased version as the canonical color name
             return color.title()
+    return None
+
+
+def _detect_address_in_message(text: str) -> str | None:
+    """Try to detect a US street address in a customer's text reply.
+    Returns the matched address string or None."""
+    if not text or len(text.strip()) < 5:
+        return None
+
+    text_clean = text.strip()
+
+    # Pattern: number + street name + optional street type + optional ZIP
+    street_types = (
+        r"(?:st(?:reet)?|dr(?:ive)?|ln|lane|ave(?:nue)?|blvd|boulevard|"
+        r"ct|court|way|rd|road|pl(?:ace)?|cir(?:cle)?|trl|trail|pkwy|parkway|"
+        r"loop|run|pass|xing|crossing|bend|crk|creek|mdws|meadows|"
+        r"pt|point|cv|cove|hl|hill|holw|hollow|hvn|haven|spg|springs)"
+    )
+
+    # Full address pattern: "1234 Some Street Name Dr 77406"
+    full_pattern = re.compile(
+        r"(\d{1,6}\s+(?:[A-Za-z\.\'\-]+\s+){1,5}" + street_types + r"\.?(?:\s+(?:#\s*\d+|apt\.?\s*\d+|unit\s*\d+|ste\.?\s*\d+))?(?:\s+\d{5})?)",
+        re.IGNORECASE,
+    )
+
+    match = full_pattern.search(text_clean)
+    if match:
+        return match.group(1).strip()
+
+    # Simpler pattern: number + words + 5-digit ZIP (e.g., "1234 Main 77406")
+    simple_pattern = re.compile(
+        r"(\d{1,6}\s+(?:[A-Za-z\.\'\-]+\s+){1,5}\d{5})",
+        re.IGNORECASE,
+    )
+    match = simple_pattern.search(text_clean)
+    if match:
+        return match.group(1).strip()
+
+    # Just a ZIP code by itself (Texas ZIPs start with 7)
+    zip_pattern = re.compile(r"\b(7\d{4})\b")
+    match = zip_pattern.search(text_clean)
+    if match:
+        # Only return ZIP if the message is short (likely just the zip)
+        if len(text_clean) < 30:
+            return match.group(1)
+
     return None
 
 
@@ -395,9 +442,24 @@ def on_customer_reply(lead_id: str, message_text: str = "") -> None:
             transition_stage(lead_id, Stage.ASKING_ADDRESS, reason="customer_reply_no_address")
 
     elif current_stage == Stage.ASKING_ADDRESS.value:
-        # VA will manually confirm address, then transition to HOT_LEAD
-        # For now, just pause — VA reviews and transitions manually
-        logger.info(f"Workflow: lead {lead_id} replied in ASKING_ADDRESS — VA should review")
+        # Try to detect an address in the customer's reply
+        detected_address = _detect_address_in_message(message_text)
+        if detected_address:
+            # Auto-fill address field but flag for VA confirmation
+            db.table("leads").update({
+                "address": detected_address,
+                "pending_address": True,
+            }).eq("id", lead_id).execute()
+            log_event(
+                lead_id, "address_detected",
+                f"Potential address detected: {detected_address}",
+                {"detected_address": detected_address, "raw_message": message_text[:200]},
+            )
+            logger.info(f"Workflow: detected address '{detected_address}' from reply for lead {lead_id}")
+        else:
+            # No address detected — flag for VA review
+            db.table("leads").update({"pending_address": False}).eq("id", lead_id).execute()
+            logger.info(f"Workflow: lead {lead_id} replied in ASKING_ADDRESS but no address detected")
 
     elif current_stage == Stage.PACKAGE_SELECTED.value:
         # Try to detect a color name from the customer's reply

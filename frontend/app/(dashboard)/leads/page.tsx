@@ -957,7 +957,27 @@ export default function LeadsPage() {
                             ) : (
                               <div className="flex items-center justify-between pt-0.5">
                                 <div className="flex items-center gap-1 text-xs text-muted-foreground">
-                                  {lead.customer_responded ? (
+                                  {lead.pending_address ? (
+                                    <div className="flex items-center gap-1">
+                                      <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-xs bg-blue-50 text-blue-700 border border-blue-200 font-medium">
+                                        Check {lead.contact_name?.split(" ")[0]}&apos;s messages, potential address received
+                                      </span>
+                                      <button
+                                        title="Confirm address is correct"
+                                        className="h-5 w-5 flex items-center justify-center rounded bg-green-100 text-green-700 hover:bg-green-200 transition-colors"
+                                        onClick={async (e) => {
+                                          e.stopPropagation();
+                                          try {
+                                            await api.confirmAddress(lead.id);
+                                            toast.success(`Address confirmed for ${lead.contact_name}`);
+                                            loadData();
+                                          } catch { toast.error("Failed to confirm address"); }
+                                        }}
+                                      >
+                                        <CheckCircle2 className="h-3.5 w-3.5" />
+                                      </button>
+                                    </div>
+                                  ) : lead.customer_responded ? (
                                     <>
                                       <CheckCircle2 className="h-3 w-3 text-green-600" />
                                       <span>Responded</span>

@@ -356,6 +356,7 @@ export interface Lead {
   workflow_stage?: string | null;
   workflow_stage_entered_at?: string | null;
   workflow_paused?: boolean;
+  pending_address?: boolean;
 }
 
 export interface LeadDetail extends Lead {
