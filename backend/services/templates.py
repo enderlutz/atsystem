@@ -168,7 +168,7 @@ _ASKING_ADDRESS = [
 # -- Stage 3: Hot Lead - Send Proposal ----------------------------------------
 
 _HOT_LEAD = [
-    (0,
+    (86400,  # Next day
      "Hey {first_name}! Your personalized fence staining estimate is all "
      "ready for you! Check it out here: {proposal_link}. You can pick your "
      "package, color, and date all in one spot. Only takes a couple minutes!"),
