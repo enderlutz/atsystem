@@ -110,7 +110,7 @@ _NEW_BUILD = [
     (0,
      "Hi {first_name}! We were checking out your address to measure your fence "
      "line through Google Earth and it looks like your home might be a newer "
-     "build — it hasn't been fully updated on the map yet! No worries though. "
+     "build, it hasn't been fully updated on the map yet! No worries though. "
      "We have two easy options: you can send us a few photos of your fence so "
      "we can estimate from those, or we can do a quick free in-person "
      "measurement. Which one works better for you?"),
@@ -197,7 +197,7 @@ _PROPOSAL_SENT = [
      "happy to walk you through it. We would love to take care of y'all!"),
     (518400,  # Day 6
      "Hey {first_name}, last little check-in from me! Your estimate is still "
-     "right here whenever you're ready: {proposal_link} — Amy"),
+     "right here whenever you're ready: {proposal_link}, Amy"),
     (691200,  # Day 8
      "Hey {first_name}! I know I've been reaching out a lot but I just don't "
      "want you to miss out. Your personalized estimate is still saved and "
@@ -334,7 +334,7 @@ _DATE_SELECTED = [
      "too much longer. You can take care of your deposit right here: "
      "{stripe_link}"),
     (172800,  # Day 2
-     "Hey {first_name}, just checking in — is there anything holding you up "
+     "Hey {first_name}, just checking in, is there anything holding you up "
      "on the deposit? Whether it's timing, questions about the process, or "
      "anything else, I'm happy to help! Your {date} slot is still available: "
      "{stripe_link}"),
