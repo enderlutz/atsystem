@@ -326,8 +326,11 @@ def enqueue_stage_messages(
         send_at = now + timedelta(seconds=delay_seconds)
         msg_id = str(uuid.uuid4())
 
-        # Send immediate messages (delay=0) right now instead of queuing
-        if delay_seconds == 0:
+        # Only these stages get truly immediate sends (delay=0 fires now).
+        # All other stages (proposal-driven) go through the queue so the
+        # 5-min exit gate in sms_worker can enforce the wait.
+        IMMEDIATE_SEND_STAGES = {"new_lead", "asking_address", "new_build", "deposit_paid"}
+        if delay_seconds == 0 and stage in IMMEDIATE_SEND_STAGES:
             # Get attachments for this message
             from services.templates import STAGE_ATTACHMENTS
             settings = get_settings()
