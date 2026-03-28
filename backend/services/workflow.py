@@ -329,7 +329,7 @@ def enqueue_stage_messages(
         # Only these stages get truly immediate sends (delay=0 fires now).
         # All other stages (proposal-driven) go through the queue so the
         # 5-min exit gate in sms_worker can enforce the wait.
-        IMMEDIATE_SEND_STAGES = {"new_lead", "asking_address", "new_build", "deposit_paid"}
+        IMMEDIATE_SEND_STAGES = {"new_lead", "asking_address", "new_build", "deposit_paid", "hot_lead"}
         if delay_seconds == 0 and stage in IMMEDIATE_SEND_STAGES:
             # Get attachments for this message
             from services.templates import STAGE_ATTACHMENTS
@@ -633,8 +633,8 @@ def on_job_complete(lead_id: str) -> None:
     transition_stage(lead_id, Stage.JOB_COMPLETE, reason="job_marked_complete")
 
 
-def on_estimate_sent(lead_id: str) -> None:
+def on_estimate_sent(lead_id: str, proposal_url: str = "") -> None:
     """Called when an estimate is approved and the proposal link is sent.
-    Transitions the lead to HOT_LEAD stage."""
+    Transitions the lead to HOT_LEAD stage and immediately sends the proposal SMS."""
     log_event(lead_id, "estimate_approved", "Estimate approved, proposal link sent")
-    transition_stage(lead_id, Stage.HOT_LEAD, reason="estimate_sent")
+    transition_stage(lead_id, Stage.HOT_LEAD, reason="estimate_sent", metadata={"proposal_url": proposal_url})

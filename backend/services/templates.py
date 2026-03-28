@@ -93,15 +93,10 @@ _NEW_LEAD = [
      "to create your quote?"),
     (60,  # 1 minute
      "Btw, this is a fence we just finished up nearby!"),
-    (10800,  # 3 hours
+    (86400,  # 24 hours
      "Hey {first_name}, just checking back in! We really do want to make "
      "sure we give y'all the best estimate we can. Anything specific about "
      "your fence we should know about?"),
-    (86400,  # 24 hours
-     "Hey {first_name}, just wanted to reach out one more time! We specialize "
-     "in fence restoration and we would just love to help y'all out. Reply "
-     "anytime and we'll get your personalized quote put together for you! "
-     "- Amy"),
 ]
 
 # -- Stage 1b: New Build — Can't Measure on Google Earth ----------------------
@@ -168,7 +163,7 @@ _ASKING_ADDRESS = [
 # -- Stage 3: Hot Lead - Send Proposal ----------------------------------------
 
 _HOT_LEAD = [
-    (86400,  # Next day
+    (0,  # Immediately when proposal is sent
      "Hey {first_name}! Your personalized fence staining estimate is all "
      "ready for you! Check it out here: {proposal_link}. You can pick your "
      "package, color, and date all in one spot. Only takes a couple minutes!"),
@@ -235,7 +230,7 @@ _NO_PACKAGE = [
 # Has 3 branches based on selected_tier. Shared follow-ups after.
 
 _PACKAGE_SELECTED_SHARED = [
-    (7200,  # 2 hours
+    (14400,  # 4 hours
      "Hey {first_name}! Having trouble picking a color? I totally get it, "
      "there are some beautiful options! Just reply with your fence material "
      "like wood, cedar, or pine and we'll tell you what looks best on it!"),
@@ -325,10 +320,10 @@ _DATE_SELECTED = [
      "in, we just need a $50 deposit that goes right toward your total. Only "
      "takes a minute: {stripe_link}. Just so you know, your spot isn't "
      "officially confirmed until the deposit comes through!"),
-    (14400,  # 4 hours
+    (21600,  # 6 hours
      "Hey {first_name}! Just a quick reminder, your {date} appointment isn't "
-     "locked in yet until that $50 deposit is completed. I'd hate for you "
-     "to lose your spot: {stripe_link}"),
+     "locked in yet until that $50 deposit is completed. We would love to "
+     "get you accommodated: {stripe_link}"),
     (86400,  # Day 1
      "We're holding your {date} slot for you but we can't hang onto it for "
      "too much longer. You can take care of your deposit right here: "
@@ -416,7 +411,7 @@ _COLD_NURTURE = [
      "to check in on you and see if there's anything I can help with or any "
      "questions about your estimate? We're still here for y'all!"),
     (2592000,  # Month 1 (30 days)
-     "Hey {first_name}! Quick heads up, {season} is actually one of the "
+     "Hey {first_name}! {season} is actually one of the "
      "best times to get a fence stained here in Houston. The wood soaks up "
      "the stain so much better and it lasts longer too. Your estimate is "
      "still on file whenever you're ready: {proposal_link}"),

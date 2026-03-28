@@ -11,7 +11,7 @@ import bcrypt
 from db import get_db
 from config import get_settings
 from models.estimate import AdminApproveRequest, EstimateAdjust, EstimateApprove, EstimateReject
-from services.ghl import send_message_to_contact, format_estimate_for_client, add_contact_note
+from services.ghl import send_message_to_contact, add_contact_note
 from api.auth import require_admin, get_current_user
 
 router = APIRouter(prefix="/api/estimates", tags=["estimates"])
@@ -129,26 +129,22 @@ async def approve_estimate(estimate_id: str, body: EstimateApprove = EstimateApp
 
     contact_id = lead.get("ghl_contact_id")
     if contact_id:
-        first_name = (lead.get("contact_name") or "").split()[0]
-        msg = format_estimate_for_client(estimate, estimate["service_type"], first_name=first_name, proposal_url=proposal_url)
-        sent = send_message_to_contact(contact_id, msg)
-        if sent:
-            send_count = (estimate.get("send_count") or 0) + 1
-            db.table("estimates").update({"send_count": send_count}).eq("id", estimate_id).execute()
-            db.table("leads").update({"status": "sent"}).eq("id", estimate["lead_id"]).execute()
-            essential = float(tiers.get("essential") or 0)
-            legacy    = float(tiers.get("legacy") or 0)
-            add_contact_note(contact_id, (
-                f"[ATSystem] All packages sent (send #{send_count})\n"
-                f"Essential: ${essential:,.0f} | Signature: ${signature_price:,.0f} | Legacy: ${legacy:,.0f}\n"
-                f"Service: {estimate['service_type'].replace('_', ' ').title()}\n"
-                f"Proposal link: {proposal_url}"
-            ))
+        send_count = (estimate.get("send_count") or 0) + 1
+        db.table("estimates").update({"send_count": send_count}).eq("id", estimate_id).execute()
+        db.table("leads").update({"status": "sent"}).eq("id", estimate["lead_id"]).execute()
+        essential = float(tiers.get("essential") or 0)
+        legacy    = float(tiers.get("legacy") or 0)
+        add_contact_note(contact_id, (
+            f"[ATSystem] All packages sent (send #{send_count})\n"
+            f"Essential: ${essential:,.0f} | Signature: ${signature_price:,.0f} | Legacy: ${legacy:,.0f}\n"
+            f"Service: {estimate['service_type'].replace('_', ' ').title()}\n"
+            f"Proposal link: {proposal_url}"
+        ))
 
-    # Transition workflow to HOT_LEAD (proposal sent)
+    # Transition workflow to HOT_LEAD — fires proposal SMS immediately via workflow engine
     try:
         from services.workflow import on_estimate_sent
-        on_estimate_sent(estimate["lead_id"])
+        on_estimate_sent(estimate["lead_id"], proposal_url=proposal_url)
     except Exception as e:
         logger.error(f"Workflow on_estimate_sent failed for lead {estimate['lead_id']}: {e}")
 
@@ -212,24 +208,20 @@ async def admin_approve_estimate(estimate_id: str, body: AdminApproveRequest, _:
 
     contact_id = lead.get("ghl_contact_id")
     if contact_id:
-        first_name = (lead.get("contact_name") or "").split()[0]
-        msg = format_estimate_for_client({**estimate, "inputs": inputs}, estimate["service_type"], first_name=first_name, proposal_url=proposal_url)
-        sent = send_message_to_contact(contact_id, msg)
-        if sent:
-            send_count = (estimate.get("send_count") or 0) + 1
-            db.table("estimates").update({"send_count": send_count}).eq("id", estimate_id).execute()
-            db.table("leads").update({"status": "sent"}).eq("id", estimate["lead_id"]).execute()
-            add_contact_note(contact_id, (
-                f"[ATSystem] All packages sent (send #{send_count})\n"
-                f"Essential: ${essential_price:,.0f} | Signature: ${signature_price:,.0f} | Legacy: ${legacy_price:,.0f}\n"
-                f"Service: {estimate['service_type'].replace('_', ' ').title()}\n"
-                f"Proposal link: {proposal_url}"
-            ))
+        send_count = (estimate.get("send_count") or 0) + 1
+        db.table("estimates").update({"send_count": send_count}).eq("id", estimate_id).execute()
+        db.table("leads").update({"status": "sent"}).eq("id", estimate["lead_id"]).execute()
+        add_contact_note(contact_id, (
+            f"[ATSystem] All packages sent (send #{send_count})\n"
+            f"Essential: ${essential_price:,.0f} | Signature: ${signature_price:,.0f} | Legacy: ${legacy_price:,.0f}\n"
+            f"Service: {estimate['service_type'].replace('_', ' ').title()}\n"
+            f"Proposal link: {proposal_url}"
+        ))
 
-    # Transition workflow to HOT_LEAD (proposal sent)
+    # Transition workflow to HOT_LEAD — fires proposal SMS immediately via workflow engine
     try:
         from services.workflow import on_estimate_sent
-        on_estimate_sent(estimate["lead_id"])
+        on_estimate_sent(estimate["lead_id"], proposal_url=proposal_url)
     except Exception as e:
         logger.error(f"Workflow on_estimate_sent failed for lead {estimate['lead_id']}: {e}")
 
@@ -276,9 +268,10 @@ async def adjust_estimate(estimate_id: str, body: EstimateAdjust, _: dict = Depe
     lead = lead_res.data or {}
     contact_id = lead.get("ghl_contact_id")
     if contact_id:
-        adjusted_estimate = {**estimate, "estimate_low": body.estimate_low, "estimate_high": body.estimate_high}
         first_name = (lead.get("contact_name") or "").split()[0]
-        msg = format_estimate_for_client(adjusted_estimate, estimate["service_type"], first_name=first_name, proposal_url=proposal_url)
+        from services.templates import get_stage_messages, render_message
+        hot_lead_msgs = get_stage_messages("hot_lead")
+        msg = render_message(hot_lead_msgs[0][1], {"first_name": first_name, "proposal_link": proposal_url})
         sent = send_message_to_contact(contact_id, msg)
         if sent:
             send_count = (estimate.get("send_count") or 0) + 1
@@ -381,7 +374,9 @@ async def resend_estimate(estimate_id: str, _: dict = Depends(require_admin)):
     contact_id = lead.get("ghl_contact_id")
     if contact_id:
         first_name = (lead.get("contact_name") or "").split()[0]
-        msg = format_estimate_for_client(estimate, estimate["service_type"], first_name=first_name, proposal_url=proposal_url)
+        from services.templates import get_stage_messages, render_message
+        hot_lead_msgs = get_stage_messages("hot_lead")
+        msg = render_message(hot_lead_msgs[0][1], {"first_name": first_name, "proposal_link": proposal_url})
         sent = send_message_to_contact(contact_id, msg)
         if sent:
             send_count = (estimate.get("send_count") or 0) + 1

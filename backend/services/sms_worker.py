@@ -97,12 +97,18 @@ def _process_pending_messages():
                     logger.info(f"SMS worker: deferred msg {msg['id']} to 6 AM Central (quiet hours)")
                     continue
 
-            # WF5/WF6/WF7/WF8: For proposal-driven stages, wait 5 min after customer leaves the page
-            PROPOSAL_EXIT_STAGES = {"no_package_selection", "package_selected", "no_date_selected", "date_selected"}
+            # WF5/WF6/WF7/WF8: For proposal-driven stages, wait N min after customer leaves the page
+            PROPOSAL_EXIT_GATE_SECONDS = {
+                "no_package_selection": 1200,  # 20 minutes
+                "package_selected":     1200,  # 20 minutes
+                "no_date_selected":      900,  # 15 minutes
+                "date_selected":         900,  # 15 minutes
+            }
             if (
-                msg["stage"] in PROPOSAL_EXIT_STAGES
+                msg["stage"] in PROPOSAL_EXIT_GATE_SECONDS
                 and msg["sequence_index"] == 0
             ):
+                gate_seconds = PROPOSAL_EXIT_GATE_SECONDS[msg["stage"]]
                 prop_res_ps = (
                     db.table("proposals")
                     .select("last_active_at, left_page_at")
@@ -124,11 +130,11 @@ def _process_pending_messages():
                     try:
                         left_dt = datetime.fromisoformat(left_at.replace("Z", "+00:00"))
                         since_left = (datetime.now(timezone.utc) - left_dt).total_seconds()
-                        if since_left < 300:  # 5 minutes
-                            wait = int(300 - since_left) + 5  # small buffer
+                        if since_left < gate_seconds:
+                            wait = int(gate_seconds - since_left) + 5  # small buffer
                             new_send_at = (datetime.now(timezone.utc) + timedelta(seconds=wait)).isoformat()
                             db.table("sms_queue").update({"send_at": new_send_at}).eq("id", msg["id"]).execute()
-                            logger.info(f"SMS worker: deferred {msg['stage']} msg {msg['id']} — customer left {int(since_left)}s ago, waiting for 5 min")
+                            logger.info(f"SMS worker: deferred {msg['stage']} msg {msg['id']} — customer left {int(since_left)}s ago, waiting for {gate_seconds // 60} min")
                             continue
                     except ValueError:
                         pass
@@ -285,7 +291,6 @@ def _check_timeouts():
     from services.templates import (
         render_message,
         DEPOSIT_PAID_DAY_BEFORE_TEMPLATE,
-        DEPOSIT_PAID_JOB_DAY_TEMPLATE,
     )
 
     db = get_db()
@@ -367,7 +372,6 @@ def _schedule_booking_reminders(db, lead: dict, now: datetime):
     from services.templates import (
         render_message,
         DEPOSIT_PAID_DAY_BEFORE_TEMPLATE,
-        DEPOSIT_PAID_JOB_DAY_TEMPLATE,
     )
     import uuid as uuid_mod
 
@@ -412,16 +416,6 @@ def _schedule_booking_reminders(db, lead: dict, now: datetime):
             db, lead_id, "deposit_paid", 10,
             render_message(DEPOSIT_PAID_DAY_BEFORE_TEMPLATE, context),
             day_before_utc, lead.get("ghl_contact_id", ""),
-        )
-
-    # Job-day morning: 7 AM Central on the job day
-    job_morning_central = booked_central.replace(hour=7, minute=0, second=0)
-    job_morning_utc = job_morning_central.astimezone(timezone.utc)
-    if job_morning_utc > now:
-        _schedule_if_not_exists(
-            db, lead_id, "deposit_paid", 11,
-            render_message(DEPOSIT_PAID_JOB_DAY_TEMPLATE, context),
-            job_morning_utc, lead.get("ghl_contact_id", ""),
         )
 
 
