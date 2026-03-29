@@ -572,8 +572,8 @@ export default function AutomationsPage() {
     referral_bonus: "What referrers and referred customers get. Goes into: \"Anyone who books through you gets [your text here]!\" Example: $50 off their service and you get $50 off your next one",
     entry_color_name: "The single stain color name available in the Entry package. Example: Dark Walnut",
     entry_color_link: "Image URL showing the Entry color on a real fence. Sent to customers who pick the Entry package.",
-    signature_color_chart: "Image URL showing all 6 Signature color options. Sent to customers who pick the Signature package.",
-    legacy_color_chart: "Image URL showing all 6 Legacy/premium color options. Sent to customers who pick the Legacy package.",
+    signature_color_chart: "Image URL showing all 6 Signature solid color options. Sent to customers who pick the Signature package.",
+    legacy_color_chart: "Image URL showing all 6 Legacy semi-transparent color options. Sent to customers who pick the Legacy package.",
     popular_color_1: "Name of the most popular stain color. Used in Package Selected messages. Example: Dark Walnut",
     popular_color_2: "Name of the second most popular stain color. Example: Cedar",
   };

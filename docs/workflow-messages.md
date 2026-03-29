@@ -92,14 +92,16 @@ All messages are sent by "Amy" (VA's sales name). Delays are measured from when 
 | 1 | 20 min after leaving page | Great choice on the Entry package, {first_name}! Now let's get your stain color picked out. The Entry package comes in {entry_color_name}. I have attached an image of what it looks like below. Do you like this color or did you have something else in mind? Just let us know and we'll make sure you get exactly what you're looking for! *(+ Entry color chart attached)* |
 
 ### Signature Package
+*Colors: Cedar Solid, October Brown, Black Alder, Black, Redwood, Dark Grey (solid finish)*
 | # | Delay | Message |
 |---|-------|---------|
-| 1 | 20 min after leaving page | Oh I love that you went with the Signature package, {first_name}! Now let's pick your stain color. I have attached an image of the color options below. These are the most popular ones: {color_1} and {color_2}. Do you like any of these or do you have another color in mind? Just let us know, we want to make sure y'all get exactly what you're looking for! *(+ Signature color chart attached)* |
+| 1 | 20 min after leaving page | Oh I love that you went with the Signature package, {first_name}! Now let's pick your stain color. I have attached an image of the color options below. These are the most popular ones: {color_1} and {color_2}. Do you like any of these or do you have another color in mind? Just let us know, we want to make sure y'all get exactly what you're looking for! *(+ solid color chart attached)* |
 
 ### Legacy Package
+*Colors: Natural Tone, Simply Cedar, Light Grey, Sandal, Canyon Brown, Redwood (semi-transparent finish)*
 | # | Delay | Message |
 |---|-------|---------|
-| 1 | 20 min after leaving page | Excellent choice going with the Legacy package, {first_name}! You get access to our full premium color lineup. I have attached an image of all the color options below. Our most popular ones are {color_1} and {color_2}. Do you like any of these or did you have another color in mind? We want to make sure you get exactly the look you're going for! *(+ Legacy color chart attached)* |
+| 1 | 20 min after leaving page | Oh I love that you went with the Legacy package, {first_name}! This is our semi-transparent finish — it lets your wood grain shine through with a beautiful natural look. I have attached an image of the color options below. Our most popular ones are {color_1} and {color_2}. Do you like any of these or did you have another color in mind? We want to make sure you get exactly the look you're going for! *(+ semi-transparent color chart attached)* |
 
 ### Shared follow-ups (all packages)
 | # | Delay | Message |

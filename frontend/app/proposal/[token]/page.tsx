@@ -25,26 +25,26 @@ const C = {
 const CDN = "https://zmzmfokcafbvrszjwwrq.supabase.co/storage/v1/object/public/fence-colors";
 
 const SIGNATURE_COLORS = [
-  { id: 1,  name: "Natural Tone",  brand: "Signature", src: `${CDN}/natural-tone-signature.jpg` },
-  { id: 2,  name: "Simply Cedar",  brand: "Signature", src: `${CDN}/simply-cedar-signature.jpg` },
-  { id: 3,  name: "Light Grey",    brand: "Signature", src: `${CDN}/light-grey-signature.jpg`   },
-  { id: 4,  name: "Sandal",        brand: "Signature", src: `${CDN}/sandal-signature.jpg`       },
-  { id: 5,  name: "Canyon Brown",  brand: "Signature", src: `${CDN}/canyon-brown-signature.jpg` },
-  { id: 6,  name: "Redwood",       brand: "Signature", src: `${CDN}/redwood-signature.jpg`      },
+  { id: 7,  name: "Cedar Solid",   brand: "Signature", src: `${CDN}/cedar-solid-legacy.jpg`   },
+  { id: 8,  name: "October Brown", brand: "Signature", src: `${CDN}/october-brown-legacy.jpg` },
+  { id: 9,  name: "Black Alder",   brand: "Signature", src: `${CDN}/black-alder-legacy.jpg`   },
+  { id: 10, name: "Black",         brand: "Signature", src: `${CDN}/black-legacy.jpg`          },
+  { id: 11, name: "Redwood",       brand: "Signature", src: `${CDN}/redwood-legacy.jpg`        },
+  { id: 12, name: "Dark Grey",     brand: "Signature", src: `${CDN}/dark-grey-legacy.jpg`      },
 ];
 
 const LEGACY_COLORS = [
-  { id: 7,  name: "Cedar Solid",   brand: "Legacy", src: `${CDN}/cedar-solid-legacy.jpg`   },
-  { id: 8,  name: "October Brown", brand: "Legacy", src: `${CDN}/october-brown-legacy.jpg` },
-  { id: 9,  name: "Black Alder",   brand: "Legacy", src: `${CDN}/black-alder-legacy.jpg`  },
-  { id: 10, name: "Black",         brand: "Legacy", src: `${CDN}/black-legacy.jpg`         },
-  { id: 11, name: "Redwood",       brand: "Legacy", src: `${CDN}/redwood-legacy.jpg`       },
-  { id: 12, name: "Dark Grey",     brand: "Legacy", src: `${CDN}/dark-grey-legacy.jpg`     },
+  { id: 1, name: "Natural Tone",  brand: "Legacy", src: `${CDN}/natural-tone-signature.jpg` },
+  { id: 2, name: "Simply Cedar",  brand: "Legacy", src: `${CDN}/simply-cedar-signature.jpg` },
+  { id: 3, name: "Light Grey",    brand: "Legacy", src: `${CDN}/light-grey-signature.jpg`   },
+  { id: 4, name: "Sandal",        brand: "Legacy", src: `${CDN}/sandal-signature.jpg`       },
+  { id: 5, name: "Canyon Brown",  brand: "Legacy", src: `${CDN}/canyon-brown-signature.jpg` },
+  { id: 6, name: "Redwood",       brand: "Legacy", src: `${CDN}/redwood-signature.jpg`      },
 ];
 
 const ALL_STAIN_COLORS = [...SIGNATURE_COLORS, ...LEGACY_COLORS];
 
-// HOA color palette — semi-transparent = Signature tier, solid = Legacy tier
+// HOA color palette — solid = Signature tier, semi-transparent = Legacy tier
 const HOA_COLORS = [
   { name: "Adobe", hex: "#9A6B4F", available_in: ["semi-transparent", "solid"] },
   { name: "Antique Burgundy", hex: "#5A2E36", available_in: ["semi-transparent"] },
@@ -618,11 +618,11 @@ export default function ProposalPage() {
       bg: C.card, accentColor: "#CBD5E1", labelColor: C.cream,
       disabled: previouslyStained, disabledMsg: "Not available for previously stained fences, the sealant won't adhere properly to prior stain." },
     { key: "signature" as const, label: "Signature Finish™", badge: "Most Popular",
-      features: ["Rich, even color finish", "Protects against sun & moisture", "No restaining for years", "Chosen by 8 out of 10 homeowners"],
+      features: ["Full, even coverage for a flawless finish", "Perfect for Texas heat & weather", "Covers imperfections & uneven wood tones", "Chosen by 8 out of 10 homeowners"],
       bg: C.card, accentColor: C.gold, labelColor: C.cream,
       disabled: false, disabledMsg: "" },
     { key: "legacy" as const, label: "Legacy Finish™", badge: "Premium",
-      features: ["Bold, uniform color", "Maximum Texas-grade sun protection", "Longest-lasting deep penetration", "Priority scheduling"],
+      features: ["Let your wood grain shine", "Brighter, more vibrant color options", "Showcases the natural beauty of your wood", "The premium choice for design-focused homeowners"],
       bg: "#F8FAFC", accentColor: C.goldLight, labelColor: C.cream,
       disabled: false, disabledMsg: "" },
   ];

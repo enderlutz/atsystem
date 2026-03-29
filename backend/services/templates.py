@@ -261,11 +261,12 @@ _PACKAGE_SIGNATURE_FIRST = (
 
 _PACKAGE_LEGACY_FIRST = (
     0,
-    "Excellent choice going with the Legacy package, {first_name}! You get "
-    "access to our full premium color lineup. I have attached an image of "
-    "all the color options below. Our most popular ones are {color_1} and "
-    "{color_2}. Do you like any of these or did you have another color in "
-    "mind? We want to make sure you get exactly the look you're going for!"
+    "Oh I love that you went with the Legacy package, {first_name}! This "
+    "is our semi-transparent finish — it lets your wood grain shine through "
+    "with a beautiful natural look. I have attached an image of the color "
+    "options below. Our most popular ones are {color_1} and {color_2}. "
+    "Do you like any of these or did you have another color in mind? "
+    "We want to make sure you get exactly the look you're going for!"
 )
 
 
@@ -476,8 +477,8 @@ _PAST_CUSTOMER = [
 STAGE_ATTACHMENTS: dict[tuple, list[str]] = {
     ("new_lead", 1): ["{proposal_base_url}/images/fence-before-after.jpg"],
     ("package_selected", 0, "entry"): ["{proposal_base_url}/images/essential-color-chart.jpeg"],
-    ("package_selected", 0, "signature"): ["{proposal_base_url}/images/signature-color-chart.jpeg"],
-    ("package_selected", 0, "legacy"): ["{proposal_base_url}/images/legacy-color-chart.jpeg"],
+    ("package_selected", 0, "signature"): ["{proposal_base_url}/images/legacy-color-chart.jpeg"],
+    ("package_selected", 0, "legacy"): ["{proposal_base_url}/images/signature-color-chart.jpeg"],
 }
 
 
