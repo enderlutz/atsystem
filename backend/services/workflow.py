@@ -326,6 +326,12 @@ def enqueue_stage_messages(
         send_at = now + timedelta(seconds=delay_seconds)
         msg_id = str(uuid.uuid4())
 
+        # TEMPORARY: Only send the first message in each sequence.
+        # Follow-up messages (i > 0) are disabled until re-enabled.
+        if i > 0:
+            logger.info(f"Workflow: skipping follow-up message {i} for lead {lead_id} stage {stage} (follow-ups disabled)")
+            continue
+
         # Only these stages get truly immediate sends (delay=0 fires now).
         # All other stages (proposal-driven) go through the queue so the
         # 5-min exit gate in sms_worker can enforce the wait.
