@@ -80,9 +80,9 @@ def analytics_revenue(
             # 1. Total revenue, bookings, avg deal
             sql = f"""
                 SELECT
-                    COALESCE(SUM(p.total_price), 0) AS total_revenue,
+                    COALESCE(SUM(p.booked_tier_price), 0) AS total_revenue,
                     COUNT(*) AS total_bookings,
-                    COALESCE(AVG(p.total_price), 0) AS avg_deal_value
+                    COALESCE(AVG(p.booked_tier_price), 0) AS avg_deal_value
                 FROM proposals p
                 WHERE p.status = 'booked' {cutoff_clause}
             """
@@ -92,7 +92,7 @@ def analytics_revenue(
             # 2. Current month revenue
             cur.execute(
                 """
-                SELECT COALESCE(SUM(total_price), 0) AS revenue
+                SELECT COALESCE(SUM(booked_tier_price), 0) AS revenue
                 FROM proposals
                 WHERE status = 'booked'
                   AND booked_at >= %s AND booked_at < %s
@@ -104,7 +104,7 @@ def analytics_revenue(
             # 3. Previous month revenue
             cur.execute(
                 """
-                SELECT COALESCE(SUM(total_price), 0) AS revenue
+                SELECT COALESCE(SUM(booked_tier_price), 0) AS revenue
                 FROM proposals
                 WHERE status = 'booked'
                   AND booked_at >= %s AND booked_at < %s
@@ -133,9 +133,9 @@ def analytics_revenue(
             sql = f"""
                 SELECT
                     date_trunc('week', p.booked_at)::date AS period,
-                    COALESCE(SUM(p.total_price), 0) AS revenue,
+                    COALESCE(SUM(p.booked_tier_price), 0) AS revenue,
                     COUNT(*) AS bookings,
-                    COALESCE(AVG(p.total_price), 0) AS avg_deal
+                    COALESCE(AVG(p.booked_tier_price), 0) AS avg_deal
                 FROM proposals p
                 WHERE p.status = 'booked' {cutoff_clause}
                 GROUP BY date_trunc('week', p.booked_at)
@@ -156,7 +156,7 @@ def analytics_revenue(
                 SELECT
                     p.selected_tier AS tier,
                     COUNT(*) AS count,
-                    COALESCE(SUM(p.total_price), 0) AS revenue
+                    COALESCE(SUM(p.booked_tier_price), 0) AS revenue
                 FROM proposals p
                 WHERE p.status = 'booked' {cutoff_clause}
                 GROUP BY p.selected_tier
@@ -176,7 +176,7 @@ def analytics_revenue(
                 SELECT
                     l.form_data->>'zip_code' AS zip_code,
                     COUNT(*) AS bookings,
-                    COALESCE(SUM(p.total_price), 0) AS revenue
+                    COALESCE(SUM(p.booked_tier_price), 0) AS revenue
                 FROM proposals p
                 JOIN leads l ON l.id = p.lead_id
                 WHERE p.status = 'booked'
@@ -638,7 +638,7 @@ def analytics_engagement(
                     COALESCE(COUNT(p.id), 0) AS booked
                 FROM schedule_slots ss
                 LEFT JOIN proposals p
-                    ON p.booked_date = ss.date
+                    ON p.booked_at::date = ss.date
                     AND p.status = 'booked'
                 WHERE ss.date >= %s AND ss.date <= %s
                 GROUP BY ss.date, ss.max_bookings
