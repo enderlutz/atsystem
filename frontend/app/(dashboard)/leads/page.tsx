@@ -370,6 +370,7 @@ export default function LeadsPage() {
   const prevLeadIdsRef = useRef<Set<string>>(new Set());
   const prevRespondedRef = useRef<Set<string>>(new Set());
   const notifiedMsgIdsRef = useRef<Set<string>>(new Set());
+  const [smsCounts, setSmsCounts] = useState<Record<string, number>>({});
   const [hoveredLeadId, setHoveredLeadId] = useState<string | null>(null);
   const [hoverPos, setHoverPos] = useState<{ x: number; y: number } | null>(null);
   const [hoverData, setHoverData] = useState<{ log: import("@/lib/api").AutomationLogEvent[]; queue: import("@/lib/api").QueuedMessage[] } | null>(null);
@@ -425,6 +426,12 @@ export default function LeadsPage() {
       if (!map.has(est.lead_id)) map.set(est.lead_id, est);
     }
     setEstimateMap(map);
+
+    // Fetch SMS sent counts for badge display
+    const ids = leadsData.map((l) => l.id);
+    if (ids.length > 0) {
+      api.getSmsCounts(ids).then((res) => setSmsCounts(res.counts)).catch(() => {});
+    }
 
     // Cache for instant next visit
     try {
@@ -906,6 +913,13 @@ export default function LeadsPage() {
                               <span className="text-xs text-violet-600 flex items-center gap-1">
                                 <Zap className="h-3 w-3" /> {WORKFLOW_LABELS[lead.workflow_stage] || lead.workflow_stage}
                                 {lead.workflow_paused && <span className="text-yellow-600">(paused)</span>}
+                              </span>
+                            )}
+
+                            {/* SMS automation count badge */}
+                            {(smsCounts[lead.id] ?? 0) > 0 && (
+                              <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-xs bg-blue-50 text-blue-600 border border-blue-100 font-medium">
+                                <Send className="h-3 w-3" /> {smsCounts[lead.id]} SMS sent
                               </span>
                             )}
 

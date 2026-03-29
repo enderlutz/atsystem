@@ -15,8 +15,10 @@ from api.proposals import router as proposals_router
 from api.schedule import router as schedule_router
 from api.workflow import router as workflow_router
 from api.analytics import router as analytics_router
+from api.notifications import router as notifications_router
 from services.poller import poll_ghl_contacts, sync_recent_messages
 from services.sms_worker import poll_sms_queue, poll_stage_timeouts
+from services.owner_digest import poll_owner_digest
 
 logging.basicConfig(level=logging.INFO)
 
@@ -27,6 +29,7 @@ async def lifespan(app: FastAPI):
     asyncio.create_task(sync_recent_messages())
     asyncio.create_task(poll_sms_queue())
     asyncio.create_task(poll_stage_timeouts())
+    asyncio.create_task(poll_owner_digest())
     yield
 
 
@@ -62,6 +65,7 @@ app.include_router(proposals_router)
 app.include_router(schedule_router)
 app.include_router(workflow_router)
 app.include_router(analytics_router)
+app.include_router(notifications_router)
 
 
 @app.get("/health")

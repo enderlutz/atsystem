@@ -337,6 +337,16 @@ export const api = {
     const q = qs.toString();
     return request<AutomationLogResponse>(`/api/workflow/log${q ? `?${q}` : ""}`);
   },
+
+  getNotificationsRecent: (since?: string) =>
+    request<{ events: AutomationLogEvent[]; count_since: number }>(
+      `/api/notifications/recent${since ? `?since=${since}` : ""}`
+    ),
+
+  getSmsCounts: (leadIds: string[]) =>
+    request<{ counts: Record<string, number> }>(
+      `/api/workflow/sms-counts?lead_ids=${leadIds.join(",")}`
+    ),
 };
 
 // --- Beacon helper (for sendBeacon on page unload) ---

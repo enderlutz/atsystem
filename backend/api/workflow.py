@@ -479,6 +479,32 @@ async def get_automation_log(
     }
 
 
+# ── SMS Counts per Lead (for Kanban badges) ───────────────────────
+
+@router.get("/sms-counts")
+async def get_sms_counts(
+    lead_ids: str = Query(description="Comma-separated lead IDs"),
+    _: dict = Depends(get_current_user),
+):
+    """Return count of sent SMS messages grouped by lead_id."""
+    ids = [lid.strip() for lid in lead_ids.split(",") if lid.strip()]
+    if not ids:
+        return {"counts": {}}
+    db = get_db()
+    res = (
+        db.table("sms_queue")
+        .select("lead_id")
+        .in_("lead_id", ids)
+        .eq("status", "sent")
+        .execute()
+    )
+    counts: dict[str, int] = {}
+    for row in (res.data or []):
+        lid = row["lead_id"]
+        counts[lid] = counts.get(lid, 0) + 1
+    return {"counts": counts}
+
+
 # ── Template editing ────────────────────────────────────────────────
 
 class TemplateMessage(BaseModel):

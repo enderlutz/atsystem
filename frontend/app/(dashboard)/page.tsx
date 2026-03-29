@@ -8,6 +8,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Clock, Users, CheckCircle, TrendingUp, ArrowRight, Flame } from "lucide-react";
+import { ActivityFeed } from "@/components/dashboard/activity-feed";
 
 function StatCard({
   title,
@@ -186,6 +187,9 @@ export default function DashboardPage() {
           </div>
         )}
       </div>
+
+      {/* Recent Automation Activity */}
+      <ActivityFeed />
     </div>
   );
 }
