@@ -82,10 +82,13 @@ def _run_message_sync() -> None:
 
     for conv in conversations:
         # Conversations are sorted newest-first — stop once we pass the cutoff
-        last_msg_date_str = conv.get("lastMessageDate") or conv.get("dateUpdated") or ""
-        if last_msg_date_str:
+        last_msg_date_raw = conv.get("lastMessageDate") or conv.get("dateUpdated") or ""
+        if last_msg_date_raw:
             try:
-                last_msg_dt = datetime.fromisoformat(last_msg_date_str.replace("Z", "+00:00"))
+                if isinstance(last_msg_date_raw, (int, float)):
+                    last_msg_dt = datetime.fromtimestamp(last_msg_date_raw / 1000 if last_msg_date_raw > 1e12 else last_msg_date_raw, tz=timezone.utc)
+                else:
+                    last_msg_dt = datetime.fromisoformat(str(last_msg_date_raw).replace("Z", "+00:00"))
                 if last_msg_dt < cutoff:
                     break
             except ValueError:
@@ -118,9 +121,12 @@ def _run_message_sync() -> None:
             if direction not in ("inbound", "incoming"):
                 continue
 
-            date_str = msg.get("dateAdded") or msg.get("createdAt") or ""
+            date_raw = msg.get("dateAdded") or msg.get("createdAt") or ""
             try:
-                msg_dt = datetime.fromisoformat(date_str.replace("Z", "+00:00"))
+                if isinstance(date_raw, (int, float)):
+                    msg_dt = datetime.fromtimestamp(date_raw / 1000 if date_raw > 1e12 else date_raw, tz=timezone.utc)
+                else:
+                    msg_dt = datetime.fromisoformat(str(date_raw).replace("Z", "+00:00"))
                 if msg_dt < cutoff:
                     continue
             except ValueError:
