@@ -14,6 +14,7 @@ from api.sync import router as sync_router
 from api.proposals import router as proposals_router
 from api.schedule import router as schedule_router
 from api.workflow import router as workflow_router
+from api.analytics import router as analytics_router
 from services.poller import poll_ghl_contacts, sync_recent_messages
 from services.sms_worker import poll_sms_queue, poll_stage_timeouts
 
@@ -60,6 +61,7 @@ app.include_router(sync_router)
 app.include_router(proposals_router)
 app.include_router(schedule_router)
 app.include_router(workflow_router)
+app.include_router(analytics_router)
 
 
 @app.get("/health")

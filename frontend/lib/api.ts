@@ -314,6 +314,16 @@ export const api = {
     }),
   getOverriddenStages: () =>
     request<{ overridden_stages: string[] }>("/api/workflow/templates/overrides"),
+  // Analytics
+  getAnalyticsRevenue: (period = "30d") =>
+    request<AnalyticsRevenue>(`/api/analytics/revenue?period=${period}`),
+  getAnalyticsFunnel: (period = "30d") =>
+    request<AnalyticsFunnel>(`/api/analytics/funnel?period=${period}`),
+  getAnalyticsSpeed: (period = "30d") =>
+    request<AnalyticsSpeed>(`/api/analytics/speed?period=${period}`),
+  getAnalyticsEngagement: (period = "30d") =>
+    request<AnalyticsEngagement>(`/api/analytics/engagement?period=${period}`),
+
   getAutomationLog: (params?: { lead_id?: string; event_type?: string; limit?: number; offset?: number }) => {
     const qs = new URLSearchParams();
     if (params?.lead_id) qs.set("lead_id", params.lead_id);
@@ -646,6 +656,45 @@ export interface StageTemplateResponse {
   branch: string | null;
   is_overridden: boolean;
   messages: StageTemplateMessage[];
+}
+
+// --- Analytics Types ---
+export interface AnalyticsRevenue {
+  total_revenue: number;
+  total_bookings: number;
+  avg_deal_value: number;
+  current_month_revenue: number;
+  previous_month_revenue: number;
+  month_change_pct: number;
+  projected_month_revenue: number;
+  revenue_trend: { period: string; revenue: number; bookings: number; avg_deal: number }[];
+  tier_distribution: { tier: string; count: number; revenue: number }[];
+  top_zip_codes: { zip_code: string; bookings: number; revenue: number }[];
+}
+
+export interface AnalyticsFunnel {
+  funnel_stages: { stage: string; count: number }[];
+  overall_conversion_rate: number;
+  biggest_dropoff: { from: string; to: string; drop_pct: number } | null;
+  conversion_trend: { week: string; leads: number; booked: number; rate: number }[];
+}
+
+export interface AnalyticsSpeed {
+  avg_hours_to_estimate: number | null;
+  avg_hours_to_booking: number | null;
+  avg_days_lead_to_booking: number | null;
+  stage_dwell_times: { stage: string; label: string; avg_hours: number; count: number }[];
+  current_bottlenecks: { stage: string; label: string; count: number; avg_days_stuck: number }[];
+  speed_trend: { week: string; avg_days: number }[];
+}
+
+export interface AnalyticsEngagement {
+  sms_stats: { sent: number; failed: number; cancelled: number; pending: number };
+  delivery_rate: number;
+  stage_response_rates: { stage: string; label: string; messaged: number; responded: number; rate: number }[];
+  overall_response_rate: number;
+  message_volume: { day: string; sent: number; failed: number }[];
+  schedule_capacity: { date: string; max_bookings: number; booked: number }[];
 }
 
 // Module-level cache for prefetched lead detail data — persists across client-side navigations

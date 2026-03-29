@@ -15,10 +15,12 @@ import {
   LogOut,
   ShieldCheck,
   Zap,
+  BarChart3,
 } from "lucide-react";
 
 const navItems = [
   { href: "/", label: "Dashboard", icon: LayoutDashboard, adminOnly: false },
+  { href: "/analytics", label: "Analytics", icon: BarChart3, adminOnly: false },
   { href: "/leads", label: "Leads", icon: Users, adminOnly: false },
   { href: "/admin-approval", label: "Admin Approval", icon: ShieldCheck, adminOnly: true },
   { href: "/estimates", label: "Estimates", icon: FileText, adminOnly: false },
