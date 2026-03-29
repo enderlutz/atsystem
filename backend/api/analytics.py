@@ -662,3 +662,207 @@ def analytics_engagement(
         "message_volume": message_volume,
         "schedule_capacity": schedule_capacity,
     }
+
+
+# ---------------------------------------------------------------------------
+# Endpoint 5: Cohort analysis
+# ---------------------------------------------------------------------------
+
+@router.get("/cohorts")
+def analytics_cohorts(
+    cohort_by: str = Query("week"),
+    _user: dict = Depends(get_current_user),
+):
+    trunc = "week" if cohort_by == "week" else "month"
+
+    with get_conn() as conn:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute(f"""
+                SELECT
+                    date_trunc('{trunc}', l.created_at)::date AS cohort,
+                    COUNT(*) AS leads,
+                    COUNT(*) FILTER (WHERE EXISTS (
+                        SELECT 1 FROM estimates e WHERE e.lead_id = l.id
+                    )) AS estimated,
+                    COUNT(*) FILTER (WHERE EXISTS (
+                        SELECT 1 FROM proposals p WHERE p.lead_id = l.id AND p.status != 'preview'
+                    )) AS proposal_sent,
+                    COUNT(*) FILTER (WHERE EXISTS (
+                        SELECT 1 FROM proposals p WHERE p.lead_id = l.id AND p.status = 'booked'
+                    )) AS booked,
+                    COALESCE(SUM(
+                        (SELECT p.booked_tier_price FROM proposals p
+                         WHERE p.lead_id = l.id AND p.status = 'booked' LIMIT 1)
+                    ), 0) AS revenue
+                FROM leads l
+                WHERE l.archived = false
+                GROUP BY cohort ORDER BY cohort DESC
+                LIMIT 20
+            """)
+            cohorts = []
+            for r in _rows(cur):
+                leads = r["leads"]
+                cohorts.append({
+                    "cohort": r["cohort"].isoformat() if hasattr(r["cohort"], "isoformat") else str(r["cohort"]),
+                    "leads": leads,
+                    "estimated": r["estimated"],
+                    "proposal_sent": r["proposal_sent"],
+                    "booked": r["booked"],
+                    "revenue": float(r["revenue"]),
+                    "estimate_rate": round(r["estimated"] / leads * 100, 1) if leads > 0 else 0.0,
+                    "proposal_rate": round(r["proposal_sent"] / leads * 100, 1) if leads > 0 else 0.0,
+                    "booking_rate": round(r["booked"] / leads * 100, 1) if leads > 0 else 0.0,
+                    "revenue_per_lead": round(float(r["revenue"]) / leads, 2) if leads > 0 else 0.0,
+                })
+
+    return {"cohort_by": cohort_by, "cohorts": cohorts}
+
+
+# ---------------------------------------------------------------------------
+# Endpoint 6: Lead insights (geography, timing, follow-up effectiveness)
+# ---------------------------------------------------------------------------
+
+@router.get("/insights")
+def analytics_insights(
+    period: str = Query("30d"),
+    _user: dict = Depends(get_current_user),
+):
+    cutoff = _period_cutoff(period)
+    lead_clause = "AND l.created_at >= %s" if cutoff else ""
+    lead_params: list = [cutoff] if cutoff else []
+
+    with get_conn() as conn:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            # 1. Zip code performance with conversion rates
+            cur.execute(
+                f"""
+                SELECT
+                    l.form_data->>'zip_code' AS zip_code,
+                    COUNT(DISTINCT l.id) AS total_leads,
+                    COUNT(DISTINCT p.id) FILTER (WHERE p.status = 'booked') AS bookings,
+                    COALESCE(SUM(p.booked_tier_price) FILTER (WHERE p.status = 'booked'), 0) AS revenue,
+                    COALESCE(AVG(p.booked_tier_price) FILTER (WHERE p.status = 'booked'), 0) AS avg_deal
+                FROM leads l
+                LEFT JOIN proposals p ON p.lead_id = l.id
+                WHERE l.archived = false
+                  AND l.form_data->>'zip_code' IS NOT NULL
+                  {lead_clause}
+                GROUP BY l.form_data->>'zip_code'
+                ORDER BY revenue DESC
+                """,
+                lead_params,
+            )
+            zip_performance = []
+            for r in _rows(cur):
+                total = r["total_leads"]
+                booked = r["bookings"]
+                zip_performance.append({
+                    "zip_code": r["zip_code"],
+                    "total_leads": total,
+                    "bookings": booked,
+                    "revenue": float(r["revenue"]),
+                    "avg_deal": round(float(r["avg_deal"]), 2),
+                    "conversion_rate": round(booked / total * 100, 1) if total > 0 else 0.0,
+                })
+
+            # 2. Day-of-week patterns
+            cur.execute(
+                f"""
+                SELECT
+                    EXTRACT(DOW FROM l.created_at) AS dow,
+                    TRIM(TO_CHAR(l.created_at, 'Day')) AS day_name,
+                    COUNT(*) AS leads
+                FROM leads l
+                WHERE l.archived = false {lead_clause}
+                GROUP BY dow, day_name ORDER BY dow
+                """,
+                lead_params,
+            )
+            leads_by_day = _rows(cur)
+
+            cur.execute("""
+                SELECT
+                    EXTRACT(DOW FROM p.booked_at) AS dow,
+                    TRIM(TO_CHAR(p.booked_at, 'Day')) AS day_name,
+                    COUNT(*) AS bookings
+                FROM proposals p WHERE p.status = 'booked'
+                GROUP BY dow, day_name ORDER BY dow
+            """)
+            bookings_by_day = _rows(cur)
+
+            cur.execute("""
+                SELECT
+                    EXTRACT(HOUR FROM p.booked_at) AS hour,
+                    COUNT(*) AS bookings
+                FROM proposals p WHERE p.status = 'booked'
+                GROUP BY hour ORDER BY hour
+            """)
+            bookings_by_hour = _rows(cur)
+
+            # 3. Follow-up effectiveness: which workflow stages have the best conversion
+            cur.execute(
+                f"""
+                SELECT
+                    sq.stage,
+                    COUNT(DISTINCT sq.lead_id) AS leads_messaged,
+                    COUNT(DISTINCT sq.lead_id) FILTER (WHERE EXISTS (
+                        SELECT 1 FROM proposals p
+                        WHERE p.lead_id = sq.lead_id AND p.status = 'booked'
+                    )) AS eventually_booked,
+                    COUNT(DISTINCT sq.lead_id) FILTER (WHERE EXISTS (
+                        SELECT 1 FROM messages m
+                        WHERE m.lead_id = sq.lead_id
+                          AND m.direction = 'inbound'
+                          AND m.created_at >= sq.sent_at
+                          AND m.created_at <= sq.sent_at + INTERVAL '48 hours'
+                    )) AS responded_48h
+                FROM sms_queue sq
+                WHERE sq.status = 'sent'
+                GROUP BY sq.stage
+                ORDER BY leads_messaged DESC
+                """,
+            )
+            followup_effectiveness = []
+            for r in _rows(cur):
+                messaged = r["leads_messaged"]
+                booked = r["eventually_booked"]
+                responded = r["responded_48h"]
+                followup_effectiveness.append({
+                    "stage": r["stage"],
+                    "label": STAGE_LABELS.get(r["stage"], r["stage"]),
+                    "leads_messaged": messaged,
+                    "eventually_booked": booked,
+                    "responded_48h": responded,
+                    "booking_rate": round(booked / messaged * 100, 1) if messaged > 0 else 0.0,
+                    "response_rate": round(responded / messaged * 100, 1) if messaged > 0 else 0.0,
+                })
+
+            # 4. Tier selection by zip (which areas prefer premium?)
+            cur.execute(
+                f"""
+                SELECT
+                    l.form_data->>'zip_code' AS zip_code,
+                    p.selected_tier AS tier,
+                    COUNT(*) AS count
+                FROM proposals p
+                JOIN leads l ON l.id = p.lead_id
+                WHERE p.status = 'booked'
+                  AND l.form_data->>'zip_code' IS NOT NULL
+                  AND p.selected_tier IS NOT NULL
+                  {lead_clause}
+                GROUP BY l.form_data->>'zip_code', p.selected_tier
+                ORDER BY zip_code, count DESC
+                """,
+                lead_params,
+            )
+            tier_by_zip = _rows(cur)
+
+    return {
+        "period": period,
+        "zip_performance": zip_performance,
+        "leads_by_day": leads_by_day,
+        "bookings_by_day": bookings_by_day,
+        "bookings_by_hour": bookings_by_hour,
+        "followup_effectiveness": followup_effectiveness,
+        "tier_by_zip": tier_by_zip,
+    }

@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "at-analytics": {
+      "command": "/Users/fragne/Documents/GitHub/at-system/mcp-server/.venv/bin/python",
+      "args": ["/Users/fragne/Documents/GitHub/at-system/mcp-server/server.py"],
+      "cwd": "/Users/fragne/Documents/GitHub/at-system/mcp-server"
+    }
+  }
+}

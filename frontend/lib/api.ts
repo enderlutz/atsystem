@@ -323,6 +323,10 @@ export const api = {
     request<AnalyticsSpeed>(`/api/analytics/speed?period=${period}`),
   getAnalyticsEngagement: (period = "30d") =>
     request<AnalyticsEngagement>(`/api/analytics/engagement?period=${period}`),
+  getAnalyticsCohorts: (cohortBy = "week") =>
+    request<any>(`/api/analytics/cohorts?cohort_by=${cohortBy}`),
+  getAnalyticsInsights: (period = "30d") =>
+    request<any>(`/api/analytics/insights?period=${period}`),
 
   getAutomationLog: (params?: { lead_id?: string; event_type?: string; limit?: number; offset?: number }) => {
     const qs = new URLSearchParams();

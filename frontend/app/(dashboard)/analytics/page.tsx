@@ -35,6 +35,9 @@ import {
   Users,
   ArrowDownRight,
   BarChart3,
+  Layers,
+  Lightbulb,
+  MapPin,
 } from "lucide-react";
 
 // ---------------------------------------------------------------------------
@@ -203,6 +206,8 @@ const TABS = [
   { key: "funnel", label: "Conversion Funnel", icon: Users },
   { key: "speed", label: "Operational Speed", icon: Zap },
   { key: "engagement", label: "SMS & Engagement", icon: MessageSquare },
+  { key: "cohorts", label: "Cohort Analysis", icon: Layers },
+  { key: "insights", label: "Lead Insights", icon: Lightbulb },
 ] as const;
 
 type TabKey = (typeof TABS)[number]["key"];
@@ -233,6 +238,8 @@ export default function AnalyticsPage() {
   const [funnel, setFunnel] = useState<AnalyticsFunnel | null>(null);
   const [speed, setSpeed] = useState<AnalyticsSpeed | null>(null);
   const [engagement, setEngagement] = useState<AnalyticsEngagement | null>(null);
+  const [cohorts, setCohorts] = useState<any>(null);
+  const [insights, setInsights] = useState<any>(null);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
@@ -256,6 +263,16 @@ export default function AnalyticsPage() {
         case "engagement": {
           const data = await (api as any).getAnalyticsEngagement(period);
           setEngagement(data);
+          break;
+        }
+        case "cohorts": {
+          const data = await (api as any).getAnalyticsCohorts(period === "90d" || period === "all" ? "month" : "week");
+          setCohorts(data);
+          break;
+        }
+        case "insights": {
+          const data = await (api as any).getAnalyticsInsights(period);
+          setInsights(data);
           break;
         }
       }
@@ -320,6 +337,8 @@ export default function AnalyticsPage() {
       {activeTab === "funnel" && <FunnelTab data={funnel} loading={loading} />}
       {activeTab === "speed" && <SpeedTab data={speed} loading={loading} />}
       {activeTab === "engagement" && <EngagementTab data={engagement} loading={loading} />}
+      {activeTab === "cohorts" && <CohortsTab data={cohorts} loading={loading} />}
+      {activeTab === "insights" && <InsightsTab data={insights} loading={loading} />}
     </div>
   );
 }
@@ -982,6 +1001,390 @@ function EngagementTab({ data, loading }: { data: AnalyticsEngagement | null; lo
                     />
                   </BarChart>
                 </ResponsiveContainer>
+              </CardContent>
+            </Card>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
+// ===========================================================================
+// Tab 5: Cohort Analysis
+// ===========================================================================
+
+function CohortsTab({ data, loading }: { data: any; loading: boolean }) {
+  if (loading || !data) {
+    return (
+      <div className="space-y-6">
+        <SkeletonCards count={3} />
+        <SkeletonChart />
+        <SkeletonChart />
+      </div>
+    );
+  }
+
+  const cohorts: any[] = data.cohorts || [];
+  if (cohorts.length === 0) {
+    return <EmptyState message="No cohort data available yet." />;
+  }
+
+  const latest = cohorts[0];
+  const previous = cohorts.length > 1 ? cohorts[1] : null;
+  const rateChange = previous
+    ? (latest.booking_rate - previous.booking_rate).toFixed(1)
+    : null;
+
+  const chartData = [...cohorts].reverse().map((c) => ({
+    ...c,
+    label: shortDate(c.cohort),
+  }));
+
+  const COHORT_COLORS = {
+    estimate_rate: "#94A3B8",
+    proposal_rate: "#0693e3",
+    booking_rate: "#22C55E",
+  };
+
+  return (
+    <div className="space-y-6">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        <StatCard
+          label="Latest Cohort"
+          value={shortDate(latest.cohort)}
+          icon={Layers}
+          subtext={`${latest.leads} leads`}
+        />
+        <StatCard
+          label="Booking Rate"
+          value={fmtPct(latest.booking_rate)}
+          icon={TrendingUp}
+          subtext={
+            rateChange !== null
+              ? `${Number(rateChange) >= 0 ? "+" : ""}${rateChange}% vs prev`
+              : undefined
+          }
+          subtextColor={
+            rateChange !== null
+              ? Number(rateChange) >= 0
+                ? "text-green-600"
+                : "text-red-600"
+              : undefined
+          }
+        />
+        <StatCard
+          label="Revenue / Lead"
+          value={fmtCurrency(latest.revenue_per_lead)}
+          icon={DollarSign}
+        />
+        <StatCard
+          label="Cohort Revenue"
+          value={fmtCurrency(latest.revenue)}
+          icon={Target}
+        />
+      </div>
+
+      {/* Conversion Rates by Cohort */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Conversion Rates by Cohort</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <ResponsiveContainer width="100%" height={350}>
+            <BarChart data={chartData}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+              <XAxis dataKey="label" tick={{ fontSize: 11 }} angle={-20} textAnchor="end" height={50} />
+              <YAxis tick={{ fontSize: 12 }} tickFormatter={(v: number) => `${v}%`} domain={[0, "auto"]} />
+              <Tooltip formatter={((v: number) => `${v.toFixed(1)}%`) as any} />
+              <Legend />
+              <Bar dataKey="estimate_rate" name="Estimated" fill={COHORT_COLORS.estimate_rate} radius={[2, 2, 0, 0]} />
+              <Bar dataKey="proposal_rate" name="Proposal Sent" fill={COHORT_COLORS.proposal_rate} radius={[2, 2, 0, 0]} />
+              <Bar dataKey="booking_rate" name="Booked" fill={COHORT_COLORS.booking_rate} radius={[2, 2, 0, 0]} />
+            </BarChart>
+          </ResponsiveContainer>
+        </CardContent>
+      </Card>
+
+      {/* Revenue per Lead by Cohort */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Revenue per Lead by Cohort</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <ResponsiveContainer width="100%" height={300}>
+            <AreaChart data={chartData}>
+              <defs>
+                <linearGradient id="rplGradient" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="5%" stopColor="#22C55E" stopOpacity={0.3} />
+                  <stop offset="95%" stopColor="#22C55E" stopOpacity={0} />
+                </linearGradient>
+              </defs>
+              <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+              <XAxis dataKey="label" tick={{ fontSize: 11 }} angle={-20} textAnchor="end" height={50} />
+              <YAxis tick={{ fontSize: 12 }} tickFormatter={(v: number) => `$${v}`} />
+              <Tooltip formatter={((v: number) => fmtCurrency(v)) as any} />
+              <Area
+                type="monotone"
+                dataKey="revenue_per_lead"
+                name="Revenue / Lead"
+                stroke="#22C55E"
+                fill="url(#rplGradient)"
+                strokeWidth={2}
+              />
+            </AreaChart>
+          </ResponsiveContainer>
+        </CardContent>
+      </Card>
+
+      {/* Cohort Detail Table */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">Cohort Detail</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b text-left text-muted-foreground">
+                  <th className="pb-2 pr-4">Cohort</th>
+                  <th className="pb-2 pr-4 text-right">Leads</th>
+                  <th className="pb-2 pr-4 text-right">Estimated</th>
+                  <th className="pb-2 pr-4 text-right">Sent</th>
+                  <th className="pb-2 pr-4 text-right">Booked</th>
+                  <th className="pb-2 pr-4 text-right">Rate</th>
+                  <th className="pb-2 text-right">Revenue</th>
+                </tr>
+              </thead>
+              <tbody>
+                {cohorts.map((c: any) => (
+                  <tr key={c.cohort} className="border-b border-gray-100">
+                    <td className="py-2 pr-4 font-medium">{shortDate(c.cohort)}</td>
+                    <td className="py-2 pr-4 text-right">{c.leads}</td>
+                    <td className="py-2 pr-4 text-right">{c.estimated}</td>
+                    <td className="py-2 pr-4 text-right">{c.proposal_sent}</td>
+                    <td className="py-2 pr-4 text-right">{c.booked}</td>
+                    <td className="py-2 pr-4 text-right">
+                      <span className={c.booking_rate >= 20 ? "text-green-600 font-medium" : c.booking_rate >= 10 ? "text-yellow-600" : "text-red-500"}>
+                        {fmtPct(c.booking_rate)}
+                      </span>
+                    </td>
+                    <td className="py-2 text-right">{fmtCurrency(c.revenue)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+// ===========================================================================
+// Tab 6: Lead Insights
+// ===========================================================================
+
+const DAY_ORDER = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+const DAY_SHORT: Record<string, string> = {
+  Sunday: "Sun", Monday: "Mon", Tuesday: "Tue", Wednesday: "Wed",
+  Thursday: "Thu", Friday: "Fri", Saturday: "Sat",
+};
+
+function InsightsTab({ data, loading }: { data: any; loading: boolean }) {
+  if (loading || !data) {
+    return (
+      <div className="space-y-6">
+        <SkeletonCards count={3} />
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <SkeletonChart />
+          <SkeletonChart />
+        </div>
+        <SkeletonChart />
+      </div>
+    );
+  }
+
+  const zipPerf: any[] = data.zip_performance || [];
+  const leadsByDay: any[] = data.leads_by_day || [];
+  const bookingsByDay: any[] = data.bookings_by_day || [];
+  const bookingsByHour: any[] = data.bookings_by_hour || [];
+  const followup: any[] = data.followup_effectiveness || [];
+
+  const hasData = zipPerf.length > 0 || leadsByDay.length > 0 || followup.length > 0;
+
+  const bestZip = zipPerf.length > 0 ? zipPerf.reduce((a: any, b: any) => (a.conversion_rate > b.conversion_rate && a.total_leads >= 3 ? a : b)) : null;
+  const bestLeadDay = leadsByDay.length > 0 ? leadsByDay.reduce((a: any, b: any) => (a.leads > b.leads ? a : b)) : null;
+  const bestFollowup = followup.length > 0 ? followup.reduce((a: any, b: any) => (a.booking_rate > b.booking_rate && a.leads_messaged >= 3 ? a : b)) : null;
+
+  const dayData = DAY_ORDER.map((day) => {
+    const lead = leadsByDay.find((d: any) => d.day_name === day);
+    const booking = bookingsByDay.find((d: any) => d.day_name === day);
+    return {
+      day: DAY_SHORT[day] || day,
+      leads: lead?.leads || 0,
+      bookings: booking?.bookings || 0,
+    };
+  });
+
+  const hourData = bookingsByHour.map((h: any) => ({
+    hour: `${h.hour}:00`,
+    bookings: h.bookings,
+  }));
+
+  return (
+    <div className="space-y-6">
+      <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
+        <StatCard
+          label="Best Zip Code"
+          value={bestZip ? bestZip.zip_code : "--"}
+          icon={MapPin}
+          subtext={bestZip ? `${fmtPct(bestZip.conversion_rate)} conversion, ${bestZip.total_leads} leads` : undefined}
+          subtextColor="text-green-600"
+        />
+        <StatCard
+          label="Best Day for Leads"
+          value={bestLeadDay ? bestLeadDay.day_name : "--"}
+          icon={Calendar}
+          subtext={bestLeadDay ? `${bestLeadDay.leads} leads` : undefined}
+        />
+        <StatCard
+          label="Best Follow-up Stage"
+          value={bestFollowup ? bestFollowup.label : "--"}
+          icon={MessageSquare}
+          subtext={bestFollowup ? `${fmtPct(bestFollowup.booking_rate)} eventually book` : undefined}
+          subtextColor="text-green-600"
+        />
+      </div>
+
+      {!hasData ? (
+        <EmptyState message="Not enough data for insights yet." />
+      ) : (
+        <>
+          {/* Zip Code Performance Table */}
+          {zipPerf.length > 0 && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">Zip Code Performance</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b text-left text-muted-foreground">
+                        <th className="pb-2 pr-4">Zip Code</th>
+                        <th className="pb-2 pr-4 text-right">Leads</th>
+                        <th className="pb-2 pr-4 text-right">Bookings</th>
+                        <th className="pb-2 pr-4 text-right">Conversion</th>
+                        <th className="pb-2 pr-4 text-right">Avg Deal</th>
+                        <th className="pb-2 text-right">Revenue</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {zipPerf.map((z: any) => (
+                        <tr key={z.zip_code} className="border-b border-gray-100">
+                          <td className="py-2 pr-4 font-medium">{z.zip_code}</td>
+                          <td className="py-2 pr-4 text-right">{z.total_leads}</td>
+                          <td className="py-2 pr-4 text-right">{z.bookings}</td>
+                          <td className="py-2 pr-4 text-right">
+                            <span className={z.conversion_rate >= 30 ? "text-green-600 font-medium" : z.conversion_rate >= 15 ? "text-yellow-600" : "text-red-500"}>
+                              {fmtPct(z.conversion_rate)}
+                            </span>
+                          </td>
+                          <td className="py-2 pr-4 text-right">{fmtCurrency(z.avg_deal)}</td>
+                          <td className="py-2 text-right">{fmtCurrency(z.revenue)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {dayData.length > 0 && (
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-base">Leads & Bookings by Day of Week</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <ResponsiveContainer width="100%" height={300}>
+                    <BarChart data={dayData}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                      <XAxis dataKey="day" tick={{ fontSize: 12 }} />
+                      <YAxis tick={{ fontSize: 12 }} />
+                      <Tooltip />
+                      <Legend />
+                      <Bar dataKey="leads" name="Leads" fill="#94A3B8" radius={[2, 2, 0, 0]} />
+                      <Bar dataKey="bookings" name="Bookings" fill="#0693e3" radius={[2, 2, 0, 0]} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </CardContent>
+              </Card>
+            )}
+
+            {hourData.length > 0 && (
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-base">Bookings by Hour of Day</CardTitle>
+                </CardHeader>
+                <CardContent>
+                  <ResponsiveContainer width="100%" height={300}>
+                    <BarChart data={hourData}>
+                      <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" />
+                      <XAxis dataKey="hour" tick={{ fontSize: 11 }} angle={-30} textAnchor="end" height={50} />
+                      <YAxis tick={{ fontSize: 12 }} />
+                      <Tooltip />
+                      <Bar dataKey="bookings" name="Bookings" fill="#22C55E" radius={[4, 4, 0, 0]} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </CardContent>
+              </Card>
+            )}
+          </div>
+
+          {/* Follow-up Effectiveness */}
+          {followup.length > 0 && (
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-base">Follow-up Effectiveness by Stage</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b text-left text-muted-foreground">
+                        <th className="pb-2 pr-4">Stage</th>
+                        <th className="pb-2 pr-4 text-right">Leads Messaged</th>
+                        <th className="pb-2 pr-4 text-right">Responded (48h)</th>
+                        <th className="pb-2 pr-4 text-right">Response Rate</th>
+                        <th className="pb-2 pr-4 text-right">Eventually Booked</th>
+                        <th className="pb-2 text-right">Booking Rate</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {followup.map((f: any) => (
+                        <tr key={f.stage} className="border-b border-gray-100">
+                          <td className="py-2 pr-4 font-medium">{f.label}</td>
+                          <td className="py-2 pr-4 text-right">{f.leads_messaged}</td>
+                          <td className="py-2 pr-4 text-right">{f.responded_48h}</td>
+                          <td className="py-2 pr-4 text-right">
+                            <span className={f.response_rate >= 40 ? "text-green-600 font-medium" : f.response_rate >= 20 ? "text-yellow-600" : "text-red-500"}>
+                              {fmtPct(f.response_rate)}
+                            </span>
+                          </td>
+                          <td className="py-2 pr-4 text-right">{f.eventually_booked}</td>
+                          <td className="py-2 text-right">
+                            <span className={f.booking_rate >= 30 ? "text-green-600 font-medium" : f.booking_rate >= 15 ? "text-yellow-600" : "text-red-500"}>
+                              {fmtPct(f.booking_rate)}
+                            </span>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
               </CardContent>
             </Card>
           )}
