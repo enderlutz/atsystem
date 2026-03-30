@@ -156,8 +156,26 @@ function generateICS(customerName: string, address: string, dateStr: string, tie
 }
 
 function formatSides(s: unknown): string {
-  if (!s || typeof s !== "string") return String(s ?? "");
-  const sides = s.split(/\s*,\s*/).map((x) => x.trim()).filter(Boolean);
+  if (!s) return "";
+  // Handle arrays directly, JSON array strings, or comma-separated strings
+  let sides: string[];
+  if (Array.isArray(s)) {
+    sides = s.map(String).filter(Boolean);
+  } else if (typeof s === "string") {
+    // Try parsing as JSON array first
+    try {
+      const parsed = JSON.parse(s);
+      if (Array.isArray(parsed)) {
+        sides = parsed.map(String).filter(Boolean);
+      } else {
+        sides = s.split(/\s*,\s*/).map((x) => x.trim()).filter(Boolean);
+      }
+    } catch {
+      sides = s.split(/\s*,\s*/).map((x) => x.trim()).filter(Boolean);
+    }
+  } else {
+    return String(s);
+  }
   if (sides.length === 0) return "";
 
   const INSIDE_SIDES = ["Inside Front", "Inside Left", "Inside Back", "Inside Right"];
