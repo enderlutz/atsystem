@@ -102,6 +102,7 @@ class QueryBuilder:
         self._upsert_conflict: str | None = None
         self._in_filters: list[tuple[str, list]] = []
         self._not_in_filters: list[tuple[str, list]] = []
+        self._gt_filters: list[tuple[str, str]] = []
         self._gte_filters: list[tuple[str, str]] = []
         self._lt_filters: list[tuple[str, str]] = []
         self._lte_filters: list[tuple[str, str]] = []
@@ -166,6 +167,10 @@ class QueryBuilder:
         self._lte_filters.append((col, val))
         return self
 
+    def gt(self, col: str, val: str) -> QueryBuilder:
+        self._gt_filters.append((col, val))
+        return self
+
     def gte(self, col: str, val: str) -> QueryBuilder:
         self._gte_filters.append((col, val))
         return self
@@ -226,6 +231,9 @@ class QueryBuilder:
             params.append(val)
         for col, val in self._lte_filters:
             parts.append(f"{col} <= %s")
+            params.append(val)
+        for col, val in self._gt_filters:
+            parts.append(f"{col} > %s")
             params.append(val)
         for col, val in self._gte_filters:
             parts.append(f"{col} >= %s")

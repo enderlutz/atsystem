@@ -99,7 +99,7 @@ async def approve_estimate(estimate_id: str, body: EstimateApprove = EstimateApp
 
     # Find ALL pending/adjusted estimates for this lead (multi-estimate support)
     all_est_res = (
-        db.table("estimates").select("id, inputs, send_count, label")
+        db.table("estimates").select("*")
         .eq("lead_id", estimate["lead_id"])
         .in_("status", ["pending", "adjusted"])
         .order("created_at")
@@ -218,7 +218,7 @@ async def admin_approve_estimate(estimate_id: str, body: AdminApproveRequest, _:
 
     # Also approve any sibling pending estimates for multi-estimate proposals
     sibling_res = (
-        db.table("estimates").select("id, inputs, label")
+        db.table("estimates").select("*")
         .eq("lead_id", estimate["lead_id"])
         .in_("status", ["pending", "adjusted"])
         .neq("id", estimate_id)
