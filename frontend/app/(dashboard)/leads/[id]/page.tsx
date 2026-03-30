@@ -363,12 +363,11 @@ export default function LeadDetailPage() {
   // Compute schedule defaults based on current Central time
   const nowCentral = new Date(new Date().toLocaleString("en-US", { timeZone: "America/Chicago" }));
   const isAfterHours = nowCentral.getHours() >= 19; // 7 PM+
-  const todayDate = nowCentral.toISOString().slice(0, 10);
-  const tomorrowDate = (() => {
-    const t = new Date(nowCentral);
-    t.setDate(t.getDate() + 1);
-    return t.toISOString().slice(0, 10);
-  })();
+  const pad = (n: number) => String(n).padStart(2, "0");
+  const todayDate = `${nowCentral.getFullYear()}-${pad(nowCentral.getMonth() + 1)}-${pad(nowCentral.getDate())}`;
+  const tomorrowCentral = new Date(nowCentral);
+  tomorrowCentral.setDate(tomorrowCentral.getDate() + 1);
+  const tomorrowDate = `${tomorrowCentral.getFullYear()}-${pad(tomorrowCentral.getMonth() + 1)}-${pad(tomorrowCentral.getDate())}`;
   const defaultScheduleDate = isAfterHours ? tomorrowDate : todayDate;
 
   // Auto-enable schedule after 7 PM
@@ -2035,7 +2034,7 @@ export default function LeadDetailPage() {
                         className="border rounded px-2 py-1 text-sm bg-white"
                         value={scheduledDate || defaultScheduleDate}
                         onChange={(e) => setScheduledDate(e.target.value)}
-                        min={nowCentral.toISOString().slice(0, 10)}
+                        min={todayDate}
                       />
                       <input
                         type="time"
