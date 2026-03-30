@@ -537,18 +537,37 @@ async def _finalize_booking(
         first = customer_name.split()[0] if customer_name else "there"
         color_line = color_display or "HOA color pending approval"
         backup_line = f"\n📅 Backup: {backup_dates_text}" if parsed_backup_dates else ""
-        customer_sms = (
-            f"Hi {first}! 🎉 Your fence restoration is confirmed.\n\n"
-            f"📦 Package: {tier_label} — ${tier_price:,.0f}\n"
-            f"🎨 Color: {color_line}\n"
-            f"📅 Date: {date_str}{backup_line}\n"
-            f"🏠 Address: {address}\n\n"
-            f"Our crew arrives between 8:00–9:00 AM. "
-            f"We'll send a reminder the night before.\n\n"
-            f"Need to cancel or reschedule? Please let us know "
-            f"at least 48 hours in advance.\n\n"
-            f"— A&T's Fence Restoration"
-        )
+        if is_multi and len(booked_sections) > 1:
+            pkg_lines = "\n".join(
+                f"  {sec['tier_label']} — ${sec['tier_price']:,.0f}" + (f" ({sec['label']})" if sec["label"] else "")
+                for sec in booked_sections
+            )
+            customer_sms = (
+                f"Hi {first}! 🎉 Your fence restoration is confirmed.\n\n"
+                f"📦 Packages:\n{pkg_lines}\n"
+                f"💰 Total: ${booked_total_price:,.0f}\n"
+                f"🎨 Color: {color_line}\n"
+                f"📅 Date: {date_str}{backup_line}\n"
+                f"🏠 Address: {address}\n\n"
+                f"Our crew arrives between 8:00–9:00 AM. "
+                f"We'll send a reminder the night before.\n\n"
+                f"Need to cancel or reschedule? Please let us know "
+                f"at least 48 hours in advance.\n\n"
+                f"— A&T's Fence Restoration"
+            )
+        else:
+            customer_sms = (
+                f"Hi {first}! 🎉 Your fence restoration is confirmed.\n\n"
+                f"📦 Package: {tier_label} — ${booked_total_price:,.0f}\n"
+                f"🎨 Color: {color_line}\n"
+                f"📅 Date: {date_str}{backup_line}\n"
+                f"🏠 Address: {address}\n\n"
+                f"Our crew arrives between 8:00–9:00 AM. "
+                f"We'll send a reminder the night before.\n\n"
+                f"Need to cancel or reschedule? Please let us know "
+                f"at least 48 hours in advance.\n\n"
+                f"— A&T's Fence Restoration"
+            )
         lead_add_svcs = ((lead.get("form_data") or {}).get("additional_services") or "").strip()
         if lead_add_svcs:
             customer_sms += (
@@ -596,10 +615,10 @@ async def _finalize_booking(
         "stripe_session_id": stripe_session_id,
         "deposit_paid": bool(stripe_session_id),
     }
-    # Multi-estimate: store selections and total
+    # Always store total price; store selections for multi-estimate
+    proposal_update["booked_total_price"] = booked_total_price
     if is_multi and selections:
         proposal_update["selections"] = selections
-        proposal_update["booked_total_price"] = booked_total_price
     db.table("proposals").update(proposal_update).eq("token", token).execute()
 
     # Ensure a schedule_slot row exists for the booked date so it appears on the dashboard calendar

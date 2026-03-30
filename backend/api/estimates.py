@@ -73,6 +73,11 @@ async def approve_estimate(estimate_id: str, body: EstimateApprove = EstimateApp
     estimate = res.data
     lead = estimate.get("lead") or {}
     is_admin = user.get("role") == "admin"
+
+    # Prevent double-approval — if already approved/sent, don't create another proposal
+    if estimate["status"] in ("approved",):
+        raise HTTPException(status_code=409, detail="Estimate already approved. Use 'Resend' to send again or 'Cancel Quote' to reset.")
+
     approval_status = ((estimate.get("inputs") or {}).get("_approval_status") or "").lower()
 
     # RED estimates require admin OR VA bypass with password confirmation
@@ -186,6 +191,10 @@ async def admin_approve_estimate(estimate_id: str, body: AdminApproveRequest, _:
 
     estimate = res.data
     lead = estimate.get("lead") or {}
+
+    # Prevent double-approval
+    if estimate["status"] in ("approved",):
+        raise HTTPException(status_code=409, detail="Estimate already approved. Use 'Resend' or 'Cancel Quote' to reset.")
 
     # Apply optional admin overrides to tiers
     inputs = dict(estimate.get("inputs") or {})
@@ -456,16 +465,30 @@ async def resend_estimate(estimate_id: str, _: dict = Depends(require_admin)):
     if estimate["status"] not in ("approved", "adjusted"):
         raise HTTPException(status_code=400, detail="Can only resend approved or adjusted estimates")
 
+    # Include all approved sibling estimates for multi-estimate support
+    all_approved = (
+        db.table("estimates").select("id")
+        .eq("lead_id", estimate["lead_id"])
+        .in_("status", ["approved", "adjusted"])
+        .order("created_at")
+        .execute()
+    )
+    all_ids = [e["id"] for e in (all_approved.data or [])]
+    is_multi = len(all_ids) > 1
+
     settings = get_settings()
     token = secrets.token_urlsafe(12)
     proposal_url = f"{settings.proposal_base_url}/proposal/{token}"
     try:
-        db.table("proposals").insert({
+        proposal_row = {
             "token": token,
             "estimate_id": estimate_id,
             "lead_id": estimate["lead_id"],
             "status": "sent",
-        }).execute()
+        }
+        if is_multi:
+            proposal_row["estimate_ids"] = all_ids
+        db.table("proposals").insert(proposal_row).execute()
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to create proposal record: {e}")
 
