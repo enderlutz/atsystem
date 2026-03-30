@@ -570,6 +570,11 @@ export default function ProposalPage() {
     return "";
   };
 
+  // Multi-section support — must be defined before handleCheckout
+  const sections = proposal?.sections ?? [];
+  const isMulti = sections.length > 1;
+  const singleSectionId = sections.length === 1 ? sections[0].estimate_id : "__single__";
+
   const handleCheckout = async () => {
     if (isPreview) { alert("Preview mode — checkout disabled"); return; }
     if (!selectedDate || !proposal || !pkg) return;
@@ -643,12 +648,6 @@ export default function ProposalPage() {
   const previouslyStained = (proposal.previously_stained || "No").toLowerCase().startsWith("y");
   const selectedColorDisplay = proposal.color_display || getColorDisplayName() || "Not specified";
   const selectedBackupDates = (proposal.backup_dates || backupDates || []).slice(0, 1);
-
-  // Multi-section support
-  const sections = proposal.sections ?? [];
-  const isMulti = sections.length > 1;
-  // For single-section, derive pkg from selections for backward compat
-  const singleSectionId = sections.length === 1 ? sections[0].estimate_id : "__single__";
 
   // Running total for multi-section
   const multiTotal = useMemo(() => {
