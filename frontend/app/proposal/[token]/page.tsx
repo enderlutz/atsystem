@@ -157,7 +157,42 @@ function generateICS(customerName: string, address: string, dateStr: string, tie
 
 function formatSides(s: unknown): string {
   if (!s || typeof s !== "string") return String(s ?? "");
-  return s.split(/\s*,\s*|\s+/).filter(Boolean).join(", ");
+  const sides = s.split(/\s*,\s*/).map((x) => x.trim()).filter(Boolean);
+  if (sides.length === 0) return "";
+
+  const INSIDE_SIDES = ["Inside Front", "Inside Left", "Inside Back", "Inside Right"];
+  const OUTSIDE_SIDES = ["Outside Front", "Outside Left", "Outside Back", "Outside Right"];
+
+  const insideSides = sides.filter((x) => INSIDE_SIDES.includes(x));
+  const outsideSides = sides.filter((x) => OUTSIDE_SIDES.includes(x));
+  const otherSides = sides.filter((x) => !INSIDE_SIDES.includes(x) && !OUTSIDE_SIDES.includes(x));
+
+  const allInside = insideSides.length === 4;
+  const allOutside = outsideSides.length === 4;
+
+  const parts: string[] = [];
+
+  if (allInside && allOutside) {
+    parts.push("All Fences — Inside & Outside");
+  } else {
+    if (allInside) {
+      parts.push("Inside Fences (Facing the House)");
+    } else if (insideSides.length > 0) {
+      const names = insideSides.map((x) => x.replace("Inside ", ""));
+      parts.push(`Inside ${names.join(", ")} ${insideSides.length === 1 ? "Fence" : "Fences"}`);
+    }
+
+    if (allOutside) {
+      parts.push("Outside Fences (Facing the Street)");
+    } else if (outsideSides.length > 0) {
+      const names = outsideSides.map((x) => x.replace("Outside ", ""));
+      parts.push(`Outside ${names.join(", ")} ${outsideSides.length === 1 ? "Fence" : "Fences"}`);
+    }
+  }
+
+  if (otherSides.length > 0) parts.push(...otherSides);
+
+  return parts.join(", ");
 }
 
 const MONTH_NAMES = ["January","February","March","April","May","June","July","August","September","October","November","December"];
