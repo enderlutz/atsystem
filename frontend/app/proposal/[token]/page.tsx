@@ -620,6 +620,17 @@ export default function ProposalPage() {
     }
   };
 
+  // Running total for multi-section (must be before early returns — React hooks rule)
+  const multiTotal = useMemo(() => {
+    if (!isMulti) return 0;
+    return sections.reduce((sum: number, sec: { estimate_id: string; tiers: Record<string, number> }) => {
+      const tier = selections[sec.estimate_id];
+      return sum + (tier ? sec.tiers[tier] : 0);
+    }, 0);
+  }, [isMulti, sections, selections]);
+
+  const multiSelectionCount = Object.values(selections).filter(Boolean).length;
+
   // ── Loading ────────────────────────────────────────────────────────────────
   if (loading) return (
     <div style={{ minHeight: "100vh", background: C.bg, display: "flex", alignItems: "center", justifyContent: "center" }}>
@@ -648,17 +659,6 @@ export default function ProposalPage() {
   const previouslyStained = (proposal.previously_stained || "No").toLowerCase().startsWith("y");
   const selectedColorDisplay = proposal.color_display || getColorDisplayName() || "Not specified";
   const selectedBackupDates = (proposal.backup_dates || backupDates || []).slice(0, 1);
-
-  // Running total for multi-section
-  const multiTotal = useMemo(() => {
-    if (!isMulti) return 0;
-    return sections.reduce((sum, sec) => {
-      const tier = selections[sec.estimate_id];
-      return sum + (tier ? sec.tiers[tier] : 0);
-    }, 0);
-  }, [isMulti, sections, selections]);
-
-  const multiSelectionCount = Object.values(selections).filter(Boolean).length;
 
   const TIERS = [
     { key: "essential" as const, label: "Essential Seal™", badge: null,
