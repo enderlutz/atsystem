@@ -1623,9 +1623,30 @@ export default function LeadDetailPage() {
             {/* Action area — differs by status */}
             {estimateSent ? (
               <div className="flex flex-col gap-2 w-full">
-                <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium bg-green-100 text-green-700 w-fit">
-                  <CheckCircle2 className="h-4 w-4" /> Sent to customer
-                </span>
+                <div className="flex items-center justify-between w-full">
+                  <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium bg-green-100 text-green-700 w-fit">
+                    <CheckCircle2 className="h-4 w-4" /> Sent to customer
+                  </span>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="gap-1.5 text-orange-600 border-orange-300 hover:bg-orange-50"
+                    onClick={async () => {
+                      const targetEst = lead.estimates?.find((e) => e.status === "approved" || e.status === "adjusted") || est;
+                      if (!targetEst?.id) return;
+                      if (!confirm("Cancel the current quote? This will reset all estimates to pending so you can re-send with new pricing.")) return;
+                      try {
+                        await api.cancelQuote(targetEst.id);
+                        window.location.reload();
+                      } catch (e: unknown) {
+                        alert((e as Error).message || "Failed to cancel quote");
+                      }
+                    }}
+                  >
+                    <X className="h-3.5 w-3.5" />
+                    Cancel Quote
+                  </Button>
+                </div>
                 {/* Funnel stage indicator */}
                 {(() => {
                   const STAGES = ["sent", "opened", "hoa_selected", "package_selected", "color_selected", "date_selected", "checkout_started", "booked"];
