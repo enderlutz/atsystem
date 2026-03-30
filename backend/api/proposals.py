@@ -168,7 +168,7 @@ async def get_proposal(token: str):
         color_display = "Not specified"
 
     return {
-        "status": proposal.get("status") if proposal.get("status") == "booked" else ("preview" if is_preview else "viewed"),
+        "status": proposal.get("status") if proposal.get("status") in ("booked", "cancelled") else ("preview" if is_preview else "viewed"),
         "token": token,
         "customer_name": lead.get("contact_name") or "",
         "address": lead.get("address") or "",

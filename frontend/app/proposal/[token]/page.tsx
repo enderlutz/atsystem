@@ -652,6 +652,22 @@ export default function ProposalPage() {
     </div>
   );
 
+  if (proposal.status === "cancelled") return (
+    <div style={{ minHeight: "100vh", background: C.bg, display: "flex", alignItems: "center", justifyContent: "center" }} className="px-4">
+      <div className="text-center space-y-4 max-w-sm">
+        <div className="text-4xl">📋</div>
+        <h1 style={{ color: C.cream, fontFamily: "'Playfair Display', serif" }} className="text-2xl font-bold">Quote Updated</h1>
+        <p style={{ color: C.textMuted, fontFamily: "'DM Sans', sans-serif" }} className="text-sm leading-relaxed">
+          This quote has been cancelled. We're putting together an updated proposal for you and will send a new link shortly!
+        </p>
+        <p style={{ color: C.textMuted, fontFamily: "'DM Sans', sans-serif" }} className="text-sm">
+          Questions? Give us a call:
+        </p>
+        <a href="tel:+18323346528" style={{ color: C.gold, fontFamily: "'DM Sans', sans-serif" }} className="block text-lg font-semibold">(832) 334-6528</a>
+      </div>
+    </div>
+  );
+
   const tiers = proposal.tiers;
   const bookedTierKey = ((proposal.selected_tier as "essential" | "signature" | "legacy" | undefined) || pkg);
   const tierPrice = proposal.booked_total_price || proposal.booked_tier_price || (tiers && bookedTierKey ? tiers[bookedTierKey] : 0);

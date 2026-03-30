@@ -528,7 +528,7 @@ export interface ProposalSelection {
 
 export interface ProposalData {
   token: string;
-  status: "sent" | "viewed" | "booked" | "preview";
+  status: "sent" | "viewed" | "booked" | "preview" | "cancelled";
   customer_name: string;
   address: string;
   contact_email?: string;
