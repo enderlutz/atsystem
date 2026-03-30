@@ -1,13 +1,13 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { api, type Estimate, type EstimateStatus } from "@/lib/api";
 import { formatCurrency, formatDate } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { CheckCircle2, Send } from "lucide-react";
+import { CheckCircle2, Send, Pencil, Check, X } from "lucide-react";
 
 const statusVariant: Record<EstimateStatus, "pending" | "success" | "destructive" | "warning"> = {
   pending: "pending",
@@ -20,6 +20,96 @@ const serviceLabel: Record<string, string> = {
   fence_staining: "Fence Staining",
   pressure_washing: "Pressure Washing",
 };
+
+function InlineTierEditor({
+  est,
+  onSaved,
+}: {
+  est: Estimate;
+  onSaved: (updated: { essential: number; signature: number; legacy: number }) => void;
+}) {
+  const t = (est.inputs as Record<string, unknown>)?._tiers as Record<string, number> | undefined;
+  const [editing, setEditing] = useState(false);
+  const [essential, setEssential] = useState(String(t?.essential || 0));
+  const [signature, setSignature] = useState(String(t?.signature || 0));
+  const [legacy, setLegacy] = useState(String(t?.legacy || 0));
+  const [saving, setSaving] = useState(false);
+  const essRef = useRef<HTMLInputElement>(null);
+
+  const startEdit = () => {
+    setEssential(String(Math.round(t?.essential || 0)));
+    setSignature(String(Math.round(t?.signature || 0)));
+    setLegacy(String(Math.round(t?.legacy || 0)));
+    setEditing(true);
+    setTimeout(() => essRef.current?.focus(), 50);
+  };
+
+  const handleSave = async () => {
+    const e = parseFloat(essential) || 0;
+    const s = parseFloat(signature) || 0;
+    const l = parseFloat(legacy) || 0;
+    if (e <= 0 || s <= 0 || l <= 0) return;
+    setSaving(true);
+    try {
+      await api.saveCustomTiers(est.id, { essential: e, signature: s, legacy: l });
+      onSaved({ essential: e, signature: s, legacy: l });
+      setEditing(false);
+    } catch (err) {
+      console.error(err);
+    }
+    setSaving(false);
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === "Enter") handleSave();
+    if (e.key === "Escape") setEditing(false);
+  };
+
+  if (!t?.signature && !editing) {
+    return <p className="font-bold text-xl">{formatCurrency(est.estimate_low)}</p>;
+  }
+
+  if (editing) {
+    return (
+      <div className="space-y-1 text-right" onKeyDown={handleKeyDown}>
+        <div className="flex items-center gap-1 justify-end">
+          <span className="text-xs text-muted-foreground w-3">E</span>
+          <input ref={essRef} className="w-16 text-right text-xs border rounded px-1 py-0.5" value={essential} onChange={(e) => setEssential(e.target.value)} />
+        </div>
+        <div className="flex items-center gap-1 justify-end">
+          <span className="text-xs text-muted-foreground w-3">S</span>
+          <input className="w-16 text-right text-xs border rounded px-1 py-0.5 font-semibold" value={signature} onChange={(e) => setSignature(e.target.value)} />
+        </div>
+        <div className="flex items-center gap-1 justify-end">
+          <span className="text-xs text-muted-foreground w-3">L</span>
+          <input className="w-16 text-right text-xs border rounded px-1 py-0.5" value={legacy} onChange={(e) => setLegacy(e.target.value)} />
+        </div>
+        <div className="flex items-center gap-1 justify-end pt-0.5">
+          <button onClick={handleSave} disabled={saving} className="p-0.5 rounded hover:bg-green-50 text-green-600" title="Save">
+            <Check className="h-3.5 w-3.5" />
+          </button>
+          <button onClick={() => setEditing(false)} className="p-0.5 rounded hover:bg-red-50 text-red-500" title="Cancel">
+            <X className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="text-xs font-medium text-emerald-700 space-y-0.5 text-right group cursor-pointer" onClick={startEdit} title="Click to edit prices">
+      <div>E <span className="font-semibold">{formatCurrency(t!.essential || 0)}</span></div>
+      <div>S <span className="font-bold text-sm">{formatCurrency(t!.signature)}</span></div>
+      <div>L <span className="font-semibold">{formatCurrency(t!.legacy || 0)}</span></div>
+      <div className="opacity-0 group-hover:opacity-100 transition-opacity">
+        <span className="inline-flex items-center gap-0.5 text-blue-500 text-[10px]">
+          <Pencil className="h-2.5 w-2.5" /> edit
+        </span>
+      </div>
+    </div>
+  );
+}
+
 
 export default function EstimatesPage() {
   const [estimates, setEstimates] = useState<Estimate[]>([]);
@@ -142,17 +232,18 @@ export default function EstimatesPage() {
                     </p>
                   </div>
                   <div className="text-right space-y-2 shrink-0">
-                    {(() => {
-                      const t = est.inputs?._tiers as Record<string, number> | undefined;
-                      if (t?.signature) return (
-                        <div className="text-xs font-medium text-emerald-700 space-y-0.5 text-right">
-                          <div>E <span className="font-semibold">{formatCurrency(t.essential || 0)}</span></div>
-                          <div>S <span className="font-bold text-sm">{formatCurrency(t.signature)}</span></div>
-                          <div>L <span className="font-semibold">{formatCurrency(t.legacy || 0)}</span></div>
-                        </div>
-                      );
-                      return <p className="font-bold text-xl">{formatCurrency(est.estimate_low)}</p>;
-                    })()}
+                    <InlineTierEditor
+                      est={est}
+                      onSaved={(tiers) => {
+                        setEstimates((prev) =>
+                          prev.map((e) =>
+                            e.id === est.id
+                              ? { ...e, inputs: { ...(e.inputs || {}), _tiers: tiers } }
+                              : e
+                          )
+                        );
+                      }}
+                    />
                     <div className="flex flex-col gap-1.5 items-end">
                       <Button size="sm" asChild>
                         <Link href={`/estimates/${est.id}`}>
