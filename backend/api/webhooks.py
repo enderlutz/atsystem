@@ -143,6 +143,26 @@ async def recalculate_estimate_for_lead(lead_id: str, lead_data: dict):
         logger.error(f"Failed to recalculate estimate for lead {lead_id}: {e}")
 
 
+async def recalculate_single_estimate(estimate_id: str, service_type: str, form_data: dict):
+    """Re-run the estimator for a specific estimate (used by multi-estimate form-data updates)."""
+    db = get_db()
+    try:
+        config = get_pricing_config(service_type)
+        low, high, breakdown, meta = calculate_estimate(
+            service_type, form_data, config,
+            zip_code=form_data.get("zip_code", ""),
+        )
+        db.table("estimates").update({
+            "inputs": _build_inputs_with_meta(form_data, meta),
+            "breakdown": [b.model_dump() for b in breakdown],
+            "estimate_low": low,
+            "estimate_high": high,
+        }).eq("id", estimate_id).execute()
+        logger.info(f"Recalculated single estimate {estimate_id}: ${low}��${high}")
+    except Exception as e:
+        logger.error(f"Failed to recalculate estimate {estimate_id}: {e}")
+
+
 @router.post("/webhook/ghl/message")
 async def ghl_message_webhook(request: Request):
     """Receives GHL InboundMessage / OutboundMessage events and stores them in the DB."""

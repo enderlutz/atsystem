@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
-import { api, leadDetailCache, getCurrentUser, type LeadDetail, type GHLMessage, type Estimate, type WorkflowStatus } from "@/lib/api";
+import { api, leadDetailCache, getCurrentUser, type LeadDetail, type EstimateDetail, type GHLMessage, type Estimate, type WorkflowStatus } from "@/lib/api";
 import { formatDate, formatCurrency } from "@/lib/utils";
 import { toast } from "sonner";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -15,6 +15,7 @@ import {
   ArrowLeft, MapPin, ExternalLink, Phone, Mail, User,
   CheckCircle2, MessageSquare, Tag, Calculator, RefreshCw,
   Send, AlertTriangle, History, Zap, Pause, Play, Clock, Camera,
+  Plus, Trash2, ChevronDown, ChevronUp,
 } from "lucide-react";
 
 const GOOGLE_MAPS_KEY = process.env.NEXT_PUBLIC_GOOGLE_MAPS_KEY || "";
@@ -74,6 +75,46 @@ const APPROVAL_CONFIG = {
 
 const selectCls = "w-full border border-input rounded-md px-3 py-2 text-sm bg-background focus:outline-none focus:ring-2 focus:ring-ring";
 
+interface EstimateSectionState {
+  estimateId: string | null; // null for the primary/first when no saved estimate yet
+  label: string;
+  linearFeet: string;
+  fenceHeight: string;
+  fenceAge: string;
+  previouslyStained: string;
+  fenceSides: string[];
+  customFenceSides: string;
+  showCustomFenceSides: boolean;
+  confidencePct: string;
+  saving: boolean;
+  saved: boolean;
+  collapsed: boolean;
+}
+
+function makeEstimateSectionState(est?: EstimateDetail): EstimateSectionState {
+  const inp = est?.inputs || {};
+  const rawSides = inp.fence_sides;
+  let sides: string[] = [];
+  if (Array.isArray(rawSides)) sides = rawSides as string[];
+  else if (typeof rawSides === "string" && rawSides) sides = rawSides.split(",").map((s: string) => s.trim());
+  const storedPct = Number(inp.confident_pct ?? 100);
+  return {
+    estimateId: est?.id || null,
+    label: est?.label || "",
+    linearFeet: String(inp.linear_feet || ""),
+    fenceHeight: String(inp.fence_height || "Didn't answer"),
+    fenceAge: String(inp.fence_age || "Didn't answer"),
+    previouslyStained: String(inp.previously_stained || "Didn't answer"),
+    fenceSides: sides,
+    customFenceSides: String(inp.custom_fence_sides || ""),
+    showCustomFenceSides: Boolean(inp.custom_fence_sides),
+    confidencePct: storedPct >= 90 ? "100" : storedPct >= 75 ? "80" : "60",
+    saving: false,
+    saved: false,
+    collapsed: false,
+  };
+}
+
 export default function LeadDetailPage() {
   const { id } = useParams<{ id: string }>();
   const [lead, setLead] = useState<LeadDetail | null>(null);
@@ -106,6 +147,13 @@ export default function LeadDetailPage() {
   const [savingEstimate, setSavingEstimate] = useState(false);
   const [estimateSaved, setEstimateSaved] = useState(false);
   const [additionalServicesSent, setAdditionalServicesSent] = useState(false);
+
+  // Multi-estimate sections state
+  const [estimateSections, setEstimateSections] = useState<EstimateSectionState[]>([]);
+  const [addingEstimate, setAddingEstimate] = useState(false);
+  const [newEstimateLabel, setNewEstimateLabel] = useState("");
+  const [showAddEstimateForm, setShowAddEstimateForm] = useState(false);
+  const [deletingEstimateId, setDeletingEstimateId] = useState<string | null>(null);
   const [addonDescription, setAddonDescription] = useState("");
   const [addonPrice, setAddonPrice] = useState("");
   const [savedAddonDescription, setSavedAddonDescription] = useState<string | null>(null);
@@ -202,6 +250,15 @@ export default function LeadDetailPage() {
       }
       if (data.status === "sent" || data.estimate?.status === "approved") {
         setEstimateSent(true);
+      }
+      // Initialize multi-estimate sections
+      const allEstimates = data.estimates && data.estimates.length > 0
+        ? data.estimates
+        : data.estimate ? [data.estimate] : [];
+      if (allEstimates.length > 0) {
+        setEstimateSections(allEstimates.map((e) => makeEstimateSectionState(e)));
+      } else {
+        setEstimateSections([makeEstimateSectionState()]);
       }
       setContactName(data.contact_name || "");
       setContactPhone(data.contact_phone || "");
@@ -541,6 +598,116 @@ export default function LeadDetailPage() {
       toast.error("Failed to save notes");
     }
     setSavingNotes(false);
+  };
+
+  const updateSection = (index: number, updates: Partial<EstimateSectionState>) => {
+    setEstimateSections((prev) => prev.map((s, i) => (i === index ? { ...s, ...updates } : s)));
+  };
+
+  const toggleSectionFenceSide = (index: number, side: string) => {
+    setEstimateSections((prev) =>
+      prev.map((s, i) => {
+        if (i !== index) return s;
+        const newSides = s.fenceSides.includes(side) ? s.fenceSides.filter((x) => x !== side) : [...s.fenceSides, side];
+        return { ...s, fenceSides: newSides };
+      })
+    );
+  };
+
+  const handleSaveSectionEstimate = async (index: number) => {
+    if (!lead) return;
+    const section = estimateSections[index];
+    if (!section.linearFeet || Number(section.linearFeet) <= 0) {
+      toast.error("Please enter linear feet before calculating.");
+      return;
+    }
+    const unanswered = [
+      section.fenceHeight === "Didn't answer" && "Fence Height",
+      section.fenceAge === "Didn't answer" && "Fence Age",
+      section.previouslyStained === "Didn't answer" && "Previously Stained",
+    ].filter(Boolean);
+    if (unanswered.length > 0) {
+      toast.error(`Please select a value for: ${unanswered.join(", ")}`);
+      return;
+    }
+    updateSection(index, { saving: true });
+    try {
+      const formData: Record<string, string | number | boolean | string[]> = {
+        fence_height: section.fenceHeight,
+        fence_age: section.fenceAge,
+        previously_stained: section.previouslyStained,
+        additional_services: additionalServices,
+        fence_sides: section.fenceSides,
+        confident_pct: Number(section.confidencePct) || 100,
+        military_discount: militaryDiscount,
+      };
+      if (section.linearFeet) formData.linear_feet = Number(section.linearFeet);
+      if (timeline) formData.service_timeline = timeline;
+      if (zipCode) formData.zip_code = zipCode;
+      if (section.customFenceSides.trim()) formData.custom_fence_sides = section.customFenceSides.trim();
+      else formData.custom_fence_sides = "";
+
+      const updated = await api.updateLeadFormData(lead.id, formData, section.estimateId || undefined);
+      setLead(updated);
+      setApproveError(null);
+      // Re-sync sections from response
+      const allEst = updated.estimates && updated.estimates.length > 0
+        ? updated.estimates
+        : updated.estimate ? [updated.estimate] : [];
+      setEstimateSections(allEst.map((e) => makeEstimateSectionState(e)));
+      toast.success(estimateSections.length > 1 ? `Estimate "${section.label || "Primary"}" recalculated` : "Estimate recalculated");
+    } catch (e) {
+      console.error(e);
+      toast.error(e instanceof Error ? e.message : "Failed to save estimate inputs");
+    }
+    updateSection(index, { saving: false });
+  };
+
+  const handleAddEstimate = async () => {
+    if (!lead || !newEstimateLabel.trim()) {
+      toast.error("Please enter a label for the new estimate section.");
+      return;
+    }
+    setAddingEstimate(true);
+    try {
+      const updated = await api.addEstimate(lead.id, newEstimateLabel.trim(), {});
+      setLead(updated);
+      const allEst = updated.estimates && updated.estimates.length > 0
+        ? updated.estimates
+        : updated.estimate ? [updated.estimate] : [];
+      setEstimateSections(allEst.map((e) => makeEstimateSectionState(e)));
+      setNewEstimateLabel("");
+      setShowAddEstimateForm(false);
+      toast.success(`Added estimate section "${newEstimateLabel.trim()}"`);
+    } catch (e) {
+      console.error(e);
+      toast.error(e instanceof Error ? e.message : "Failed to add estimate section");
+    }
+    setAddingEstimate(false);
+  };
+
+  const handleDeleteEstimate = async (index: number) => {
+    if (!lead) return;
+    const section = estimateSections[index];
+    if (!section.estimateId) return;
+    if (estimateSections.length <= 1) {
+      toast.error("Cannot remove the last estimate section.");
+      return;
+    }
+    setDeletingEstimateId(section.estimateId);
+    try {
+      const updated = await api.deleteEstimate(lead.id, section.estimateId);
+      setLead(updated);
+      const allEst = updated.estimates && updated.estimates.length > 0
+        ? updated.estimates
+        : updated.estimate ? [updated.estimate] : [];
+      setEstimateSections(allEst.map((e) => makeEstimateSectionState(e)));
+      toast.success(`Removed estimate section "${section.label || "Estimate"}"`);
+    } catch (e) {
+      console.error(e);
+      toast.error(e instanceof Error ? e.message : "Failed to remove estimate section");
+    }
+    setDeletingEstimateId(null);
   };
 
   const handleSaveEstimateInputs = async () => {
@@ -921,17 +1088,8 @@ export default function LeadDetailPage() {
           </p>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="grid grid-cols-3 gap-4">
-            <div className="space-y-1">
-              <label className="text-sm font-medium">Linear Feet</label>
-              <Input
-                type="number"
-                placeholder="e.g. 120"
-                value={linearFeet}
-                onChange={(e) => setLinearFeet(e.target.value)}
-              />
-              <p className="text-xs text-muted-foreground">Measure from satellite map</p>
-            </div>
+          {/* Shared fields: Zip Code, Service Timeline */}
+          <div className="grid grid-cols-2 gap-4">
             <div className="space-y-1">
               <label className="text-sm font-medium">Zip Code</label>
               <Input
@@ -944,97 +1102,12 @@ export default function LeadDetailPage() {
               <p className="text-xs text-muted-foreground">Determines pricing zone</p>
             </div>
             <div className="space-y-1">
-              <label className="text-sm font-medium">Measurement Confidence</label>
-              <select className={selectCls} value={confidencePct} onChange={(e) => setConfidencePct(e.target.value)}>
-                {CONFIDENCE_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-              </select>
-              <p className="text-xs text-muted-foreground">"Not confident" → Owner review</p>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-1">
-              <label className="text-sm font-medium">Fence Height</label>
-              <select className={`${selectCls} ${fenceHeight === "Didn't answer" ? "text-red-500" : ""}`} value={fenceHeight} onChange={(e) => setFenceHeight(e.target.value)}>
-                {FENCE_HEIGHT_OPTIONS.map((o) => <option key={o}>{o}</option>)}
-              </select>
-            </div>
-            <div className="space-y-1">
-              <label className="text-sm font-medium">Fence Age</label>
-              <select className={`${selectCls} ${fenceAge === "Didn't answer" ? "text-red-500" : ""}`} value={fenceAge} onChange={(e) => setFenceAge(e.target.value)}>
-                {FENCE_AGE_OPTIONS.map((o) => <option key={o}>{o}</option>)}
-              </select>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-1">
-              <label className="text-sm font-medium">Previously Stained</label>
-              <select className={`${selectCls} ${previouslyStained === "Didn't answer" ? "text-red-500" : ""}`} value={previouslyStained} onChange={(e) => setPreviouslyStained(e.target.value)}>
-                {PREVIOUSLY_STAINED_OPTIONS.map((o) => (
-                  <option key={o} value={o}>{o}</option>
-                ))}
-              </select>
-            </div>
-            <div className="space-y-1">
               <label className="text-sm font-medium">Service Timeline</label>
               <select className={selectCls} value={timeline} onChange={(e) => setTimeline(e.target.value)}>
-                <option value="">— select —</option>
+                <option value="">-- select --</option>
                 {TIMELINE_OPTIONS.map((o) => <option key={o}>{o}</option>)}
               </select>
             </div>
-          </div>
-
-          {/* Sides of Fence */}
-          <div className="space-y-2">
-            <label className="text-sm font-medium">
-              Sides of Fence
-              {fenceSides.length > 0 && (
-                <span className="ml-2 text-xs font-normal text-muted-foreground">
-                  ({fenceSides.length} selected)
-                </span>
-              )}
-            </label>
-            <div className="grid grid-cols-2 gap-x-6 gap-y-1 rounded-lg border p-3 bg-muted/20">
-              {Object.entries(FENCE_SIDES).map(([group, sides]) => (
-                <div key={group}>
-                  <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1.5">{group}</p>
-                  <div className="space-y-1">
-                    {sides.map((side) => (
-                      <label key={side} className="flex items-center gap-2 text-sm cursor-pointer select-none">
-                        <input
-                          type="checkbox"
-                          className="h-3.5 w-3.5 rounded"
-                          checked={fenceSides.includes(side)}
-                          onChange={() => toggleFenceSide(side)}
-                        />
-                        {side}
-                      </label>
-                    ))}
-                  </div>
-                </div>
-              ))}
-            </div>
-            <label className="flex items-center gap-2 text-sm cursor-pointer select-none mt-2">
-              <input
-                type="checkbox"
-                className="h-3.5 w-3.5 rounded"
-                checked={showCustomFenceSides}
-                onChange={(e) => {
-                  setShowCustomFenceSides(e.target.checked);
-                  if (!e.target.checked) setCustomFenceSides("");
-                }}
-              />
-              Custom fence input
-            </label>
-            {showCustomFenceSides && (
-              <Input
-                placeholder="e.g. Outside fence facing Highway 66, Outside fence facing Highway 56"
-                value={customFenceSides}
-                onChange={(e) => setCustomFenceSides(e.target.value)}
-                className="mt-1"
-              />
-            )}
           </div>
 
           <div className="space-y-1">
@@ -1061,8 +1134,22 @@ export default function LeadDetailPage() {
                 {additionalServices || <span className="italic">None (from GHL lead form)</span>}
               </div>
             )}
-            <p className="text-xs text-muted-foreground">Auto-populated from the customer's GHL form. Check "Edit" to override.</p>
+            <p className="text-xs text-muted-foreground">Auto-populated from the customer&apos;s GHL form. Check &quot;Edit&quot; to override.</p>
           </div>
+
+          {/* Military Discount */}
+          <label className="flex items-center gap-2.5 cursor-pointer select-none rounded-lg border border-blue-200 bg-blue-50 px-3 py-2.5 hover:bg-blue-100 transition-colors">
+            <input
+              type="checkbox"
+              className="h-4 w-4 rounded accent-blue-600"
+              checked={militaryDiscount}
+              onChange={(e) => setMilitaryDiscount(e.target.checked)}
+            />
+            <div>
+              <span className="text-sm font-semibold text-blue-800">🎖️ Military Discount</span>
+              <p className="text-xs text-blue-600 mt-0.5">Applies $50 off all packages on the proposal</p>
+            </div>
+          </label>
 
           {/* Workflow address shortcut buttons */}
           <div className="flex gap-2 flex-wrap pt-1 border-t">
@@ -1084,32 +1171,222 @@ export default function LeadDetailPage() {
               disabled={triggeringNewBuild || newBuildTriggered}
             >
               <MapPin className="h-3.5 w-3.5" />
-              {newBuildTriggered ? "New Build SMS Sent ✓" : triggeringNewBuild ? "Sending..." : "New Build – Can't Measure"}
+              {newBuildTriggered ? "New Build SMS Sent ✓" : triggeringNewBuild ? "Sending..." : "New Build -- Can't Measure"}
             </Button>
           </div>
 
-          {/* Military Discount */}
-          <label className="flex items-center gap-2.5 cursor-pointer select-none rounded-lg border border-blue-200 bg-blue-50 px-3 py-2.5 hover:bg-blue-100 transition-colors">
-            <input
-              type="checkbox"
-              className="h-4 w-4 rounded accent-blue-600"
-              checked={militaryDiscount}
-              onChange={(e) => setMilitaryDiscount(e.target.checked)}
-            />
-            <div>
-              <span className="text-sm font-semibold text-blue-800">🎖️ Military Discount</span>
-              <p className="text-xs text-blue-600 mt-0.5">Applies $50 off all packages on the proposal</p>
-            </div>
-          </label>
+          {/* Per-estimate measurement sections */}
+          {estimateSections.map((section, sIdx) => {
+            const isMulti = estimateSections.length > 1;
+            const sectionTiers = (() => {
+              const allEst = lead.estimates && lead.estimates.length > 0 ? lead.estimates : lead.estimate ? [lead.estimate] : [];
+              const matchedEst = section.estimateId ? allEst.find((e) => e.id === section.estimateId) : allEst[0];
+              return matchedEst?.inputs?._tiers as Record<string, number> | undefined;
+            })();
+            return (
+              <div key={section.estimateId || `new-${sIdx}`} className={`space-y-4 ${isMulti ? "rounded-lg border p-4 bg-muted/10" : ""}`}>
+                {/* Section header — label + collapse/remove controls */}
+                {isMulti && (
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2 flex-1 min-w-0">
+                      <button
+                        type="button"
+                        className="text-muted-foreground hover:text-foreground transition-colors"
+                        onClick={() => updateSection(sIdx, { collapsed: !section.collapsed })}
+                      >
+                        {section.collapsed ? <ChevronDown className="h-4 w-4" /> : <ChevronUp className="h-4 w-4" />}
+                      </button>
+                      <div className="flex-1 min-w-0">
+                        <Input
+                          value={section.label}
+                          onChange={(e) => updateSection(sIdx, { label: e.target.value })}
+                          placeholder="Estimate label (e.g. Inside Fence - Facing The House)"
+                          className="text-sm font-medium h-8"
+                        />
+                      </div>
+                      {sectionTiers && (
+                        <span className="text-xs font-medium text-muted-foreground shrink-0">
+                          Sig: ${Number(sectionTiers.signature || 0).toLocaleString("en-US", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
+                        </span>
+                      )}
+                    </div>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="text-destructive hover:text-destructive hover:bg-destructive/10 ml-2 shrink-0"
+                      onClick={() => handleDeleteEstimate(sIdx)}
+                      disabled={deletingEstimateId === section.estimateId}
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  </div>
+                )}
 
-          <Button
-            onClick={handleSaveEstimateInputs}
-            disabled={savingEstimate}
-            className={`gap-2 ${estimateSaved ? "bg-green-600 hover:bg-green-600" : ""}`}
-          >
-            <RefreshCw className={`h-4 w-4 ${savingEstimate ? "animate-spin" : ""}`} />
-            {savingEstimate ? "Recalculating..." : estimateSaved ? "Saved ✓" : "Save & Recalculate Estimate"}
-          </Button>
+                {/* Collapsible content */}
+                {!section.collapsed && (
+                  <>
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="space-y-1">
+                        <label className="text-sm font-medium">Linear Feet</label>
+                        <Input
+                          type="number"
+                          placeholder="e.g. 120"
+                          value={section.linearFeet}
+                          onChange={(e) => updateSection(sIdx, { linearFeet: e.target.value })}
+                        />
+                        <p className="text-xs text-muted-foreground">Measure from satellite map</p>
+                      </div>
+                      <div className="space-y-1">
+                        <label className="text-sm font-medium">Measurement Confidence</label>
+                        <select className={selectCls} value={section.confidencePct} onChange={(e) => updateSection(sIdx, { confidencePct: e.target.value })}>
+                          {CONFIDENCE_OPTIONS.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                        </select>
+                        <p className="text-xs text-muted-foreground">&quot;Not confident&quot; -- Owner review</p>
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="space-y-1">
+                        <label className="text-sm font-medium">Fence Height</label>
+                        <select className={`${selectCls} ${section.fenceHeight === "Didn't answer" ? "text-red-500" : ""}`} value={section.fenceHeight} onChange={(e) => updateSection(sIdx, { fenceHeight: e.target.value })}>
+                          {FENCE_HEIGHT_OPTIONS.map((o) => <option key={o}>{o}</option>)}
+                        </select>
+                      </div>
+                      <div className="space-y-1">
+                        <label className="text-sm font-medium">Fence Age</label>
+                        <select className={`${selectCls} ${section.fenceAge === "Didn't answer" ? "text-red-500" : ""}`} value={section.fenceAge} onChange={(e) => updateSection(sIdx, { fenceAge: e.target.value })}>
+                          {FENCE_AGE_OPTIONS.map((o) => <option key={o}>{o}</option>)}
+                        </select>
+                      </div>
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className="text-sm font-medium">Previously Stained</label>
+                      <select className={`${selectCls} ${section.previouslyStained === "Didn't answer" ? "text-red-500" : ""}`} value={section.previouslyStained} onChange={(e) => updateSection(sIdx, { previouslyStained: e.target.value })}>
+                        {PREVIOUSLY_STAINED_OPTIONS.map((o) => (
+                          <option key={o} value={o}>{o}</option>
+                        ))}
+                      </select>
+                    </div>
+
+                    {/* Sides of Fence */}
+                    <div className="space-y-2">
+                      <label className="text-sm font-medium">
+                        Sides of Fence
+                        {section.fenceSides.length > 0 && (
+                          <span className="ml-2 text-xs font-normal text-muted-foreground">
+                            ({section.fenceSides.length} selected)
+                          </span>
+                        )}
+                      </label>
+                      <div className="grid grid-cols-2 gap-x-6 gap-y-1 rounded-lg border p-3 bg-muted/20">
+                        {Object.entries(FENCE_SIDES).map(([group, sides]) => (
+                          <div key={group}>
+                            <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1.5">{group}</p>
+                            <div className="space-y-1">
+                              {sides.map((side) => (
+                                <label key={side} className="flex items-center gap-2 text-sm cursor-pointer select-none">
+                                  <input
+                                    type="checkbox"
+                                    className="h-3.5 w-3.5 rounded"
+                                    checked={section.fenceSides.includes(side)}
+                                    onChange={() => toggleSectionFenceSide(sIdx, side)}
+                                  />
+                                  {side}
+                                </label>
+                              ))}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                      <label className="flex items-center gap-2 text-sm cursor-pointer select-none mt-2">
+                        <input
+                          type="checkbox"
+                          className="h-3.5 w-3.5 rounded"
+                          checked={section.showCustomFenceSides}
+                          onChange={(e) => {
+                            updateSection(sIdx, { showCustomFenceSides: e.target.checked, ...(e.target.checked ? {} : { customFenceSides: "" }) });
+                          }}
+                        />
+                        Custom fence input
+                      </label>
+                      {section.showCustomFenceSides && (
+                        <Input
+                          placeholder="e.g. Outside fence facing Highway 66, Outside fence facing Highway 56"
+                          value={section.customFenceSides}
+                          onChange={(e) => updateSection(sIdx, { customFenceSides: e.target.value })}
+                          className="mt-1"
+                        />
+                      )}
+                    </div>
+
+                    {/* Per-section tier prices (inline, when available) */}
+                    {sectionTiers && (
+                      <div className="grid grid-cols-3 gap-2">
+                        {TIER_CONFIG.map(({ key, label }) => {
+                          const price = sectionTiers[key];
+                          return (
+                            <div key={key} className="rounded-lg border p-2 text-left bg-background">
+                              <p className="text-xs font-medium text-muted-foreground">{label}</p>
+                              <p className="text-base font-bold mt-0.5">
+                                {price ? `$${Number(price).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : "--"}
+                              </p>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+
+                    <Button
+                      onClick={() => handleSaveSectionEstimate(sIdx)}
+                      disabled={section.saving}
+                      className={`gap-2 ${section.saved ? "bg-green-600 hover:bg-green-600" : ""}`}
+                    >
+                      <RefreshCw className={`h-4 w-4 ${section.saving ? "animate-spin" : ""}`} />
+                      {section.saving ? "Recalculating..." : section.saved ? "Saved ✓" : "Save & Recalculate"}
+                    </Button>
+                  </>
+                )}
+              </div>
+            );
+          })}
+
+          {/* + Add Another Estimate */}
+          {showAddEstimateForm ? (
+            <div className="rounded-lg border border-dashed border-blue-300 p-4 space-y-3 bg-blue-50/30">
+              <p className="text-sm font-medium">New Estimate Section</p>
+              <Input
+                placeholder="Label (e.g. Inside Fence - Facing The House)"
+                value={newEstimateLabel}
+                onChange={(e) => setNewEstimateLabel(e.target.value)}
+                autoFocus
+              />
+              <div className="flex gap-2">
+                <Button
+                  size="sm"
+                  onClick={handleAddEstimate}
+                  disabled={addingEstimate || !newEstimateLabel.trim()}
+                >
+                  {addingEstimate ? "Adding..." : "Add Section"}
+                </Button>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => { setShowAddEstimateForm(false); setNewEstimateLabel(""); }}
+                >
+                  Cancel
+                </Button>
+              </div>
+            </div>
+          ) : (
+            <Button
+              variant="outline"
+              className="gap-2 w-full border-dashed"
+              onClick={() => setShowAddEstimateForm(true)}
+            >
+              <Plus className="h-4 w-4" /> Add Another Estimate
+            </Button>
+          )}
         </CardContent>
       </Card>
 

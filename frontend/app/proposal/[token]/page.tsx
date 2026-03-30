@@ -297,6 +297,7 @@ export default function ProposalPage() {
 
   // Step 1
   const [pkg, setPkg] = useState<"essential" | "signature" | "legacy" | null>(null);
+  const [selections, setSelections] = useState<Record<string, "essential" | "signature" | "legacy" | null>>({});
   const [openTrust, setOpenTrust] = useState<"prep" | "guarantee" | null>(null);
   const [colorMode, setColorMode] = useState<"gallery" | "hoa_only" | "hoa_approved" | "custom">("gallery");
   const [selectedColor, setSelectedColor] = useState<number | null>(null);
@@ -344,6 +345,14 @@ export default function ProposalPage() {
     api.getProposal(token)
       .then((data) => {
         setProposal(data);
+        // Restore multi-section selections if available
+        if (data.selections?.length) {
+          const restored: Record<string, "essential" | "signature" | "legacy" | null> = {};
+          for (const sel of data.selections) {
+            restored[sel.estimate_id] = sel.selected_tier;
+          }
+          setSelections(restored);
+        }
         if (data.status === "booked") {
           setStep(3);
           if (data.selected_tier && (data.selected_tier === "essential" || data.selected_tier === "signature" || data.selected_tier === "legacy")) {
@@ -497,8 +506,24 @@ export default function ProposalPage() {
     };
   }, [token, status]);
 
-  const handleSelectPkg = (p: "essential" | "signature" | "legacy") => {
+  const handleSelectPkg = (p: "essential" | "signature" | "legacy", sectionEstimateId?: string) => {
+    if (isMulti && sectionEstimateId) {
+      // Multi-section: update only this section's selection
+      setSelections(prev => ({ ...prev, [sectionEstimateId]: p }));
+      // Derive pkg from first selection for color section compat
+      const allSelections = { ...selections, [sectionEstimateId]: p };
+      const firstTier = Object.values(allSelections).find(Boolean);
+      if (firstTier) setPkg(firstTier);
+      trackStage("package_selected");
+      const selectionsPayload = Object.entries(allSelections)
+        .filter(([, tier]) => tier)
+        .map(([estimateId, tier]) => ({ estimate_id: estimateId, selected_tier: tier! }));
+      saveSelection({ selected_tier: firstTier || p, selections: selectionsPayload });
+      return;
+    }
+    // Single-section (original behavior)
     setPkg(p);
+    setSelections(prev => ({ ...prev, [singleSectionId]: p }));
     setSelectedColor(null);
     setHoaColors([]);
     setCustomColor("");
@@ -522,7 +547,8 @@ export default function ProposalPage() {
   };
 
   const isColorComplete = (): boolean => {
-    if (!pkg) return false;
+    if (isMulti && multiSelectionCount === 0) return false;
+    if (!isMulti && !pkg) return false;
     if (pkg === "essential") return true;
     if (colorMode === "gallery") return selectedColor !== null && (selectedColor !== -1 || customColor.trim().length > 0);
     if (colorMode === "hoa_only") return hoaColors.length >= 2;
@@ -566,9 +592,16 @@ export default function ProposalPage() {
       : colorMode === "hoa_only"
       ? { selected_color: null, color_mode: "hoa_only", hoa_colors: getHoaColorNames(), custom_color: null }
       : { selected_color: null, color_mode: colorMode, hoa_colors: null, custom_color: customColor || null };
+    // Build selections payload for multi-section
+    const selectionsPayload = isMulti
+      ? Object.entries(selections)
+          .filter(([, tier]) => tier)
+          .map(([estimateId, tier]) => ({ estimate_id: estimateId, selected_tier: tier! }))
+      : undefined;
     try {
       const { checkout_url } = await api.createCheckout(token, {
         selected_tier: pkg,
+        selections: selectionsPayload,
         booked_at: bookedAt.toISOString(),
         contact_email: contactEmail.trim() || null,
         backup_dates: backupDatePayload,
@@ -605,12 +638,28 @@ export default function ProposalPage() {
 
   const tiers = proposal.tiers;
   const bookedTierKey = ((proposal.selected_tier as "essential" | "signature" | "legacy" | undefined) || pkg);
-  const tierPrice = proposal.booked_tier_price || (tiers && bookedTierKey ? tiers[bookedTierKey] : 0);
+  const tierPrice = proposal.booked_total_price || proposal.booked_tier_price || (tiers && bookedTierKey ? tiers[bookedTierKey] : 0);
   const firstName = proposal.customer_name?.split(" ")[0] || "";
   const previouslyStained = (proposal.previously_stained || "No").toLowerCase().startsWith("y");
   const selectedColorDisplay = proposal.color_display || getColorDisplayName() || "Not specified";
   const selectedBackupDates = (proposal.backup_dates || backupDates || []).slice(0, 1);
 
+  // Multi-section support
+  const sections = proposal.sections ?? [];
+  const isMulti = sections.length > 1;
+  // For single-section, derive pkg from selections for backward compat
+  const singleSectionId = sections.length === 1 ? sections[0].estimate_id : "__single__";
+
+  // Running total for multi-section
+  const multiTotal = useMemo(() => {
+    if (!isMulti) return 0;
+    return sections.reduce((sum, sec) => {
+      const tier = selections[sec.estimate_id];
+      return sum + (tier ? sec.tiers[tier] : 0);
+    }, 0);
+  }, [isMulti, sections, selections]);
+
+  const multiSelectionCount = Object.values(selections).filter(Boolean).length;
 
   const TIERS = [
     { key: "essential" as const, label: "Essential Seal™", badge: null,
@@ -985,119 +1034,177 @@ export default function ProposalPage() {
                   <div>
                     <div className="flex items-center gap-2.5 mb-1">
                       <span className="shrink-0 w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold" style={{ background: "#C9A84C", color: "#FFFFFF" }}>3</span>
-                      <h2 style={{ color: C.cream, ...headingStyle }} className="text-lg font-semibold">Choose Your Package</h2>
+                      <h2 style={{ color: C.cream, ...headingStyle }} className="text-lg font-semibold">Choose Your Package{isMulti ? "s" : ""}</h2>
                     </div>
-                    {(proposal.fence_sides || proposal.custom_fence_sides) && (
+                    {/* Single-section: show fence_sides from proposal */}
+                    {!isMulti && (proposal.fence_sides || proposal.custom_fence_sides) && (
                       <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full mb-2"
                         style={{ background: "rgba(76,175,80,0.07)", border: "1px solid rgba(76,175,80,0.35)" }}>
                         <span className="text-xs font-semibold" style={{ color: "#4CAF50" }}>Quote Includes:</span>
                         <span className="text-xs" style={{ color: C.creamDark }}>{[proposal.fence_sides ? formatSides(proposal.fence_sides) : "", proposal.custom_fence_sides || ""].filter(Boolean).join(", ")}</span>
                       </div>
                     )}
-                    <div
-                      className="flex gap-4 overflow-x-auto py-3 -mx-4 px-4 md:grid md:grid-cols-3 md:overflow-visible md:mx-0 md:px-0 md:py-4 md:gap-8 lg:gap-10"
-                      style={{ scrollSnapType: "x mandatory", WebkitOverflowScrolling: "touch", scrollbarWidth: "none" }}>
-                      {TIERS.map(({ key, label, badge, features, bg, accentColor, labelColor, disabled, disabledMsg }) => {
-                        const price = tiers ? tiers[key] : 0;
-                        const isSelected = pkg === key;
-                        const REAL_GOLD = "#C9A84C";
-                        const borderThickness = key === "signature" ? "2.5px" : key === "legacy" ? "2px" : "1px";
-                        const unselectedBorder = disabled
-                          ? "rgba(229,57,53,0.3)"
-                          : key === "signature"
-                          ? REAL_GOLD
-                          : key === "legacy"
-                          ? C.gold
-                          : "#D1D5DB";
-                        const cardShadow = isSelected
-                          ? `0 6px 28px rgba(28,34,53,0.18)`
-                          : key === "signature"
-                          ? `0 4px 28px rgba(201,168,76,0.50), 0 1px 8px rgba(201,168,76,0.30)`
-                          : key === "legacy"
-                          ? `0 4px 20px rgba(28,34,53,0.13), 0 1px 4px rgba(28,34,53,0.06)`
-                          : `0 1px 4px rgba(0,0,0,0.04)`;
-                        const accentBarHeight = key === "legacy" ? 7 : key === "signature" ? 6 : 3;
-                        const accentBarBg = key === "signature"
-                          ? `linear-gradient(90deg, ${REAL_GOLD}, #E8C76A, ${REAL_GOLD})`
-                          : key === "legacy" || isSelected ? C.gold : accentColor;
-                        const cardBg = key === "legacy" ? "#FDFCF9" : bg;
-                        return (
-                          <button
-                            key={key}
-                            ref={key === "signature" ? signatureScrollRef : undefined}
-                            onClick={() => !disabled && handleSelectPkg(key)}
-                            disabled={disabled}
-                            className="text-left rounded-2xl transition-all overflow-hidden shrink-0 snap-center md:shrink md:w-auto"
-                            style={{
-                              width: "76vw",
-                              maxWidth: 290,
-                              background: cardBg,
-                              border: `${borderThickness} solid ${isSelected ? (key === "signature" ? REAL_GOLD : C.gold) : unselectedBorder}`,
-                              opacity: disabled ? 0.55 : 1,
-                              cursor: disabled ? "not-allowed" : "pointer",
-                              padding: 0,
-                              boxShadow: cardShadow,
-                            }}>
-                            {/* Accent bar */}
-                            <div style={{ height: accentBarHeight, background: accentBarBg }} />
-                            <div className="p-4">
-                              {/* Badges row */}
-                              <div className="flex items-start justify-between gap-2 mb-3">
-                                <div className="flex flex-wrap gap-1.5">
-                                  {badge && (
-                                    <span className="text-xs font-semibold px-2.5 py-0.5 rounded-full"
-                                      style={{
-                                        background: key === "signature" ? REAL_GOLD : C.gold,
-                                        color: "#FFFFFF",
-                                        letterSpacing: "0.02em",
-                                      }}>
-                                      {key === "legacy" ? `★ ${badge}` : badge}
-                                    </span>
-                                  )}
-                                  {disabled && (
-                                    <span className="text-xs px-2 py-0.5 rounded-full"
-                                      style={{ background: "rgba(229,57,53,0.2)", color: C.red }}>Unavailable</span>
-                                  )}
-                                </div>
-                                {isSelected && (
-                                  <div className="h-6 w-6 rounded-full flex items-center justify-center shrink-0"
-                                    style={{ background: key === "signature" ? REAL_GOLD : C.gold }}>
-                                    <span className="text-xs font-bold" style={{ color: "#FFFFFF" }}>✓</span>
-                                  </div>
-                                )}
-                              </div>
-
-                              {/* Title */}
-                              <p style={{ color: labelColor, ...headingStyle }} className="font-bold text-lg leading-tight">{label}</p>
-
-                              {/* Features */}
-                              <ul className="mt-2.5 space-y-1.5">
-                                {features.map((f) => (
-                                  <li key={f} className="flex items-start gap-2 text-xs" style={{ color: C.creamDark }}>
-                                    <span style={{ color: C.gold }} className="shrink-0 mt-0.5">✓</span> {f}
-                                  </li>
-                                ))}
-                              </ul>
-
-                              {disabled && disabledMsg && <p className="text-xs mt-2 leading-relaxed" style={{ color: C.red }}>{disabledMsg}</p>}
-
-                              {/* Price */}
-                              {price > 0 && !disabled && (
-                                <div className="mt-4 pt-3" style={{ borderTop: `1px solid ${C.border}` }}>
-                                  <p className="text-xs line-through" style={{ color: C.textMuted }}>{strikethrough(price)}</p>
-                                  <p style={{ color: C.gold, ...headingStyle }} className="text-2xl font-bold leading-none mt-0.5">{fmt(price)}</p>
-                                  <p className="text-sm mt-1 font-semibold" style={{ color: "#C9A84C" }}>{fmtMonthly(price)} <span className="font-normal text-xs" style={{ color: C.textMuted }}>· 21-mo financing</span></p>
+                    {/* Render tier cards — loop over sections for multi, single pass for single */}
+                    {(isMulti ? sections : [null]).map((section, sectionIdx) => {
+                      const secTiers = section ? section.tiers : tiers;
+                      const secEstimateId = section ? section.estimate_id : singleSectionId;
+                      const secPkg = isMulti ? (selections[secEstimateId] ?? null) : pkg;
+                      const secPrevStained = section
+                        ? (section.previously_stained || "No").toLowerCase().startsWith("y")
+                        : previouslyStained;
+                      const secFenceSides = section ? section.fence_sides : null;
+                      const secCustomFenceSides = section ? section.custom_fence_sides : null;
+                      return (
+                        <div key={secEstimateId}>
+                          {/* Multi-section heading */}
+                          {isMulti && section && (
+                            <div className="mt-4 mb-2">
+                              <p style={{ color: C.cream, ...headingStyle }} className="font-semibold text-base">
+                                Price Includes: {section.label}
+                              </p>
+                              {(secFenceSides || secCustomFenceSides) && (
+                                <div className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full mt-1"
+                                  style={{ background: "rgba(76,175,80,0.07)", border: "1px solid rgba(76,175,80,0.35)" }}>
+                                  <span className="text-xs font-semibold" style={{ color: "#4CAF50" }}>Includes:</span>
+                                  <span className="text-xs" style={{ color: C.creamDark }}>{[secFenceSides ? formatSides(secFenceSides) : "", secCustomFenceSides || ""].filter(Boolean).join(", ")}</span>
                                 </div>
                               )}
                             </div>
-                          </button>
-                        );
-                      })}
-                    </div>
+                          )}
+                          <div
+                            className="flex gap-4 overflow-x-auto py-3 -mx-4 px-4 md:grid md:grid-cols-3 md:overflow-visible md:mx-0 md:px-0 md:py-4 md:gap-8 lg:gap-10"
+                            style={{ scrollSnapType: "x mandatory", WebkitOverflowScrolling: "touch", scrollbarWidth: "none" }}>
+                            {TIERS.map(({ key, label, badge, features, bg, accentColor, labelColor, disabled: tierDisabled, disabledMsg: tierDisabledMsg }) => {
+                              const price = secTiers ? secTiers[key] : 0;
+                              // Per-section disabled logic for Essential (previously stained)
+                              const disabled = key === "essential" ? secPrevStained : tierDisabled;
+                              const disabledMsg = key === "essential" && secPrevStained
+                                ? "Not available for previously stained fences, the sealant won't adhere properly to prior stain."
+                                : tierDisabledMsg;
+                              const isSelected = secPkg === key;
+                              const REAL_GOLD = "#C9A84C";
+                              const borderThickness = key === "signature" ? "2.5px" : key === "legacy" ? "2px" : "1px";
+                              const unselectedBorder = disabled
+                                ? "rgba(229,57,53,0.3)"
+                                : key === "signature"
+                                ? REAL_GOLD
+                                : key === "legacy"
+                                ? C.gold
+                                : "#D1D5DB";
+                              const cardShadow = isSelected
+                                ? `0 6px 28px rgba(28,34,53,0.18)`
+                                : key === "signature"
+                                ? `0 4px 28px rgba(201,168,76,0.50), 0 1px 8px rgba(201,168,76,0.30)`
+                                : key === "legacy"
+                                ? `0 4px 20px rgba(28,34,53,0.13), 0 1px 4px rgba(28,34,53,0.06)`
+                                : `0 1px 4px rgba(0,0,0,0.04)`;
+                              const accentBarHeight = key === "legacy" ? 7 : key === "signature" ? 6 : 3;
+                              const accentBarBg = key === "signature"
+                                ? `linear-gradient(90deg, ${REAL_GOLD}, #E8C76A, ${REAL_GOLD})`
+                                : key === "legacy" || isSelected ? C.gold : accentColor;
+                              const cardBg = key === "legacy" ? "#FDFCF9" : bg;
+                              return (
+                                <button
+                                  key={key}
+                                  ref={!isMulti && key === "signature" ? signatureScrollRef : undefined}
+                                  onClick={() => !disabled && handleSelectPkg(key, isMulti ? secEstimateId : undefined)}
+                                  disabled={disabled}
+                                  className="text-left rounded-2xl transition-all overflow-hidden shrink-0 snap-center md:shrink md:w-auto"
+                                  style={{
+                                    width: "76vw",
+                                    maxWidth: 290,
+                                    background: cardBg,
+                                    border: `${borderThickness} solid ${isSelected ? (key === "signature" ? REAL_GOLD : C.gold) : unselectedBorder}`,
+                                    opacity: disabled ? 0.55 : 1,
+                                    cursor: disabled ? "not-allowed" : "pointer",
+                                    padding: 0,
+                                    boxShadow: cardShadow,
+                                  }}>
+                                  {/* Accent bar */}
+                                  <div style={{ height: accentBarHeight, background: accentBarBg }} />
+                                  <div className="p-4">
+                                    {/* Badges row */}
+                                    <div className="flex items-start justify-between gap-2 mb-3">
+                                      <div className="flex flex-wrap gap-1.5">
+                                        {badge && (
+                                          <span className="text-xs font-semibold px-2.5 py-0.5 rounded-full"
+                                            style={{
+                                              background: key === "signature" ? REAL_GOLD : C.gold,
+                                              color: "#FFFFFF",
+                                              letterSpacing: "0.02em",
+                                            }}>
+                                            {key === "legacy" ? `★ ${badge}` : badge}
+                                          </span>
+                                        )}
+                                        {disabled && (
+                                          <span className="text-xs px-2 py-0.5 rounded-full"
+                                            style={{ background: "rgba(229,57,53,0.2)", color: C.red }}>Unavailable</span>
+                                        )}
+                                      </div>
+                                      {isSelected && (
+                                        <div className="h-6 w-6 rounded-full flex items-center justify-center shrink-0"
+                                          style={{ background: key === "signature" ? REAL_GOLD : C.gold }}>
+                                          <span className="text-xs font-bold" style={{ color: "#FFFFFF" }}>✓</span>
+                                        </div>
+                                      )}
+                                    </div>
+
+                                    {/* Title */}
+                                    <p style={{ color: labelColor, ...headingStyle }} className="font-bold text-lg leading-tight">{label}</p>
+
+                                    {/* Features */}
+                                    <ul className="mt-2.5 space-y-1.5">
+                                      {features.map((f) => (
+                                        <li key={f} className="flex items-start gap-2 text-xs" style={{ color: C.creamDark }}>
+                                          <span style={{ color: C.gold }} className="shrink-0 mt-0.5">✓</span> {f}
+                                        </li>
+                                      ))}
+                                    </ul>
+
+                                    {disabled && disabledMsg && <p className="text-xs mt-2 leading-relaxed" style={{ color: C.red }}>{disabledMsg}</p>}
+
+                                    {/* Price */}
+                                    {price > 0 && !disabled && (
+                                      <div className="mt-4 pt-3" style={{ borderTop: `1px solid ${C.border}` }}>
+                                        <p className="text-xs line-through" style={{ color: C.textMuted }}>{strikethrough(price)}</p>
+                                        <p style={{ color: C.gold, ...headingStyle }} className="text-2xl font-bold leading-none mt-0.5">{fmt(price)}</p>
+                                        <p className="text-sm mt-1 font-semibold" style={{ color: "#C9A84C" }}>{fmtMonthly(price)} <span className="font-normal text-xs" style={{ color: C.textMuted }}>· 21-mo financing</span></p>
+                                      </div>
+                                    )}
+                                  </div>
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      );
+                    })}
+
+                    {/* Running total bar — multi-section only */}
+                    {isMulti && multiSelectionCount > 0 && (
+                      <div className="rounded-2xl p-4 mt-2"
+                        style={{ background: "rgba(28,34,53,0.06)", border: `1px solid ${C.border}` }}>
+                        <div className="flex items-center justify-between gap-3">
+                          <div>
+                            <p className="text-xs uppercase tracking-wider mb-0.5" style={{ color: C.textMuted }}>Your Total</p>
+                            <p style={{ color: C.gold, ...headingStyle }} className="text-2xl font-bold leading-none">{fmt(multiTotal)}</p>
+                          </div>
+                          <div className="text-right">
+                            <p className="text-sm font-semibold" style={{ color: "#C9A84C" }}>{fmtMonthly(multiTotal)}</p>
+                            <p className="text-xs" style={{ color: C.textMuted }}>21-mo financing</p>
+                          </div>
+                        </div>
+                        {multiSelectionCount < sections.length && (
+                          <p className="text-xs mt-2" style={{ color: C.textMuted }}>
+                            {sections.length - multiSelectionCount} section{sections.length - multiSelectionCount > 1 ? "s" : ""} remaining
+                          </p>
+                        )}
+                      </div>
+                    )}
                   </div>
 
                   {/* ── Color section ── */}
-                  {pkg && (
+                  {(isMulti ? multiSelectionCount > 0 : pkg) && (
                     <div ref={colorRef} className="space-y-4 fade-slide">
                       <div>
                         <div className="flex items-center gap-2.5 mb-1">
@@ -1617,23 +1724,44 @@ export default function ProposalPage() {
                   </div>
 
                   <div className="p-5 space-y-4">
-                    {pkg ? (
+                    {(isMulti ? multiSelectionCount > 0 : pkg) ? (
                       <>
-                        {/* Package */}
+                        {/* Package(s) */}
                         <div>
-                          <p className="text-xs uppercase tracking-wider mb-1" style={{ color: C.textMuted }}>Package</p>
-                          <p className="font-semibold" style={{ color: C.cream }}>{TIERS.find(t => t.key === pkg)?.label}</p>
+                          <p className="text-xs uppercase tracking-wider mb-1" style={{ color: C.textMuted }}>Package{isMulti ? "s" : ""}</p>
+                          {isMulti ? (
+                            <div className="space-y-1">
+                              {sections.map((sec) => {
+                                const tier = selections[sec.estimate_id];
+                                if (!tier) return null;
+                                return (
+                                  <div key={sec.estimate_id} className="flex justify-between items-baseline">
+                                    <p className="text-xs" style={{ color: C.creamDark }}>{sec.label}</p>
+                                    <p className="text-xs font-semibold" style={{ color: C.cream }}>{TIERS.find(t => t.key === tier)?.label} — {fmt(sec.tiers[tier])}</p>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          ) : (
+                            <p className="font-semibold" style={{ color: C.cream }}>{TIERS.find(t => t.key === pkg)?.label}</p>
+                          )}
                         </div>
 
                         {/* Price */}
-                        {tiers && (
+                        {isMulti ? (
+                          <div>
+                            <p className="text-xs uppercase tracking-wider mb-1" style={{ color: C.textMuted }}>Total</p>
+                            <span className="font-bold text-2xl" style={{ color: C.gold, ...headingStyle }}>{fmt(multiTotal)}</span>
+                            <p className="text-xs mt-0.5" style={{ color: C.textMuted }}>{fmtMonthly(multiTotal)} · 21-month plan</p>
+                          </div>
+                        ) : tiers && (
                           <div>
                             <p className="text-xs uppercase tracking-wider mb-1" style={{ color: C.textMuted }}>Total</p>
                             <div className="flex items-baseline gap-2">
-                              <span className="text-xs line-through" style={{ color: C.textMuted }}>{strikethrough(tiers[pkg])}</span>
-                              <span className="font-bold text-2xl" style={{ color: C.gold, ...headingStyle }}>{fmt(tiers[pkg])}</span>
+                              <span className="text-xs line-through" style={{ color: C.textMuted }}>{strikethrough(tiers[pkg!])}</span>
+                              <span className="font-bold text-2xl" style={{ color: C.gold, ...headingStyle }}>{fmt(tiers[pkg!])}</span>
                             </div>
-                            <p className="text-xs mt-0.5" style={{ color: C.textMuted }}>{fmtMonthly(tiers[pkg])} · 21-month plan</p>
+                            <p className="text-xs mt-0.5" style={{ color: C.textMuted }}>{fmtMonthly(tiers[pkg!])} · 21-month plan</p>
                           </div>
                         )}
 
@@ -1687,7 +1815,7 @@ export default function ProposalPage() {
                           cursor: isColorComplete() ? "pointer" : "not-allowed",
                           ...bodyStyle,
                         }}>
-                        {isColorComplete() ? "Secure Your Date →" : pkg ? "Select a color first" : "Choose a package above"}
+                        {isColorComplete() ? "Secure Your Date →" : (isMulti ? multiSelectionCount > 0 : pkg) ? "Select a color first" : "Choose a package above"}
                       </button>
                     </div>
                   )}
@@ -1744,7 +1872,7 @@ export default function ProposalPage() {
         )}
 
         {/* ═══ MOBILE STICKY BAR (hidden on lg) ═══════════════════════════════ */}
-        {step === 1 && pkg && (
+        {step === 1 && (isMulti ? multiSelectionCount > 0 : pkg) && (
           <div
             className="fixed bottom-0 left-0 right-0 z-50 px-4 lg:hidden"
             style={{
@@ -1757,14 +1885,25 @@ export default function ProposalPage() {
             <div className="max-w-lg mx-auto pt-3 pb-1">
               <div className="flex items-center justify-between gap-3 mb-2.5">
                 <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-1.5 mb-0.5">
-                    {colorChip()}
-                    <p style={{ color: "rgba(255,255,255,0.6)" }} className="text-xs truncate">
-                      {TIERS.find((t) => t.key === pkg)?.label} · {getColorDisplayName() || "Select a color"}
-                    </p>
-                  </div>
-                  {tiers && (
-                    <p style={{ color: "#FFFFFF", ...headingStyle }} className="font-bold text-xl leading-none">{fmt(tiers[pkg])}</p>
+                  {isMulti ? (
+                    <>
+                      <p style={{ color: "rgba(255,255,255,0.6)" }} className="text-xs truncate mb-0.5">
+                        {multiSelectionCount} of {sections.length} section{sections.length > 1 ? "s" : ""} selected
+                      </p>
+                      <p style={{ color: "#FFFFFF", ...headingStyle }} className="font-bold text-xl leading-none">{fmt(multiTotal)}</p>
+                    </>
+                  ) : (
+                    <>
+                      <div className="flex items-center gap-1.5 mb-0.5">
+                        {colorChip()}
+                        <p style={{ color: "rgba(255,255,255,0.6)" }} className="text-xs truncate">
+                          {TIERS.find((t) => t.key === pkg)?.label} · {getColorDisplayName() || "Select a color"}
+                        </p>
+                      </div>
+                      {tiers && (
+                        <p style={{ color: "#FFFFFF", ...headingStyle }} className="font-bold text-xl leading-none">{fmt(tiers[pkg!])}</p>
+                      )}
+                    </>
                   )}
                 </div>
                 <span className="text-xs px-2.5 py-1 rounded-full shrink-0 font-medium"
@@ -1805,7 +1944,9 @@ export default function ProposalPage() {
                   <p style={{ color: "rgba(255,255,255,0.6)" }} className="text-xs">Selected Date</p>
                   <p style={{ color: "#FFFFFF", ...headingStyle }} className="font-bold text-base leading-tight truncate">{formatDateDisplay(selectedDate)}</p>
                 </div>
-                {tiers && pkg && (
+                {isMulti ? (
+                  <p style={{ color: "rgba(255,255,255,0.85)", ...headingStyle }} className="font-bold text-xl shrink-0">{fmt(multiTotal)}</p>
+                ) : tiers && pkg && (
                   <p style={{ color: "rgba(255,255,255,0.85)", ...headingStyle }} className="font-bold text-xl shrink-0">{fmt(tiers[pkg])}</p>
                 )}
               </div>

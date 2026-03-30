@@ -47,6 +47,7 @@ class StageUpdate(BaseModel):
 
 class SelectionUpdate(BaseModel):
     selected_tier: str | None = None
+    selections: list | None = None  # [{estimate_id, selected_tier}, ...]
     color_mode: str | None = None
     selected_color: str | None = None
     hoa_colors: list | None = None
@@ -59,6 +60,7 @@ class ActivityUpdate(BaseModel):
 
 class CheckoutRequest(BaseModel):
     selected_tier: str
+    selections: list | None = None  # [{estimate_id, selected_tier}, ...] for multi-estimate
     booked_at: str
     contact_email: str | None = None
     backup_dates: list[str] | None = None
@@ -71,6 +73,7 @@ class CheckoutRequest(BaseModel):
 
 class BookingRequest(BaseModel):
     selected_tier: str          # "essential" | "signature" | "legacy"
+    selections: list | None = None  # [{estimate_id, selected_tier}, ...] for multi-estimate
     booked_at: str              # ISO datetime string from customer
     contact_email: str | None = None
     backup_dates: list[str] | None = None
@@ -82,6 +85,16 @@ class BookingRequest(BaseModel):
     stripe_session_id: str | None = None
 
 
+def _apply_discount(tiers_raw: dict, military_discount: bool) -> dict:
+    """Apply military discount ($50 off each tier) and return cleaned tier prices."""
+    discount = 50.0 if military_discount else 0.0
+    return {
+        "essential": max(0.0, float(tiers_raw.get("essential") or 0) - discount),
+        "signature": max(0.0, float(tiers_raw.get("signature") or 0) - discount),
+        "legacy": max(0.0, float(tiers_raw.get("legacy") or 0) - discount),
+    }
+
+
 @router.get("/{token}")
 async def get_proposal(token: str):
     """Public endpoint — returns proposal data for the customer booking page."""
@@ -91,10 +104,9 @@ async def get_proposal(token: str):
         raise HTTPException(status_code=404, detail="Proposal not found")
 
     proposal = result.data
-
     is_preview = proposal["status"] == "preview"
 
-    # Fetch estimate + lead for pricing and customer info
+    # Fetch primary estimate + lead for pricing and customer info
     est_result = db.table("estimates").select("*").eq("id", proposal["estimate_id"]).single().execute()
     if not est_result.data:
         raise HTTPException(status_code=404, detail="Estimate not found")
@@ -105,15 +117,35 @@ async def get_proposal(token: str):
 
     inputs = estimate.get("inputs") or {}
     tiers_raw = inputs.get("_tiers") or {}
-
-    # Apply military discount ($50 off each tier) if flagged on the lead's form data
     military_discount = bool(inputs.get("military_discount", False))
-    discount_amount = 50.0 if military_discount else 0.0
-    tiers = {
-        "essential": max(0.0, float(tiers_raw.get("essential") or 0) - discount_amount),
-        "signature":  max(0.0, float(tiers_raw.get("signature") or 0) - discount_amount),
-        "legacy":     max(0.0, float(tiers_raw.get("legacy") or 0) - discount_amount),
-    }
+    tiers = _apply_discount(tiers_raw, military_discount)
+
+    # Build sections array (multi-estimate support)
+    estimate_ids = proposal.get("estimate_ids") or []
+    if estimate_ids and len(estimate_ids) > 1:
+        # Multi-estimate: fetch all estimates
+        all_est_res = db.table("estimates").select("*").in_("id", estimate_ids).execute()
+        all_estimates = all_est_res.data or [estimate]
+        # Maintain order from estimate_ids
+        est_map = {e["id"]: e for e in all_estimates}
+        all_estimates = [est_map[eid] for eid in estimate_ids if eid in est_map]
+    else:
+        all_estimates = [estimate]
+
+    sections = []
+    for est in all_estimates:
+        est_inputs = est.get("inputs") or {}
+        est_tiers_raw = est_inputs.get("_tiers") or {}
+        est_military = bool(est_inputs.get("military_discount", False))
+        est_tiers = _apply_discount(est_tiers_raw, est_military)
+        sections.append({
+            "estimate_id": est["id"],
+            "label": est.get("label") or "",
+            "tiers": est_tiers,
+            "previously_stained": est_inputs.get("previously_stained") or "No",
+            "fence_sides": est_inputs.get("fence_sides") or "",
+            "custom_fence_sides": est_inputs.get("custom_fence_sides") or "",
+        })
 
     # Mark as viewed if still in 'sent' state (not for preview)
     if proposal["status"] == "sent":
@@ -145,8 +177,11 @@ async def get_proposal(token: str):
         "contact_email": lead.get("contact_email") or "",
         "military_discount": military_discount,
         "tiers": tiers,
+        "sections": sections,
+        "selections": proposal.get("selections") or [],
         "selected_tier": selected_tier,
         "booked_tier_price": selected_tier_price,
+        "booked_total_price": proposal.get("booked_total_price"),
         "booked_at": proposal.get("booked_at"),
         "selected_color": proposal.get("selected_color"),
         "color_mode": color_mode,
@@ -230,7 +265,12 @@ async def save_selection(token: str, body: SelectionUpdate):
         return {"status": "ok"}  # Already booked — don't overwrite confirmed values
 
     updates: dict = {}
-    if body.selected_tier is not None:
+    if body.selections is not None:
+        updates["selections"] = body.selections
+        # Also set selected_tier from first selection for backward compat
+        if body.selections:
+            updates["selected_tier"] = body.selections[0].get("selected_tier")
+    elif body.selected_tier is not None:
         updates["selected_tier"] = body.selected_tier
     if body.color_mode is not None:
         updates["color_mode"] = body.color_mode
@@ -279,19 +319,20 @@ async def create_checkout(token: str, body: CheckoutRequest):
         raise HTTPException(status_code=400, detail="Invalid booked_at")
 
     # Store pending booking data
-    db.table("proposals").update({
-        "pending_booking": {
-            "selected_tier": body.selected_tier,
-            "booked_at": body.booked_at,
-            "contact_email": body.contact_email,
-            "backup_dates": body.backup_dates,
-            "selected_color": body.selected_color,
-            "color_mode": body.color_mode,
-            "hoa_colors": body.hoa_colors,
-            "custom_color": body.custom_color,
-            "additional_request": body.additional_request,
-        }
-    }).eq("token", token).execute()
+    pending_data: dict = {
+        "selected_tier": body.selected_tier,
+        "booked_at": body.booked_at,
+        "contact_email": body.contact_email,
+        "backup_dates": body.backup_dates,
+        "selected_color": body.selected_color,
+        "color_mode": body.color_mode,
+        "hoa_colors": body.hoa_colors,
+        "custom_color": body.custom_color,
+        "additional_request": body.additional_request,
+    }
+    if body.selections:
+        pending_data["selections"] = body.selections
+    db.table("proposals").update({"pending_booking": pending_data}).eq("token", token).execute()
 
     # Bypass mode — no Stripe key configured (dev/testing only)
     if not settings.stripe_secret_key:
@@ -322,6 +363,7 @@ async def _finalize_booking(
     token: str,
     proposal: dict,
     selected_tier: str,
+    selections: list | None = None,
     booked_at_str: str,
     contact_email: str | None,
     backup_dates: list | None,
@@ -352,18 +394,48 @@ async def _finalize_booking(
 
     lead_result = db.table("leads").select("*").eq("id", proposal["lead_id"]).single().execute()
     lead = lead_result.data or {}
-    est_result = db.table("estimates").select("*").eq("id", proposal["estimate_id"]).single().execute()
-    estimate = est_result.data or {}
-    est_inputs = estimate.get("inputs") or {}
-    tiers_raw = est_inputs.get("_tiers") or {}
-    military_discount = bool(est_inputs.get("military_discount", False))
-    discount_amount = 50.0 if military_discount else 0.0
-    tiers = {k: max(0.0, float(v or 0) - discount_amount) for k, v in tiers_raw.items()}
+
+    # Multi-estimate: resolve all selected sections with their prices
+    is_multi = bool(selections and len(selections) > 0)
+    booked_sections: list[dict] = []  # [{label, tier_label, tier_price, estimate_id}, ...]
+    booked_total_price = 0.0
+
+    if is_multi:
+        sel_est_ids = [s["estimate_id"] for s in selections]
+        all_est_res = db.table("estimates").select("*").in_("id", sel_est_ids).execute()
+        est_map = {e["id"]: e for e in (all_est_res.data or [])}
+        for sel in selections:
+            est = est_map.get(sel["estimate_id"], {})
+            est_inputs = est.get("inputs") or {}
+            est_tiers = _apply_discount(est_inputs.get("_tiers") or {}, bool(est_inputs.get("military_discount", False)))
+            sel_tier = sel.get("selected_tier", selected_tier)
+            sel_price = float(est_tiers.get(sel_tier, 0))
+            booked_sections.append({
+                "estimate_id": sel["estimate_id"],
+                "label": est.get("label") or "",
+                "tier_label": sel_tier.capitalize(),
+                "tier_price": sel_price,
+            })
+            booked_total_price += sel_price
+    else:
+        # Single estimate (backward compat)
+        est_result = db.table("estimates").select("*").eq("id", proposal["estimate_id"]).single().execute()
+        estimate = est_result.data or {}
+        est_inputs = estimate.get("inputs") or {}
+        tiers = _apply_discount(est_inputs.get("_tiers") or {}, bool(est_inputs.get("military_discount", False)))
+        tier_price = float(tiers.get(selected_tier, 0))
+        booked_sections.append({
+            "estimate_id": proposal["estimate_id"],
+            "label": "",
+            "tier_label": selected_tier.capitalize(),
+            "tier_price": tier_price,
+        })
+        booked_total_price = tier_price
 
     customer_name = lead.get("contact_name") or "Customer"
     address = lead.get("address") or ""
-    tier_label = selected_tier.capitalize()
-    tier_price = tiers.get(selected_tier, 0)
+    tier_label = booked_sections[0]["tier_label"] if booked_sections else selected_tier.capitalize()
+    tier_price = booked_total_price
     date_str = booked_dt.strftime("%A, %B %-d at %-I:%M %p")
 
     color_display = ""
@@ -376,34 +448,41 @@ async def _finalize_booking(
     elif color_mode == "custom":
         color_display = f"Custom: {custom_color or 'TBD'}"
 
-    inputs_data = estimate.get("inputs") or {}
-    linear_feet = inputs_data.get("linear_feet")
-    fence_height = inputs_data.get("fence_height") or ""
-    fence_desc = f"{int(linear_feet)} linear feet" if linear_feet else "your fence"
-    height_desc = fence_height.split(" ")[0] if fence_height else ""
-    wood_details = (
-        f"Property: {fence_desc}{f', {height_desc} tall' if height_desc else ''}\n"
-        f"Stain system: Ready Seal Exterior Stain & Sealer, applied in two coats\n"
-        f"Surface preparation: Professional soft-wash + pressure rinse before staining\n"
-        f"Color: {color_display or 'To be confirmed with HOA approval'}"
-    )
-
     backup_dates_text = "None selected"
     if parsed_backup_dates:
         backup_dates_text = ", ".join(
             datetime.fromisoformat(f"{d}T12:00:00").strftime("%A, %B %-d") for d in parsed_backup_dates
         )
 
-    summary = f"Fence Staining — {customer_name} ({tier_label})"
-    description = (
-        f"Customer: {customer_name}\n"
-        f"Address: {address}\n"
-        f"Package: {tier_label} — ${tier_price:,.2f}\n"
-        f"Color: {color_display or 'Not specified'}\n"
-        f"Backup dates: {backup_dates_text}\n"
-        f"Phone: {lead.get('contact_phone') or 'N/A'}\n"
-        f"Booked via proposal link"
-    )
+    # Build calendar description with all sections
+    if is_multi and len(booked_sections) > 1:
+        pkg_lines = []
+        for sec in booked_sections:
+            lbl = f" ({sec['label']})" if sec["label"] else ""
+            pkg_lines.append(f"  {sec['tier_label']} — ${sec['tier_price']:,.2f}{lbl}")
+        pkg_desc = "\n".join(pkg_lines)
+        summary = f"Fence Staining — {customer_name} (${booked_total_price:,.0f})"
+        description = (
+            f"Customer: {customer_name}\n"
+            f"Address: {address}\n\n"
+            f"Packages:\n{pkg_desc}\n"
+            f"Total: ${booked_total_price:,.2f}\n\n"
+            f"Color: {color_display or 'Not specified'}\n"
+            f"Backup dates: {backup_dates_text}\n"
+            f"Phone: {lead.get('contact_phone') or 'N/A'}\n"
+            f"Booked via proposal link"
+        )
+    else:
+        summary = f"Fence Staining — {customer_name} ({tier_label})"
+        description = (
+            f"Customer: {customer_name}\n"
+            f"Address: {address}\n"
+            f"Package: {tier_label} — ${tier_price:,.2f}\n"
+            f"Color: {color_display or 'Not specified'}\n"
+            f"Backup dates: {backup_dates_text}\n"
+            f"Phone: {lead.get('contact_phone') or 'N/A'}\n"
+            f"Booked via proposal link"
+        )
     calendar_event_id = create_calendar_event(
         summary=summary, description=description, location=address,
         start_dt=booked_dt, duration_hours=4,
@@ -419,15 +498,31 @@ async def _finalize_booking(
         )
 
     if settings.owner_ghl_contact_id:
-        alan_msg = (
-            f"📅 New Booking!\n"
-            f"Customer: {customer_name}\n"
-            f"Package: {tier_label} (${tier_price:,.0f})\n"
-            f"Color: {color_display or 'Not specified'}\n"
-            f"Date: {date_str}\n"
-            f"Backup: {backup_dates_text}\n"
-            f"Address: {address}"
-        )
+        if is_multi and len(booked_sections) > 1:
+            pkg_lines = "\n".join(
+                f"  {sec['tier_label']} — ${sec['tier_price']:,.0f}" + (f" ({sec['label']})" if sec["label"] else "")
+                for sec in booked_sections
+            )
+            alan_msg = (
+                f"📅 New Booking!\n"
+                f"Customer: {customer_name}\n"
+                f"Packages:\n{pkg_lines}\n"
+                f"Total: ${booked_total_price:,.0f}\n"
+                f"Color: {color_display or 'Not specified'}\n"
+                f"Date: {date_str}\n"
+                f"Backup: {backup_dates_text}\n"
+                f"Address: {address}"
+            )
+        else:
+            alan_msg = (
+                f"📅 New Booking!\n"
+                f"Customer: {customer_name}\n"
+                f"Package: {tier_label} (${tier_price:,.0f})\n"
+                f"Color: {color_display or 'Not specified'}\n"
+                f"Date: {date_str}\n"
+                f"Backup: {backup_dates_text}\n"
+                f"Address: {address}"
+            )
         if additional_request:
             alan_msg += f"\n\n🔧 Additional services requested: {additional_request}"
         sent = send_message_to_contact(settings.owner_ghl_contact_id, alan_msg)
@@ -486,11 +581,11 @@ async def _finalize_booking(
     else:
         logger.warning(f"No ghl_contact_id on lead {proposal['lead_id']} — skipping customer confirmation SMS")
 
-    db.table("proposals").update({
+    proposal_update: dict = {
         "status": "booked",
         "funnel_stage": "booked",
         "selected_tier": selected_tier,
-        "booked_tier_price": float(tier_price or 0),
+        "booked_tier_price": float(booked_sections[0]["tier_price"] if booked_sections else 0),
         "booked_at": booked_dt.isoformat(),
         "calendar_event_id": calendar_event_id,
         "backup_dates": parsed_backup_dates,
@@ -500,7 +595,12 @@ async def _finalize_booking(
         "custom_color": custom_color,
         "stripe_session_id": stripe_session_id,
         "deposit_paid": bool(stripe_session_id),
-    }).eq("token", token).execute()
+    }
+    # Multi-estimate: store selections and total
+    if is_multi and selections:
+        proposal_update["selections"] = selections
+        proposal_update["booked_total_price"] = booked_total_price
+    db.table("proposals").update(proposal_update).eq("token", token).execute()
 
     # Ensure a schedule_slot row exists for the booked date so it appears on the dashboard calendar
     booked_date_str = booked_dt.date().isoformat()
@@ -524,16 +624,20 @@ async def _finalize_booking(
             if not moved:
                 logger.warning(f"Failed to move GHL opportunity {opp_id} to booked stage")
 
-    return {
+    result = {
         "status": "booked",
         "booked_at": booked_dt.isoformat(),
         "selected_tier": selected_tier,
-        "booked_tier_price": float(tier_price or 0),
+        "booked_tier_price": float(booked_sections[0]["tier_price"] if booked_sections else 0),
+        "booked_total_price": booked_total_price,
         "color_display": color_display or "Not specified",
         "backup_dates": parsed_backup_dates,
         "deposit_paid": bool(stripe_session_id),
         "address": address,
     }
+    if is_multi and selections:
+        result["selections"] = selections
+    return result
 
 
 @router.post("/{token}/book")
@@ -583,13 +687,15 @@ async def book_proposal(token: str, body: BookingRequest):
         body.hoa_colors = pending.get("hoa_colors")
         body.custom_color = pending.get("custom_color")
         body.additional_request = pending.get("additional_request")
+        body.selections = pending.get("selections")
 
     if body.selected_tier not in ("essential", "signature", "legacy"):
         raise HTTPException(status_code=400, detail="Invalid tier")
 
     return await _finalize_booking(
         token=token, proposal=proposal,
-        selected_tier=body.selected_tier, booked_at_str=body.booked_at,
+        selected_tier=body.selected_tier, selections=body.selections,
+        booked_at_str=body.booked_at,
         contact_email=body.contact_email, backup_dates=body.backup_dates,
         selected_color=body.selected_color, color_mode=body.color_mode,
         hoa_colors=body.hoa_colors, custom_color=body.custom_color,

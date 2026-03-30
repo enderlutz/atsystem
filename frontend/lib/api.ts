@@ -70,11 +70,18 @@ export const api = {
       method: "PUT",
       body: JSON.stringify({ tags }),
     }),
-  updateLeadFormData: (leadId: string, formData: Record<string, string | number | boolean | string[]>) =>
+  updateLeadFormData: (leadId: string, formData: Record<string, string | number | boolean | string[]>, estimateId?: string) =>
     request<LeadDetail>(`/api/leads/${leadId}/form-data`, {
       method: "PUT",
-      body: JSON.stringify({ form_data: formData }),
+      body: JSON.stringify({ form_data: formData, ...(estimateId ? { estimate_id: estimateId } : {}) }),
     }),
+  addEstimate: (leadId: string, label: string, formData: Record<string, unknown>) =>
+    request<LeadDetail>(`/api/leads/${leadId}/estimates`, {
+      method: "POST",
+      body: JSON.stringify({ label, form_data: formData }),
+    }),
+  deleteEstimate: (leadId: string, estimateId: string) =>
+    request<LeadDetail>(`/api/leads/${leadId}/estimates/${estimateId}`, { method: "DELETE" }),
   updateLeadContact: (leadId: string, data: { contact_name?: string; contact_phone?: string; address?: string }) =>
     request<{ status: string }>(`/api/leads/${leadId}/contact`, {
       method: "PUT",
@@ -168,6 +175,7 @@ export const api = {
     request<ProposalData>(`/api/proposal/${token}`),
   createCheckout: (token: string, data: {
     selected_tier: string;
+    selections?: ProposalSelection[] | null;
     booked_at: string;
     contact_email?: string | null;
     backup_dates?: string[] | null;
@@ -188,6 +196,7 @@ export const api = {
     }),
   saveProposalSelection: (token: string, data: {
     selected_tier?: string;
+    selections?: ProposalSelection[];
     color_mode?: string;
     selected_color?: string;
     hoa_colors?: string[];
@@ -204,6 +213,7 @@ export const api = {
     }),
   bookProposal: (token: string, data: {
     selected_tier: string;
+    selections?: ProposalSelection[] | null;
     booked_at: string;
     contact_email?: string | null;
     backup_dates?: string[] | null;
@@ -385,6 +395,7 @@ export interface Lead {
 
 export interface LeadDetail extends Lead {
   estimate?: EstimateDetail;
+  estimates?: EstimateDetail[];
 }
 
 export interface Estimate {
@@ -395,6 +406,7 @@ export interface Estimate {
   estimate_low: number;
   estimate_high: number;
   owner_notes: string | null;
+  label?: string | null;
   additional_services_sent: boolean;
   addon_description?: string | null;
   addon_price?: number | null;
@@ -498,6 +510,20 @@ export interface SyncStatus {
   status: string;
 }
 
+export interface ProposalSection {
+  estimate_id: string;
+  label: string;
+  tiers: { essential: number; signature: number; legacy: number };
+  previously_stained?: string;
+  fence_sides?: string;
+  custom_fence_sides?: string;
+}
+
+export interface ProposalSelection {
+  estimate_id: string;
+  selected_tier: "essential" | "signature" | "legacy";
+}
+
 export interface ProposalData {
   token: string;
   status: "sent" | "viewed" | "booked" | "preview";
@@ -507,10 +533,13 @@ export interface ProposalData {
   service_type?: string;
   previously_stained?: string;
   tiers?: { essential: number; signature: number; legacy: number };
+  sections?: ProposalSection[];
+  selections?: ProposalSelection[];
   military_discount?: boolean;
   booked_at?: string;
   selected_tier?: string;
   booked_tier_price?: number;
+  booked_total_price?: number;
   selected_color?: string;
   color_mode?: "gallery" | "hoa_only" | "hoa_approved" | "custom";
   hoa_colors?: string[];
