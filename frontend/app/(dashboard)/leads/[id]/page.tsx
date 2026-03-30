@@ -363,16 +363,13 @@ export default function LeadDetailPage() {
   // Compute schedule defaults based on current Central time
   const nowCentral = new Date(new Date().toLocaleString("en-US", { timeZone: "America/Chicago" }));
   const isAfterHours = nowCentral.getHours() >= 19; // 7 PM+
-  const defaultScheduleDate = (() => {
-    if (isAfterHours) {
-      // After 7 PM: default to tomorrow
-      const tomorrow = new Date(nowCentral);
-      tomorrow.setDate(tomorrow.getDate() + 1);
-      return tomorrow.toISOString().slice(0, 10);
-    }
-    // Before 7 PM: default to today
-    return nowCentral.toISOString().slice(0, 10);
+  const todayDate = nowCentral.toISOString().slice(0, 10);
+  const tomorrowDate = (() => {
+    const t = new Date(nowCentral);
+    t.setDate(t.getDate() + 1);
+    return t.toISOString().slice(0, 10);
   })();
+  const defaultScheduleDate = isAfterHours ? tomorrowDate : todayDate;
 
   // Auto-enable schedule after 7 PM
   const effectiveSchedule = scheduleSend || isAfterHours;
