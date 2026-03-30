@@ -15,7 +15,7 @@ import {
   ArrowLeft, MapPin, ExternalLink, Phone, Mail, User,
   CheckCircle2, MessageSquare, Tag, Calculator, RefreshCw,
   Send, AlertTriangle, History, Zap, Pause, Play, Clock, Camera,
-  Plus, Trash2, ChevronDown, ChevronUp,
+  Plus, Trash2, ChevronDown, ChevronUp, Pencil, Check, X,
 } from "lucide-react";
 
 const GOOGLE_MAPS_KEY = process.env.NEXT_PUBLIC_GOOGLE_MAPS_KEY || "";
@@ -89,6 +89,10 @@ interface EstimateSectionState {
   saving: boolean;
   saved: boolean;
   collapsed: boolean;
+  editingTiers: boolean;
+  editTiers: { essential: string; signature: string; legacy: string };
+  savingTiers: boolean;
+  tiersSaved: boolean;
 }
 
 function makeEstimateSectionState(est?: EstimateDetail): EstimateSectionState {
@@ -112,6 +116,17 @@ function makeEstimateSectionState(est?: EstimateDetail): EstimateSectionState {
     saving: false,
     saved: false,
     collapsed: false,
+    editingTiers: false,
+    editTiers: (() => {
+      const t = (inp._tiers as unknown as Record<string, number>) || {};
+      return {
+        essential: String(Math.round(Number(t.essential || 0))),
+        signature: String(Math.round(Number(t.signature || 0))),
+        legacy: String(Math.round(Number(t.legacy || 0))),
+      };
+    })(),
+    savingTiers: false,
+    tiersSaved: false,
   };
 }
 
@@ -1320,20 +1335,119 @@ export default function LeadDetailPage() {
                       )}
                     </div>
 
-                    {/* Per-section tier prices (inline, when available) */}
+                    {/* Per-section tier prices (inline editable) */}
                     {sectionTiers && (
-                      <div className="grid grid-cols-3 gap-2">
-                        {TIER_CONFIG.map(({ key, label }) => {
-                          const price = sectionTiers[key];
-                          return (
-                            <div key={key} className="rounded-lg border p-2 text-left bg-background">
-                              <p className="text-xs font-medium text-muted-foreground">{label}</p>
-                              <p className="text-base font-bold mt-0.5">
-                                {price ? `$${Number(price).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : "--"}
-                              </p>
+                      <div className="space-y-2">
+                        <div className="flex items-center justify-between">
+                          <p className="text-xs font-medium text-muted-foreground">Tier Prices</p>
+                          {!section.editingTiers ? (
+                            <button
+                              className="inline-flex items-center gap-1 text-xs text-blue-500 hover:text-blue-700 transition-colors"
+                              onClick={() => {
+                                updateSection(sIdx, {
+                                  editingTiers: true,
+                                  tiersSaved: false,
+                                  editTiers: {
+                                    essential: String(Math.round(sectionTiers.essential || 0)),
+                                    signature: String(Math.round(sectionTiers.signature || 0)),
+                                    legacy: String(Math.round(sectionTiers.legacy || 0)),
+                                  },
+                                });
+                              }}
+                            >
+                              <Pencil className="h-3 w-3" /> Edit
+                            </button>
+                          ) : (
+                            <div className="flex items-center gap-1">
+                              <button
+                                className="inline-flex items-center gap-1 text-xs text-green-600 hover:text-green-700 disabled:opacity-50"
+                                disabled={section.savingTiers}
+                                onClick={async () => {
+                                  const e = parseFloat(section.editTiers.essential) || 0;
+                                  const s = parseFloat(section.editTiers.signature) || 0;
+                                  const l = parseFloat(section.editTiers.legacy) || 0;
+                                  if (e <= 0 || s <= 0 || l <= 0) return;
+                                  updateSection(sIdx, { savingTiers: true });
+                                  try {
+                                    const estId = section.estimateId;
+                                    if (estId) {
+                                      await api.saveCustomTiers(estId, { essential: e, signature: s, legacy: l });
+                                      // Refresh lead data to get updated tiers
+                                      const updated = await api.getLead(id!);
+                                      setLead(updated);
+                                      if (updated.estimates) {
+                                        setEstimateSections(updated.estimates.map(makeEstimateSectionState));
+                                      }
+                                      // Mark this section as saved after state update
+                                      setTimeout(() => {
+                                        setEstimateSections((prev) =>
+                                          prev.map((sec, i) =>
+                                            i === sIdx ? { ...sec, editingTiers: false, savingTiers: false, tiersSaved: true } : sec
+                                          )
+                                        );
+                                        // Clear saved indicator after 3 seconds
+                                        setTimeout(() => {
+                                          setEstimateSections((prev) =>
+                                            prev.map((sec, i) => (i === sIdx ? { ...sec, tiersSaved: false } : sec))
+                                          );
+                                        }, 3000);
+                                      }, 100);
+                                    }
+                                  } catch (err) {
+                                    console.error(err);
+                                    updateSection(sIdx, { savingTiers: false });
+                                  }
+                                }}
+                              >
+                                <Check className="h-3.5 w-3.5" /> {section.savingTiers ? "Saving..." : "Save"}
+                              </button>
+                              <button
+                                className="inline-flex items-center gap-1 text-xs text-red-500 hover:text-red-600"
+                                onClick={() => updateSection(sIdx, { editingTiers: false })}
+                              >
+                                <X className="h-3.5 w-3.5" /> Cancel
+                              </button>
                             </div>
-                          );
-                        })}
+                          )}
+                        </div>
+                        <style>{`@keyframes tier-shake { 0%,100% { transform: translateX(0); } 20% { transform: translateX(-2px); } 40% { transform: translateX(2px); } 60% { transform: translateX(-1px); } 80% { transform: translateX(1px); } }`}</style>
+                        <div className="grid grid-cols-3 gap-2">
+                          {TIER_CONFIG.map(({ key, label }) => {
+                            const price = sectionTiers[key];
+                            const isEditing = section.editingTiers;
+                            return (
+                              <div
+                                key={key}
+                                className={`rounded-lg border p-2 text-left bg-background transition-all ${section.tiersSaved ? "border-green-400 bg-green-50" : ""}`}
+                                style={isEditing ? { animation: "tier-shake 0.4s ease-in-out infinite" } : undefined}
+                              >
+                                <p className="text-xs font-medium text-muted-foreground">{label}</p>
+                                {isEditing ? (
+                                  <div className="mt-0.5 flex items-center gap-0.5">
+                                    <span className="text-sm font-bold">$</span>
+                                    <input
+                                      type="number"
+                                      className="w-full text-sm font-bold border rounded px-1 py-0.5 bg-white"
+                                      value={section.editTiers[key as keyof typeof section.editTiers]}
+                                      onChange={(e) =>
+                                        updateSection(sIdx, {
+                                          editTiers: { ...section.editTiers, [key]: e.target.value },
+                                        })
+                                      }
+                                      onKeyDown={(e) => {
+                                        if (e.key === "Escape") updateSection(sIdx, { editingTiers: false });
+                                      }}
+                                    />
+                                  </div>
+                                ) : (
+                                  <p className={`text-base font-bold mt-0.5 ${section.tiersSaved ? "text-green-700" : ""}`}>
+                                    {price ? `$${Number(price).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : "--"}
+                                  </p>
+                                )}
+                              </div>
+                            );
+                          })}
+                        </div>
                       </div>
                     )}
 
