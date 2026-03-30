@@ -402,6 +402,46 @@ async def save_custom_tiers(estimate_id: str, body: dict):
     return {"status": "saved", "tiers": tiers}
 
 
+@router.post("/{estimate_id}/cancel-quote")
+async def cancel_quote(estimate_id: str, user: dict = Depends(get_current_user)):
+    """Cancel a sent quote — resets all estimates for this lead back to pending
+    and invalidates the active proposal so a new one can be sent."""
+    db = get_db()
+    res = db.table("estimates").select("*, lead:leads(*)").eq("id", estimate_id).single().execute()
+    if not res.data:
+        raise HTTPException(status_code=404, detail="Estimate not found")
+
+    estimate = res.data
+    lead_id = estimate["lead_id"]
+
+    # Reset ALL approved/adjusted estimates for this lead back to pending
+    all_est = db.table("estimates").select("id, status").eq("lead_id", lead_id).execute()
+    for est in (all_est.data or []):
+        if est["status"] in ("approved", "adjusted"):
+            db.table("estimates").update({
+                "status": "pending",
+                "approved_at": None,
+            }).eq("id", est["id"]).execute()
+
+    # Invalidate active proposals (mark as cancelled)
+    active_proposals = (
+        db.table("proposals").select("id, status")
+        .eq("lead_id", lead_id)
+        .in_("status", ["sent", "viewed", "preview"])
+        .execute()
+    )
+    for prop in (active_proposals.data or []):
+        db.table("proposals").update({"status": "cancelled"}).eq("id", prop["id"]).execute()
+
+    # Reset lead status
+    db.table("leads").update({"status": "estimated"}).eq("id", lead_id).execute()
+
+    import logging
+    logging.getLogger(__name__).info(f"Quote cancelled for lead {lead_id} by {user.get('name', user.get('sub'))}")
+
+    return {"status": "cancelled", "estimate_id": estimate_id}
+
+
 @router.post("/{estimate_id}/resend")
 async def resend_estimate(estimate_id: str, _: dict = Depends(require_admin)):
     """Resend the proposal SMS to the client. Only valid for approved/adjusted estimates."""

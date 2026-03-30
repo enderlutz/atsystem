@@ -1927,9 +1927,34 @@ export default function LeadDetailPage() {
                 </Button>
               </div>
             ) : (
-              <Button asChild>
-                <Link href={`/estimates/${est.id}`}>View Estimate</Link>
-              </Button>
+              <div className="flex flex-col gap-2 w-full">
+                <Button asChild>
+                  <Link href={`/estimates/${est.id}`}>View Estimate</Link>
+                </Button>
+                {est?.status === "approved" && (
+                  <Button
+                    variant="outline"
+                    className="gap-2 text-orange-600 border-orange-300 hover:bg-orange-50 w-full"
+                    onClick={async () => {
+                      if (!est?.id) return;
+                      if (!confirm("Cancel the current quote? This will reset all estimates to pending so you can re-send.")) return;
+                      setApprovingEstimate(true);
+                      try {
+                        await api.cancelQuote(est.id);
+                        // Reload the page to refresh all state
+                        window.location.reload();
+                      } catch (e: unknown) {
+                        setApproveError((e as Error).message || "Failed to cancel quote");
+                        setApprovingEstimate(false);
+                      }
+                    }}
+                    disabled={approvingEstimate}
+                  >
+                    <X className="h-4 w-4" />
+                    {approvingEstimate ? "Cancelling..." : "Cancel Quote & Re-estimate"}
+                  </Button>
+                )}
+              </div>
             )}
 
             {approveError && (

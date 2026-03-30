@@ -131,6 +131,8 @@ export const api = {
     request<{ status: string; estimate_id: string }>(`/api/estimates/${id}/notify-owner`, { method: "POST" }),
   resendEstimate: (id: string) =>
     request<{ status: string; proposal_url: string }>(`/api/estimates/${id}/resend`, { method: "POST" }),
+  cancelQuote: (id: string) =>
+    request<{ status: string }>(`/api/estimates/${id}/cancel-quote`, { method: "POST" }),
   getPreviewToken: (estimateId: string) =>
     request<{ token: string }>(`/api/estimates/${estimateId}/preview`, { method: "POST" }),
   markAdditionalServicesSent: (estimateId: string, description?: string, price?: number) =>
