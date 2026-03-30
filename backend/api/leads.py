@@ -340,8 +340,7 @@ async def create_additional_estimate(lead_id: str, body: dict):
             incoming_form[shared_key] = lead_fd[shared_key]
 
     from services.estimator import calculate_estimate
-    from api.settings import get_pricing_config
-    from api.webhooks import _build_inputs_with_meta
+    from api.webhooks import get_pricing_config, _build_inputs_with_meta
 
     config = get_pricing_config(lead["service_type"])
     low, high, breakdown, meta = calculate_estimate(
