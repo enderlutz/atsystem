@@ -190,6 +190,10 @@ export default function LeadDetailPage() {
   const [estimateSent, setEstimateSent] = useState(false);
   const [approveError, setApproveError] = useState<string | null>(null);
   const [forceSend, setForceSend] = useState(false);
+  // Schedule send state
+  const [scheduleSend, setScheduleSend] = useState(false);
+  const [scheduledDate, setScheduledDate] = useState("");
+  const [scheduledTime, setScheduledTime] = useState("08:00");
   const [requestingReview, setRequestingReview] = useState(false);
   const [reviewRequested, setReviewRequested] = useState(false);
   const [notifyingOwner, setNotifyingOwner] = useState(false);
@@ -356,15 +360,46 @@ export default function LeadDetailPage() {
     setCheckingResponse(false);
   };
 
+  // Compute schedule defaults based on current Central time
+  const nowCentral = new Date(new Date().toLocaleString("en-US", { timeZone: "America/Chicago" }));
+  const isAfterHours = nowCentral.getHours() >= 19; // 7 PM+
+  const defaultScheduleDate = (() => {
+    const tomorrow = new Date(nowCentral);
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    return tomorrow.toISOString().slice(0, 10);
+  })();
+
+  // Auto-enable schedule after 7 PM
+  const effectiveSchedule = scheduleSend || isAfterHours;
+
+  const getScheduledSendAt = (): string | undefined => {
+    if (!effectiveSchedule || (!scheduleSend && !isAfterHours)) return undefined;
+    if (!scheduleSend && isAfterHours) {
+      // Default: tomorrow 8 AM Central
+      return undefined; // Will be handled by the checkbox being auto-checked
+    }
+    const date = scheduledDate || defaultScheduleDate;
+    const time = scheduledTime || "08:00";
+    // Build a Central time ISO string
+    const dt = new Date(`${date}T${time}:00`);
+    return dt.toISOString();
+  };
+
   const handleApproveEstimate = async () => {
     if (!lead?.estimate) return;
     setApprovingEstimate(true);
     setApproveError(null);
+    const sendAt = scheduleSend ? getScheduledSendAt() : undefined;
     try {
-      await api.approveEstimate(lead.estimate.id, "signature", forceSend);
+      await api.approveEstimate(lead.estimate.id, "signature", forceSend, false, undefined, sendAt);
       setEstimateSent(true);
       setLead({ ...lead, status: "sent" });
-      toast.success("All packages sent to client!");
+      if (sendAt) {
+        const d = new Date(sendAt);
+        toast.success(`Proposal scheduled for ${d.toLocaleDateString("en-US", { month: "short", day: "numeric" })} at ${d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}`);
+      } else {
+        toast.success("All packages sent to client!");
+      }
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : "Failed to send estimate";
       setApproveError(msg);
@@ -1938,13 +1973,88 @@ export default function LeadDetailPage() {
                     </span>
                   </label>
                 )}
+
+                {/* After-hours warning + schedule send */}
+                {isAfterHours && !scheduleSend && (
+                  <div className="rounded-lg border border-amber-300 bg-amber-50 p-3 space-y-2">
+                    <div className="flex items-start gap-2">
+                      <AlertTriangle className="h-4 w-4 text-amber-600 mt-0.5 shrink-0" />
+                      <div>
+                        <p className="text-sm font-medium text-amber-800">
+                          It's currently {nowCentral.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}. Sending now may disturb your customer.
+                        </p>
+                      </div>
+                    </div>
+                    <label className="flex items-center gap-2 text-sm cursor-pointer select-none">
+                      <input
+                        type="checkbox"
+                        className="h-4 w-4 rounded accent-amber-600"
+                        checked={scheduleSend}
+                        onChange={(e) => {
+                          setScheduleSend(e.target.checked);
+                          if (e.target.checked && !scheduledDate) setScheduledDate(defaultScheduleDate);
+                        }}
+                      />
+                      <span className="font-medium text-amber-800">Schedule for tomorrow morning at 8:00 AM</span>
+                    </label>
+                  </div>
+                )}
+
+                {/* Schedule send toggle (always available) */}
+                {!isAfterHours && !scheduleSend && (
+                  <button
+                    className="text-xs text-blue-500 hover:text-blue-700 flex items-center gap-1 self-start"
+                    onClick={() => {
+                      setScheduleSend(true);
+                      if (!scheduledDate) setScheduledDate(defaultScheduleDate);
+                    }}
+                  >
+                    <Clock className="h-3 w-3" /> Schedule send for later
+                  </button>
+                )}
+
+                {/* Schedule picker (when enabled) */}
+                {scheduleSend && (
+                  <div className="rounded-lg border border-blue-200 bg-blue-50 p-3 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <p className="text-sm font-medium text-blue-800 flex items-center gap-1.5">
+                        <Clock className="h-4 w-4" /> Scheduled Send
+                      </p>
+                      <button
+                        className="text-xs text-blue-500 hover:text-blue-700 underline"
+                        onClick={() => setScheduleSend(false)}
+                      >
+                        Send now instead
+                      </button>
+                    </div>
+                    <div className="flex gap-2">
+                      <input
+                        type="date"
+                        className="border rounded px-2 py-1 text-sm bg-white"
+                        value={scheduledDate || defaultScheduleDate}
+                        onChange={(e) => setScheduledDate(e.target.value)}
+                        min={nowCentral.toISOString().slice(0, 10)}
+                      />
+                      <input
+                        type="time"
+                        className="border rounded px-2 py-1 text-sm bg-white"
+                        value={scheduledTime}
+                        onChange={(e) => setScheduledTime(e.target.value)}
+                      />
+                    </div>
+                    <p className="text-xs text-blue-600">
+                      Will be sent on {new Date(`${scheduledDate || defaultScheduleDate}T${scheduledTime}`).toLocaleDateString("en-US", { weekday: "long", month: "short", day: "numeric" })} at {(() => { const [h, m] = scheduledTime.split(":"); const hr = parseInt(h); return `${hr > 12 ? hr - 12 : hr || 12}:${m} ${hr >= 12 ? "PM" : "AM"}`; })()}
+                    </p>
+                  </div>
+                )}
+
                 <Button
-                  className="gap-2 bg-green-600 hover:bg-green-700 w-full"
+                  className={`gap-2 w-full ${scheduleSend ? "bg-blue-600 hover:bg-blue-700" : "bg-green-600 hover:bg-green-700"}`}
                   onClick={handleApproveEstimate}
                   disabled={approvingEstimate || (!lead.customer_responded && !customerRespondedFromMessages && !forceSend)}
                 >
-                  <Send className="h-4 w-4" />
-                  {approvingEstimate ? "Sending..." : "Approve & Send All Packages"}
+                  {scheduleSend ? <Clock className="h-4 w-4" /> : <Send className="h-4 w-4" />}
+                  {approvingEstimate ? (scheduleSend ? "Scheduling..." : "Sending...") : scheduleSend ? "Approve & Schedule Send" : "Approve & Send All Packages"}
                 </Button>
                 {lead.estimates?.some((e) => e.status === "approved" || e.status === "adjusted") && (
                   <Button

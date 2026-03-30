@@ -100,10 +100,10 @@ export const api = {
   getEstimates: (params?: string) =>
     request<Estimate[]>(`/api/estimates${params ? `?${params}` : ""}`),
   getEstimate: (id: string) => request<EstimateDetail>(`/api/estimates/${id}`),
-  approveEstimate: (id: string, selectedTier = "signature", forceSend = false, bypassApproval = false, bypassPassword?: string) =>
-    request<Estimate>(`/api/estimates/${id}/approve`, {
+  approveEstimate: (id: string, selectedTier = "signature", forceSend = false, bypassApproval = false, bypassPassword?: string, scheduledSendAt?: string) =>
+    request<Estimate & { scheduled_send_at?: string }>(`/api/estimates/${id}/approve`, {
       method: "POST",
-      body: JSON.stringify({ selected_tier: selectedTier, force_send: forceSend, bypass_approval: bypassApproval, bypass_password: bypassPassword }),
+      body: JSON.stringify({ selected_tier: selectedTier, force_send: forceSend, bypass_approval: bypassApproval, bypass_password: bypassPassword, ...(scheduledSendAt ? { scheduled_send_at: scheduledSendAt } : {}) }),
     }),
   rejectEstimate: (id: string, notes: string) =>
     request<Estimate>(`/api/estimates/${id}/reject`, {
@@ -115,8 +115,8 @@ export const api = {
       method: "PUT",
       body: JSON.stringify({ estimate_low: low, estimate_high: high, owner_notes: notes }),
     }),
-  adminApproveEstimate: (id: string, body: { essential?: number; signature?: number; legacy?: number; notes?: string; force_send?: boolean }) =>
-    request<{ status: string; proposal_url: string }>(`/api/estimates/${id}/admin-approve`, {
+  adminApproveEstimate: (id: string, body: { essential?: number; signature?: number; legacy?: number; notes?: string; force_send?: boolean; scheduled_send_at?: string }) =>
+    request<{ status: string; proposal_url: string; scheduled_send_at?: string }>(`/api/estimates/${id}/admin-approve`, {
       method: "POST",
       body: JSON.stringify(body),
     }),

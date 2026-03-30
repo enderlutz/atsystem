@@ -55,6 +55,7 @@ class EstimateApprove(BaseModel):
     force_send: bool = False  # bypass the customer-responded guardrail
     bypass_approval: bool = False  # VA bypass for RED estimates
     bypass_password: str | None = None  # VA must enter password to confirm bypass
+    scheduled_send_at: str | None = None  # ISO datetime — None = send immediately
 
 
 class AdminApproveRequest(BaseModel):
@@ -63,3 +64,4 @@ class AdminApproveRequest(BaseModel):
     legacy: float | None = None
     notes: str | None = None
     force_send: bool = False
+    scheduled_send_at: str | None = None  # ISO datetime — None = send immediately

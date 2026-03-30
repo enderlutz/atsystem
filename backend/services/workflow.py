@@ -332,6 +332,27 @@ def enqueue_stage_messages(
             logger.info(f"Workflow: skipping follow-up message {i} for lead {lead_id} stage {stage} (follow-ups disabled)")
             continue
 
+        # Scheduled send: queue for later instead of sending immediately
+        scheduled_at = metadata.get("scheduled_send_at")
+        if scheduled_at and delay_seconds == 0:
+            try:
+                scheduled_dt = datetime.fromisoformat(scheduled_at.replace("Z", "+00:00"))
+            except ValueError:
+                scheduled_dt = now  # Fallback to immediate if invalid
+            db.table("sms_queue").insert({
+                "id": msg_id,
+                "lead_id": lead_id,
+                "stage": stage,
+                "sequence_index": i,
+                "message_body": rendered,
+                "send_at": scheduled_dt.isoformat(),
+                "ghl_contact_id": ghl_contact_id,
+                "status": "pending",
+            }).execute()
+            log_event(lead_id, "sms_queued", f"Scheduled for {scheduled_at}: {rendered[:60]}...", {"stage": stage, "sequence_index": i, "scheduled_send_at": scheduled_at})
+            count += 1
+            continue
+
         # Only these stages get truly immediate sends (delay=0 fires now).
         # All other stages (proposal-driven) go through the queue so the
         # 5-min exit gate in sms_worker can enforce the wait.
@@ -639,8 +660,14 @@ def on_job_complete(lead_id: str) -> None:
     transition_stage(lead_id, Stage.JOB_COMPLETE, reason="job_marked_complete")
 
 
-def on_estimate_sent(lead_id: str, proposal_url: str = "") -> None:
+def on_estimate_sent(lead_id: str, proposal_url: str = "", scheduled_send_at: str | None = None) -> None:
     """Called when an estimate is approved and the proposal link is sent.
-    Transitions the lead to HOT_LEAD stage and immediately sends the proposal SMS."""
-    log_event(lead_id, "estimate_approved", "Estimate approved, proposal link sent")
-    transition_stage(lead_id, Stage.HOT_LEAD, reason="estimate_sent", metadata={"proposal_url": proposal_url})
+    Transitions the lead to HOT_LEAD stage and sends (or schedules) the proposal SMS."""
+    if scheduled_send_at:
+        log_event(lead_id, "estimate_approved", f"Estimate approved, proposal SMS scheduled for {scheduled_send_at}")
+    else:
+        log_event(lead_id, "estimate_approved", "Estimate approved, proposal link sent")
+    metadata = {"proposal_url": proposal_url}
+    if scheduled_send_at:
+        metadata["scheduled_send_at"] = scheduled_send_at
+    transition_stage(lead_id, Stage.HOT_LEAD, reason="estimate_sent", metadata=metadata)

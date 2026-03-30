@@ -174,11 +174,14 @@ async def approve_estimate(estimate_id: str, body: EstimateApprove = EstimateApp
     # Transition workflow to HOT_LEAD — fires proposal SMS immediately via workflow engine
     try:
         from services.workflow import on_estimate_sent
-        on_estimate_sent(estimate["lead_id"], proposal_url=proposal_url)
+        on_estimate_sent(estimate["lead_id"], proposal_url=proposal_url, scheduled_send_at=body.scheduled_send_at)
     except Exception as e:
         logger.error(f"Workflow on_estimate_sent failed for lead {estimate['lead_id']}: {e}")
 
-    return {"status": "approved", "estimate_id": estimate_id, "proposal_token": token, "proposal_url": proposal_url}
+    result = {"status": "approved", "estimate_id": estimate_id, "proposal_token": token, "proposal_url": proposal_url}
+    if body.scheduled_send_at:
+        result["scheduled_send_at"] = body.scheduled_send_at
+    return result
 
 
 @router.post("/{estimate_id}/admin-approve")
@@ -288,11 +291,14 @@ async def admin_approve_estimate(estimate_id: str, body: AdminApproveRequest, _:
     # Transition workflow to HOT_LEAD — fires proposal SMS immediately via workflow engine
     try:
         from services.workflow import on_estimate_sent
-        on_estimate_sent(estimate["lead_id"], proposal_url=proposal_url)
+        on_estimate_sent(estimate["lead_id"], proposal_url=proposal_url, scheduled_send_at=body.scheduled_send_at)
     except Exception as e:
         logger.error(f"Workflow on_estimate_sent failed for lead {estimate['lead_id']}: {e}")
 
-    return {"status": "approved", "estimate_id": estimate_id, "proposal_token": token, "proposal_url": proposal_url}
+    result = {"status": "approved", "estimate_id": estimate_id, "proposal_token": token, "proposal_url": proposal_url}
+    if body.scheduled_send_at:
+        result["scheduled_send_at"] = body.scheduled_send_at
+    return result
 
 
 @router.put("/{estimate_id}")
