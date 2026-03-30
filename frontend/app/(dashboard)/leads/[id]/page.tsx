@@ -662,7 +662,7 @@ export default function LeadDetailPage() {
       if (section.customFenceSides.trim()) formData.custom_fence_sides = section.customFenceSides.trim();
       else formData.custom_fence_sides = "";
 
-      const updated = await api.updateLeadFormData(lead.id, formData, section.estimateId || undefined);
+      const updated = await api.updateLeadFormData(lead.id, formData, section.estimateId || undefined, section.label || undefined);
       setLead(updated);
       setApproveError(null);
       // Re-sync sections from response

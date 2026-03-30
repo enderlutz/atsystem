@@ -70,10 +70,10 @@ export const api = {
       method: "PUT",
       body: JSON.stringify({ tags }),
     }),
-  updateLeadFormData: (leadId: string, formData: Record<string, string | number | boolean | string[]>, estimateId?: string) =>
+  updateLeadFormData: (leadId: string, formData: Record<string, string | number | boolean | string[]>, estimateId?: string, label?: string) =>
     request<LeadDetail>(`/api/leads/${leadId}/form-data`, {
       method: "PUT",
-      body: JSON.stringify({ form_data: formData, ...(estimateId ? { estimate_id: estimateId } : {}) }),
+      body: JSON.stringify({ form_data: formData, ...(estimateId ? { estimate_id: estimateId } : {}), ...(label !== undefined ? { label } : {}) }),
     }),
   addEstimate: (leadId: string, label: string, formData: Record<string, unknown>) =>
     request<LeadDetail>(`/api/leads/${leadId}/estimates`, {

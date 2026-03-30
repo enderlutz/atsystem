@@ -297,6 +297,12 @@ async def update_lead_form_data(lead_id: str, body: dict):
         }
         await recalculate_estimate_for_lead(lead_id, lead_data)
 
+        # Save label on the primary estimate if provided
+        if "label" in body and body["label"]:
+            est_res = db.table("estimates").select("id").eq("lead_id", lead_id).order("created_at", desc=True).limit(1).execute()
+            if est_res.data:
+                db.table("estimates").update({"label": body["label"]}).eq("id", est_res.data[0]["id"]).execute()
+
     return await get_lead(lead_id)
 
 
