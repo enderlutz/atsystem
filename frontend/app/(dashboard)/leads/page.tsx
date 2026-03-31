@@ -7,7 +7,7 @@ import { toast } from "sonner";
 import { formatDate } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Search, CheckCircle2, Circle, Flame, LayoutGrid, List, Send, Sparkles, Zap, Archive } from "lucide-react";
+import { Search, CheckCircle2, Circle, Flame, LayoutGrid, List, Send, Sparkles, Zap, Archive, ArrowRightCircle } from "lucide-react";
 import {
   DndContext,
   type DragEndEvent,
@@ -93,24 +93,37 @@ const WORKFLOW_STAGE_TO_COLUMN: Record<string, KanbanStatus> = {
 
 // Queue sort order for kanban column (lower = higher priority VA action needed)
 const COLUMN_QUEUE_ORDER: Record<KanbanStatus, number> = {
-  green: 0,
-  needs_info: 1,
-  no_address: 2,
-  gray: 3,
-  red: 4,
-  requote: 5,
-  sent: 6,
-  no_package: 7,
-  pkg_no_color: 8,
-  no_date: 9,
-  date_selected: 10,
-  deposit_paid: 11,
-  declined: 12,
-  planning: 13,
-  job_complete: 14,
-  cold_nurture: 15,
-  woodlands: 16,
+  woodlands: 0,
+  green: 1,
+  needs_info: 2,
+  no_address: 3,
+  gray: 4,
+  red: 5,
+  requote: 6,
+  sent: 7,
+  no_package: 8,
+  pkg_no_color: 9,
+  no_date: 10,
+  date_selected: 11,
+  deposit_paid: 12,
+  declined: 13,
+  planning: 14,
+  job_complete: 15,
+  cold_nurture: 16,
 };
+
+// Quick-move targets for Woodlands leads (most common destinations)
+const MOVE_TARGETS: { key: KanbanStatus; label: string }[] = [
+  { key: "gray", label: "New Lead" },
+  { key: "no_address", label: "Asking for Address" },
+  { key: "needs_info", label: "Not Measurable" },
+  { key: "green", label: "Hot Lead" },
+  { key: "red", label: "Needs Review" },
+  { key: "requote", label: "Re-quote" },
+  { key: "sent", label: "Proposal Sent" },
+  { key: "declined", label: "Declined" },
+  { key: "cold_nurture", label: "Cold Nurture" },
+];
 
 const PRIORITY_ORDER: Record<string, number> = { HOT: 0, HIGH: 1, MEDIUM: 2, LOW: 3 };
 
@@ -145,6 +158,14 @@ const COLUMNS: {
   bgCls: string;
   dotCls: string;
 }[] = [
+  {
+    key: "woodlands",
+    label: "Woodlands (TWTX)",
+    description: "Leads from The Woodlands location — manually work and re-quote",
+    headerCls: "bg-emerald-100 border-emerald-200",
+    bgCls: "bg-emerald-50",
+    dotCls: "bg-emerald-500",
+  },
   {
     key: "gray",
     label: "New lead (waiting for automation response)",
@@ -273,14 +294,6 @@ const COLUMNS: {
     bgCls: "bg-slate-50",
     dotCls: "bg-slate-400",
   },
-  {
-    key: "woodlands",
-    label: "Woodlands (TWTX)",
-    description: "Leads from The Woodlands location — manually work and re-quote",
-    headerCls: "bg-emerald-100 border-emerald-200",
-    bgCls: "bg-emerald-50",
-    dotCls: "bg-emerald-500",
-  },
 ];
 
 const COLUMN_BADGE: Record<KanbanStatus, string> = {
@@ -391,11 +404,20 @@ export default function LeadsPage() {
   const [hoverDataLoading, setHoverDataLoading] = useState(false);
   const hoverCardRef = useRef<HTMLDivElement>(null);
   const hoverTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [moveMenuLeadId, setMoveMenuLeadId] = useState<string | null>(null);
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
     useSensor(TouchSensor, { activationConstraint: { delay: 250, tolerance: 5 } })
   );
+
+  // Close move-to menu on outside click
+  useEffect(() => {
+    if (!moveMenuLeadId) return;
+    const handler = () => setMoveMenuLeadId(null);
+    document.addEventListener("click", handler);
+    return () => document.removeEventListener("click", handler);
+  }, [moveMenuLeadId]);
 
   const loadData = useCallback(async () => {
     let leadsData: Lead[], estimatesData: Estimate[];
@@ -611,6 +633,18 @@ export default function LeadsPage() {
       toast.error("Failed to move lead");
     }
   }, [leads, estimateMap]);
+
+  const handleMoveTo = async (leadId: string, targetCol: KanbanStatus) => {
+    setMoveMenuLeadId(null);
+    setLeads((prev) => prev.map((l) => l.id === leadId ? { ...l, kanban_column: targetCol } : l));
+    try {
+      await api.updateLeadColumn(leadId, targetCol);
+      toast.success(`Moved to ${COLUMN_LABEL[targetCol] || targetCol}`);
+    } catch {
+      loadData();
+      toast.error("Failed to move lead");
+    }
+  };
 
   const filtered = leads.filter((l) => {
     if (!search) return true;
@@ -1018,6 +1052,31 @@ export default function LeadsPage() {
                                   )}
                                 </div>
                                 <div className="flex items-center gap-1">
+                                  {col.key === "woodlands" && (
+                                    <div className="relative">
+                                      <button
+                                        title="Move to column"
+                                        className="h-6 w-6 flex items-center justify-center rounded text-emerald-600 hover:text-emerald-800 hover:bg-emerald-100 transition-colors"
+                                        onClick={(e) => { e.stopPropagation(); setMoveMenuLeadId(moveMenuLeadId === lead.id ? null : lead.id); }}
+                                      >
+                                        <ArrowRightCircle className="h-3.5 w-3.5" />
+                                      </button>
+                                      {moveMenuLeadId === lead.id && (
+                                        <div className="absolute right-0 bottom-7 z-50 w-44 bg-white rounded-md border shadow-lg py-1 max-h-64 overflow-y-auto">
+                                          <div className="px-2 py-1 text-xs font-medium text-muted-foreground border-b mb-1">Move to...</div>
+                                          {MOVE_TARGETS.map((t) => (
+                                            <button
+                                              key={t.key}
+                                              className="w-full text-left px-3 py-1.5 text-xs hover:bg-gray-100 transition-colors"
+                                              onClick={(e) => { e.stopPropagation(); handleMoveTo(lead.id, t.key); }}
+                                            >
+                                              {t.label}
+                                            </button>
+                                          ))}
+                                        </div>
+                                      )}
+                                    </div>
+                                  )}
                                   <button
                                     title="Archive lead"
                                     className="h-6 w-6 flex items-center justify-center rounded text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
