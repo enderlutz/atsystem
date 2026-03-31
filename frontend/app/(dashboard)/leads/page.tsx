@@ -405,6 +405,7 @@ export default function LeadsPage() {
   const hoverCardRef = useRef<HTMLDivElement>(null);
   const hoverTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [moveMenuLeadId, setMoveMenuLeadId] = useState<string | null>(null);
+  const [moveMenuPos, setMoveMenuPos] = useState<{ x: number; y: number } | null>(null);
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
@@ -777,7 +778,7 @@ export default function LeadsPage() {
       </div>
 
       {/* ── KANBAN VIEW ── */}
-      {activeTab === "kanban" && (
+      {activeTab === "kanban" && (<>
         <DndContext sensors={sensors} onDragStart={handleDragStart} onDragEnd={handleDragEnd} onDragCancel={() => setActiveDragLead(null)}>
         <div className="overflow-x-auto pb-3">
           <div className="flex gap-3" style={{ minWidth: "max-content" }}>
@@ -1053,29 +1054,21 @@ export default function LeadsPage() {
                                 </div>
                                 <div className="flex items-center gap-1">
                                   {col.key === "woodlands" && (
-                                    <div className="relative">
-                                      <button
-                                        title="Move to column"
-                                        className="h-6 w-6 flex items-center justify-center rounded text-emerald-600 hover:text-emerald-800 hover:bg-emerald-100 transition-colors"
-                                        onClick={(e) => { e.stopPropagation(); setMoveMenuLeadId(moveMenuLeadId === lead.id ? null : lead.id); }}
-                                      >
-                                        <ArrowRightCircle className="h-3.5 w-3.5" />
-                                      </button>
-                                      {moveMenuLeadId === lead.id && (
-                                        <div className="absolute right-0 bottom-7 z-50 w-44 bg-white rounded-md border shadow-lg py-1 max-h-64 overflow-y-auto">
-                                          <div className="px-2 py-1 text-xs font-medium text-muted-foreground border-b mb-1">Move to...</div>
-                                          {MOVE_TARGETS.map((t) => (
-                                            <button
-                                              key={t.key}
-                                              className="w-full text-left px-3 py-1.5 text-xs hover:bg-gray-100 transition-colors"
-                                              onClick={(e) => { e.stopPropagation(); handleMoveTo(lead.id, t.key); }}
-                                            >
-                                              {t.label}
-                                            </button>
-                                          ))}
-                                        </div>
-                                      )}
-                                    </div>
+                                    <button
+                                      title="Move to column"
+                                      className="h-6 w-6 flex items-center justify-center rounded text-emerald-600 hover:text-emerald-800 hover:bg-emerald-100 transition-colors"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        if (moveMenuLeadId === lead.id) { setMoveMenuLeadId(null); setMoveMenuPos(null); }
+                                        else {
+                                          const rect = e.currentTarget.getBoundingClientRect();
+                                          setMoveMenuPos({ x: rect.left, y: rect.bottom + 4 });
+                                          setMoveMenuLeadId(lead.id);
+                                        }
+                                      }}
+                                    >
+                                      <ArrowRightCircle className="h-3.5 w-3.5" />
+                                    </button>
                                   )}
                                   <button
                                     title="Archive lead"
@@ -1117,7 +1110,27 @@ export default function LeadsPage() {
           ) : null}
         </DragOverlay>
         </DndContext>
-      )}
+
+        {/* Fixed-position "Move to" dropdown (rendered outside column overflow) */}
+        {moveMenuLeadId && moveMenuPos && (
+          <div
+            className="fixed z-[100] w-44 bg-white rounded-md border shadow-lg py-1 max-h-64 overflow-y-auto"
+            style={{ left: moveMenuPos.x, top: moveMenuPos.y }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="px-2 py-1 text-xs font-medium text-muted-foreground border-b mb-1">Move to...</div>
+            {MOVE_TARGETS.map((t) => (
+              <button
+                key={t.key}
+                className="w-full text-left px-3 py-1.5 text-xs hover:bg-gray-100 transition-colors"
+                onClick={(e) => { e.stopPropagation(); handleMoveTo(moveMenuLeadId, t.key); }}
+              >
+                {t.label}
+              </button>
+            ))}
+          </div>
+        )}
+      </>)}
 
       {/* ── QUEUE VIEW ── */}
       {activeTab === "queue" && (
