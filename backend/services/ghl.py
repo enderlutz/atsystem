@@ -17,10 +17,14 @@ GHL_BASE = "https://services.leadconnectorhq.com"
 _client = httpx.Client(timeout=30, limits=httpx.Limits(max_keepalive_connections=10, max_connections=20))
 
 
-def _headers() -> dict:
+def _headers(location_id: str | None = None) -> dict:
     settings = get_settings()
+    # Use location-specific API key if this is the secondary location
+    api_key = settings.ghl_api_key
+    if location_id and location_id == settings.ghl_location_id_2 and settings.ghl_api_key_2:
+        api_key = settings.ghl_api_key_2
     return {
-        "Authorization": f"Bearer {settings.ghl_api_key}",
+        "Authorization": f"Bearer {api_key}",
         "Version": "2021-07-28",
         "Content-Type": "application/json",
     }
@@ -38,7 +42,7 @@ def get_contacts(location_id: str, max_contacts: int = 500) -> list[dict]:
         try:
             r = _client.get(
                 f"{GHL_BASE}/contacts/",
-                headers=_headers(),
+                headers=_headers(location_id),
                 params=params,
                 timeout=30,
             )
@@ -84,7 +88,7 @@ def get_pipelines(location_id: str) -> list[dict]:
     try:
         r = _client.get(
             f"{GHL_BASE}/opportunities/pipelines",
-            headers=_headers(),
+            headers=_headers(location_id),
             params={"locationId": location_id},
             timeout=15,
         )
@@ -113,7 +117,7 @@ def get_opportunities(location_id: str, pipeline_id: str, stage_id: str | None =
         try:
             r = _client.get(
                 f"{GHL_BASE}/opportunities/search",
-                headers=_headers(),
+                headers=_headers(location_id),
                 params=params,
                 timeout=30,
             )
@@ -188,7 +192,7 @@ def send_message_to_contact(contact_id: str, message: str, attachments: list[str
         }
         if attachments:
             payload["attachments"] = attachments
-        r = _client.post(f"{GHL_BASE}/conversations/messages", headers=_headers(),
+        r = _client.post(f"{GHL_BASE}/conversations/messages", headers=_headers(location_id),
                        json=payload, timeout=10)
         r.raise_for_status()
         logger.info(f"GHL message sent to contact {contact_id}" + (f" with {len(attachments)} attachment(s)" if attachments else ""))
@@ -240,7 +244,7 @@ def get_recent_location_conversations(location_id: str, limit: int = 20) -> list
     try:
         r = _client.get(
             f"{GHL_BASE}/conversations/search",
-            headers=_headers(),
+            headers=_headers(location_id),
             params={
                 "locationId": location_id,
                 "limit": limit,

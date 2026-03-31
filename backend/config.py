@@ -10,6 +10,7 @@ class Settings(BaseSettings):
 
     ghl_api_key: str = ""
     ghl_location_id: str = ""        # Cypress
+    ghl_api_key_2: str = ""           # Woodlands API key (if separate from primary)
     ghl_location_id_2: str = ""      # Woodlands (optional — set to enable)
     ghl_location_2_pipeline: str = "FENCE STAINING NEW AUTOMATION FLOW"
     ghl_location_1_label: str = "Cypress"
