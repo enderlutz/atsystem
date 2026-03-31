@@ -202,6 +202,12 @@ async def approve_estimate(estimate_id: str, body: EstimateApprove = EstimateApp
         db.table("estimates").update({"send_count": send_count}).eq("id", estimate_id).execute()
         db.table("leads").update({"status": "sent"}).eq("id", estimate["lead_id"]).execute()
 
+    # Reset workflow stage so transition doesn't skip if lead is already in hot_lead
+    db.table("leads").update({"workflow_stage": None}).eq("id", estimate["lead_id"]).execute()
+
+    # Reset workflow stage so transition doesn't skip if lead is already in hot_lead
+    db.table("leads").update({"workflow_stage": None}).eq("id", estimate["lead_id"]).execute()
+
     # Transition workflow to HOT_LEAD — fires proposal SMS immediately via workflow engine
     try:
         from services.workflow import on_estimate_sent
@@ -318,6 +324,9 @@ async def admin_approve_estimate(estimate_id: str, body: AdminApproveRequest, _:
         send_count = (estimate.get("send_count") or 0) + 1
         db.table("estimates").update({"send_count": send_count}).eq("id", estimate_id).execute()
         db.table("leads").update({"status": "sent"}).eq("id", estimate["lead_id"]).execute()
+
+    # Reset workflow stage so transition doesn't skip if lead is already in hot_lead
+    db.table("leads").update({"workflow_stage": None}).eq("id", estimate["lead_id"]).execute()
 
     # Transition workflow to HOT_LEAD — fires proposal SMS immediately via workflow engine
     try:
@@ -622,6 +631,9 @@ async def quick_approve_estimate(estimate_id: str, token: str = Query(...)):
         send_count = (estimate.get("send_count") or 0) + 1
         db.table("estimates").update({"send_count": send_count}).eq("id", estimate_id).execute()
         db.table("leads").update({"status": "sent"}).eq("id", lead_id).execute()
+
+    # Reset workflow stage so transition_stage doesn't skip (lead may already be in hot_lead)
+    db.table("leads").update({"workflow_stage": None}).eq("id", lead_id).execute()
 
     # Fire workflow → sends proposal SMS immediately
     try:
