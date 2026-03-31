@@ -9,7 +9,11 @@ class Settings(BaseSettings):
     supabase_service_key: str = ""
 
     ghl_api_key: str = ""
-    ghl_location_id: str = ""
+    ghl_location_id: str = ""        # Cypress
+    ghl_location_id_2: str = ""      # Woodlands (optional — set to enable)
+    ghl_location_2_pipeline: str = "FENCE STAINING NEW AUTOMATION FLOW"
+    ghl_location_1_label: str = "Cypress"
+    ghl_location_2_label: str = "Woodlands"
 
     twilio_account_sid: str = ""
     twilio_auth_token: str = ""

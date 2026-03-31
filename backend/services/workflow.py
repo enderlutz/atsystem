@@ -227,7 +227,7 @@ def transition_stage(
 
     # Get current stage
     lead_res = db.table("leads").select(
-        "workflow_stage, ghl_contact_id, contact_name, address, ghl_opportunity_id"
+        "workflow_stage, ghl_contact_id, contact_name, address, ghl_opportunity_id, ghl_location_id"
     ).eq("id", lead_id).single().execute()
     if not lead_res.data:
         logger.error(f"Workflow: lead {lead_id} not found")
@@ -275,7 +275,8 @@ def transition_stage(
         metadata["proposal_url"] = _get_proposal_url_for_lead(lead_id)
 
     context = _build_message_context(lead, metadata)
-    enqueue_stage_messages(lead_id, new_stage.value, ghl_contact_id, context, metadata)
+    location_id = lead.get("ghl_location_id")  # None for old leads → defaults to primary
+    enqueue_stage_messages(lead_id, new_stage.value, ghl_contact_id, context, metadata, location_id=location_id)
 
     # 4. Sync GHL opportunity stage
     ghl_stage_map = _get_ghl_stage_map()
@@ -295,8 +296,13 @@ def enqueue_stage_messages(
     ghl_contact_id: str,
     context: dict,
     metadata: dict | None = None,
+    location_id: str | None = None,
 ) -> int:
-    """Enqueue all SMS messages for a stage. Returns count of messages enqueued."""
+    """Enqueue all SMS messages for a stage. Returns count of messages enqueued.
+
+    location_id: GHL location for sending. Passed through to send_message_to_contact.
+                 None means use the default (backward compatible).
+    """
     metadata = metadata or {}
     messages = get_stage_messages(stage, metadata)
     if not messages:
@@ -371,7 +377,7 @@ def enqueue_stage_messages(
                 elif None in stage_attach:
                     attach_urls = [f"{base_url}{p}" for p in stage_attach[None]]
 
-            success = send_message_to_contact(ghl_contact_id, rendered, attachments=attach_urls)
+            success = send_message_to_contact(ghl_contact_id, rendered, attachments=attach_urls, location_id=location_id)
             db.table("sms_queue").insert({
                 "id": msg_id,
                 "lead_id": lead_id,

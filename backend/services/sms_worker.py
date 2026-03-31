@@ -58,10 +58,10 @@ def _process_pending_messages():
 
     for msg in messages:
         try:
-            # Check if lead is paused
+            # Check if lead is paused + get location for SMS routing
             lead_res = (
                 db.table("leads")
-                .select("workflow_paused, workflow_stage")
+                .select("workflow_paused, workflow_stage, ghl_location_id")
                 .eq("id", msg["lead_id"])
                 .single()
                 .execute()
@@ -197,8 +197,9 @@ def _process_pending_messages():
 
             attachments = get_message_attachments(msg["stage"], msg["sequence_index"], attach_context, branch=attach_branch)
 
-            # Send via GHL
-            sent = send_message_to_contact(msg["ghl_contact_id"], msg["message_body"], attachments=attachments or None)
+            # Send via GHL — use the lead's location for multi-location routing
+            lead_location_id = lead_res.data.get("ghl_location_id") if lead_res.data else None
+            sent = send_message_to_contact(msg["ghl_contact_id"], msg["message_body"], attachments=attachments or None, location_id=lead_location_id)
 
             if sent:
                 _update_message_status(db, msg["id"], "sent")

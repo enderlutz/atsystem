@@ -149,28 +149,39 @@ def _resolve_ip_stage(
     return ip_stage_map.get(IP_STAGE_NEW_LEAD)
 
 
-async def run_pipeline_sync(background_tasks: BackgroundTasks | None = None) -> dict:
+async def run_pipeline_sync(
+    background_tasks: BackgroundTasks | None = None,
+    location_id: str | None = None,
+    pipeline_name: str | None = None,
+    location_label: str | None = None,
+) -> dict:
     """
     Core pipeline sync — can be called from the API endpoint or the background poller.
     Imports new leads AND refreshes contact data for existing ones.
     Re-runs the estimator if form_data changed.
+
+    location_id: GHL location to sync. Defaults to settings.ghl_location_id.
+    pipeline_name: Pipeline to sync from. Defaults to "Interactive Proposal".
+    location_label: Label to tag leads with (e.g. "Cypress", "Woodlands").
     """
     import asyncio
 
     settings = get_settings()
     db = get_db()
+    loc_id = location_id or settings.ghl_location_id
+    pipe_name = pipeline_name or FENCE_PIPELINE_NAME
 
     # 1. Find the target pipeline
-    pipelines = get_pipelines(settings.ghl_location_id)
+    pipelines = get_pipelines(loc_id)
     pipeline = next(
-        (p for p in pipelines if p.get("name", "").strip().upper() == FENCE_PIPELINE_NAME.upper()),
+        (p for p in pipelines if p.get("name", "").strip().upper() == pipe_name.upper()),
         None,
     )
     if not pipeline:
         names = [p.get("name") for p in pipelines]
         return {
             "status": "error",
-            "message": f"Pipeline '{FENCE_PIPELINE_NAME}' not found. Available: {names}",
+            "message": f"Pipeline '{pipe_name}' not found in location {loc_id}. Available: {names}",
         }
 
     pipeline_id = pipeline["id"]
@@ -216,7 +227,7 @@ async def run_pipeline_sync(background_tasks: BackgroundTasks | None = None) -> 
     # 3. Pull opportunities per stage
     for stage_name, stage_id in matched_stages.items():
         priority = TARGET_STAGES[stage_name]
-        opps = get_opportunities(settings.ghl_location_id, pipeline_id, stage_id)
+        opps = get_opportunities(loc_id, pipeline_id, stage_id)
         logger.info(f"Pipeline sync: {len(opps)} opportunities in stage '{stage_name}'")
 
         for opp in opps:
@@ -309,10 +320,14 @@ async def run_pipeline_sync(background_tasks: BackgroundTasks | None = None) -> 
 
             # New lead — insert and run estimator
             lead_id = str(uuid.uuid4())
+            tags = [stage_name]
+            if location_label:
+                tags.append(location_label)
             lead_row = {
                 "id":                 lead_id,
                 "ghl_contact_id":     contact_id,
                 "ghl_opportunity_id": opp.get("id"),
+                "ghl_location_id":    loc_id,
                 "service_type":       lead_data.get("service_type", "fence_staining"),
                 "status":             "new",
                 "address":            lead_data.get("address", ""),
@@ -321,7 +336,7 @@ async def run_pipeline_sync(background_tasks: BackgroundTasks | None = None) -> 
                 "contact_phone":      lead_data.get("contact_phone", ""),
                 "contact_email":      lead_data.get("contact_email", ""),
                 "priority":           priority,
-                "tags":               [stage_name],
+                "tags":               tags,
                 "created_at":         now,
             }
 
@@ -355,7 +370,8 @@ async def run_pipeline_sync(background_tasks: BackgroundTasks | None = None) -> 
 
     return {
         "status":        "done",
-        "pipeline":      FENCE_PIPELINE_NAME,
+        "pipeline":      pipe_name,
+        "location":      location_label or "primary",
         "stages_synced": list(matched_stages.keys()),
         "imported":      imported,
         "updated":       updated,

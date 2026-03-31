@@ -385,7 +385,7 @@ async def adjust_estimate(estimate_id: str, body: EstimateAdjust, _: dict = Depe
         from services.templates import get_stage_messages, render_message
         hot_lead_msgs = get_stage_messages("hot_lead")
         msg = render_message(hot_lead_msgs[0][1], {"first_name": first_name, "proposal_link": proposal_url})
-        sent = send_message_to_contact(contact_id, msg)
+        sent = send_message_to_contact(contact_id, msg, location_id=lead.get("ghl_location_id"))
         if sent:
             send_count = (estimate.get("send_count") or 0) + 1
             db.table("estimates").update({"send_count": send_count}).eq("id", estimate_id).execute()
@@ -544,7 +544,7 @@ async def resend_estimate(estimate_id: str, _: dict = Depends(require_admin)):
         from services.templates import get_stage_messages, render_message
         hot_lead_msgs = get_stage_messages("hot_lead")
         msg = render_message(hot_lead_msgs[0][1], {"first_name": first_name, "proposal_link": proposal_url})
-        sent = send_message_to_contact(contact_id, msg)
+        sent = send_message_to_contact(contact_id, msg, location_id=lead.get("ghl_location_id"))
         if sent:
             send_count = (estimate.get("send_count") or 0) + 1
             db.table("estimates").update({"send_count": send_count}).eq("id", estimate_id).execute()

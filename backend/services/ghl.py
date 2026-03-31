@@ -171,10 +171,12 @@ def update_opportunity_stage(opportunity_id: str, stage_id: str) -> bool:
 
 # ── Messaging ─────────────────────────────────────────────────────────
 
-def send_message_to_contact(contact_id: str, message: str, attachments: list[str] | None = None) -> bool:
+def send_message_to_contact(contact_id: str, message: str, attachments: list[str] | None = None, location_id: str | None = None) -> bool:
     """Send an SMS/MMS message to a contact via GHL.
 
     attachments: optional list of public image URLs to send as MMS.
+    location_id: GHL location to send from. Defaults to settings.ghl_location_id
+                 if not provided (backward compatible for old leads without a location).
     """
     settings = get_settings()
     try:
@@ -182,7 +184,7 @@ def send_message_to_contact(contact_id: str, message: str, attachments: list[str
             "type": "SMS",
             "contactId": contact_id,
             "message": message,
-            "locationId": settings.ghl_location_id,
+            "locationId": location_id or settings.ghl_location_id,
         }
         if attachments:
             payload["attachments"] = attachments

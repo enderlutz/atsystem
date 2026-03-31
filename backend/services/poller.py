@@ -28,7 +28,11 @@ async def poll_ghl_contacts():
     while True:
         try:
             from api.sync import run_pipeline_sync
-            result = await run_pipeline_sync()
+            from config import get_settings
+            settings = get_settings()
+
+            # Sync primary location (Cypress)
+            result = await run_pipeline_sync(location_label=settings.ghl_location_1_label)
             if result.get("status") == "done":
                 logger.info(
                     f"Auto-sync complete: {result['imported']} imported, "
@@ -36,6 +40,24 @@ async def poll_ghl_contacts():
                 )
             else:
                 logger.warning(f"Auto-sync issue: {result.get('message', result)}")
+
+            # Sync secondary location (Woodlands) if configured
+            if settings.ghl_location_id_2:
+                try:
+                    result2 = await run_pipeline_sync(
+                        location_id=settings.ghl_location_id_2,
+                        pipeline_name=settings.ghl_location_2_pipeline,
+                        location_label=settings.ghl_location_2_label,
+                    )
+                    if result2.get("status") == "done":
+                        logger.info(
+                            f"Auto-sync ({settings.ghl_location_2_label}): {result2['imported']} imported, "
+                            f"{result2['updated']} updated, {result2['errors']} errors"
+                        )
+                    else:
+                        logger.warning(f"Auto-sync ({settings.ghl_location_2_label}) issue: {result2.get('message', result2)}")
+                except Exception as e2:
+                    logger.error(f"GHL pipeline poll error ({settings.ghl_location_2_label}): {e2}")
         except Exception as e:
             logger.error(f"GHL pipeline poll error: {e}")
 
@@ -58,23 +80,29 @@ async def sync_recent_messages():
     while True:
         try:
             _run_message_sync()
+            # Also sync Woodlands messages if configured
+            from config import get_settings as _get_settings
+            _s = _get_settings()
+            if _s.ghl_location_id_2:
+                _run_message_sync(location_id=_s.ghl_location_id_2)
         except Exception as e:
             logger.error(f"Message sync poll error: {e}")
 
         await asyncio.sleep(MESSAGE_SYNC_INTERVAL_SECONDS)
 
 
-def _run_message_sync() -> None:
+def _run_message_sync(location_id: str | None = None) -> None:
     from db import get_db
     from config import get_settings
     from services.ghl import get_recent_location_conversations, get_conversation_messages_by_id
 
     settings = get_settings()
     db = get_db()
+    loc_id = location_id or settings.ghl_location_id
     cutoff = datetime.now(timezone.utc) - timedelta(minutes=MESSAGE_SYNC_LOOKBACK_MINUTES)
 
     # 1 API call — get the most recently active conversations across the location
-    conversations = get_recent_location_conversations(settings.ghl_location_id, limit=20)
+    conversations = get_recent_location_conversations(loc_id, limit=20)
     if not conversations:
         return
 

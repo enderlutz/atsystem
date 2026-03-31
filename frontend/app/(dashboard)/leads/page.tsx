@@ -325,6 +325,8 @@ const tagColors: Record<string, string> = {
   "Age of the Fence": "bg-orange-100 text-orange-700",
   "Follow Up Quote": "bg-sky-100 text-sky-700",
   "Follow Up": "bg-sky-100 text-sky-700",
+  "Cypress": "bg-blue-100 text-blue-700",
+  "Woodlands": "bg-emerald-100 text-emerald-700",
 };
 
 function DroppableColumnCards({ id, className, children }: { id: string; className: string; children: ReactNode }) {
