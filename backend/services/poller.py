@@ -176,7 +176,7 @@ def _run_message_sync(location_id: str | None = None) -> None:
                 "direction": "inbound",
                 "body": body,
                 "message_type": msg.get("messageType") or "SMS",
-                "date_added": date_str,
+                "date_added": msg_dt.isoformat(),
             }
             if ghl_message_id:
                 db.table("messages").upsert(
