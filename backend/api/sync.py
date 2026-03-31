@@ -127,6 +127,30 @@ TARGET_STAGES = {
     "Cold Lead Nurture": "LOW",
 }
 
+WOODLANDS_TARGET_STAGES = {
+    "New Lead": "MEDIUM",
+    "PARTIAL REPLY": "MEDIUM",
+    "HOT LEAD-SEND ESTIMATE": "HOT",
+    "DAY 1": "MEDIUM",
+    "DAY 2": "MEDIUM",
+    "DAY 3": "MEDIUM",
+    "DAY 4": "MEDIUM",
+    "DAY 5": "MEDIUM",
+    "DAY 6": "MEDIUM",
+    "LEAD_FOLLOW UP LATER": "LOW",
+    "ESTIMATE SENT": "MEDIUM",
+    "ESTIMATE_FOLLOW UP LATER": "MEDIUM",
+    "RESPONDED TO ESTIMATE": "HOT",
+    "TOP PRIORITY-Responded to estimate": "HOT",
+    "DECLINED ESTIMATE": "LOW",
+    "DEAL CLOSED & NOT SCHEDULED": "LOW",
+    "CLOSED & SCHEDULED": "LOW",
+    "COMPLETED JOB-HAPPY CUSTOMER- SEND REVIEW": "LOW",
+    "COMPLETED JOB- UNHAPPY CUSTOMER": "LOW",
+    "LONG TERM NURTURE": "LOW",
+    "Cold Leads (Never answered)": "LOW",
+}
+
 INTERACTIVE_PIPELINE_NAME = "Interactive Proposal"
 IP_STAGE_NEW_LEAD   = "New lead (waiting for automation response)"
 IP_STAGE_HOT_LEAD   = "Hot lead (send proposal)"
@@ -154,6 +178,9 @@ async def run_pipeline_sync(
     location_id: str | None = None,
     pipeline_name: str | None = None,
     location_label: str | None = None,
+    target_stages: dict[str, str] | None = None,
+    skip_automations: bool = False,
+    default_kanban_column: str | None = None,
 ) -> dict:
     """
     Core pipeline sync — can be called from the API endpoint or the background poller.
@@ -163,6 +190,9 @@ async def run_pipeline_sync(
     location_id: GHL location to sync. Defaults to settings.ghl_location_id.
     pipeline_name: Pipeline to sync from. Defaults to "Interactive Proposal".
     location_label: Label to tag leads with (e.g. "Cypress", "Woodlands").
+    target_stages: Stage name → priority mapping. Defaults to TARGET_STAGES.
+    skip_automations: If True, don't run estimator or workflow on import.
+    default_kanban_column: Override kanban column for imported leads.
     """
     import asyncio
 
@@ -170,6 +200,7 @@ async def run_pipeline_sync(
     db = get_db()
     loc_id = location_id or settings.ghl_location_id
     pipe_name = pipeline_name or FENCE_PIPELINE_NAME
+    stages_map = target_stages or TARGET_STAGES
 
     # 1. Find the target pipeline
     pipelines = get_pipelines(loc_id)
@@ -196,7 +227,7 @@ async def run_pipeline_sync(
             break
     if not ip_stage_map:
         logger.warning("'Interactive Proposal' pipeline not found — GHL stage moves will be skipped")
-    matched_stages = {name: stage_map[name] for name in TARGET_STAGES if name in stage_map}
+    matched_stages = {name: stage_map[name] for name in stages_map if name in stage_map}
 
     if not matched_stages:
         return {
@@ -226,7 +257,7 @@ async def run_pipeline_sync(
 
     # 3. Pull opportunities per stage
     for stage_name, stage_id in matched_stages.items():
-        priority = TARGET_STAGES[stage_name]
+        priority = stages_map[stage_name]
         opps = get_opportunities(loc_id, pipeline_id, stage_id)
         logger.info(f"Pipeline sync: {len(opps)} opportunities in stage '{stage_name}'")
 
@@ -339,25 +370,29 @@ async def run_pipeline_sync(
                 "tags":               tags,
                 "created_at":         now,
             }
+            if default_kanban_column:
+                lead_row["kanban_column"] = default_kanban_column
 
             try:
                 db.table("leads").insert(lead_row).execute()
-                if background_tasks:
-                    background_tasks.add_task(process_lead, lead_id, lead_data)
-                else:
-                    asyncio.create_task(process_lead(lead_id, lead_data))
+                if not skip_automations:
+                    if background_tasks:
+                        background_tasks.add_task(process_lead, lead_id, lead_data)
+                    else:
+                        asyncio.create_task(process_lead(lead_id, lead_data))
                 existing_ids.add(contact_id)
                 imported += 1
-                logger.info(f"Pipeline sync: imported contact {contact_id} from '{stage_name}'")
-                # Move GHL opportunity to Interactive Proposal
-                opp_id = opp.get("id")
-                if opp_id:
-                    target_stage_id = _resolve_ip_stage(
-                        stage_name, lead_data.get("address", ""), lead_data.get("zip_code", ""), ip_stage_map,
-                    )
-                    if target_stage_id:
-                        if not update_opportunity_stage(opp_id, target_stage_id):
-                            logger.warning(f"Failed to move opp {opp_id} to Interactive Proposal")
+                logger.info(f"Pipeline sync: imported contact {contact_id} from '{stage_name}'" + (f" ({location_label})" if location_label else ""))
+                # Move GHL opportunity to Interactive Proposal (skip for non-primary locations)
+                if not skip_automations:
+                    opp_id = opp.get("id")
+                    if opp_id:
+                        target_stage_id = _resolve_ip_stage(
+                            stage_name, lead_data.get("address", ""), lead_data.get("zip_code", ""), ip_stage_map,
+                        )
+                        if target_stage_id:
+                            if not update_opportunity_stage(opp_id, target_stage_id):
+                                logger.warning(f"Failed to move opp {opp_id} to Interactive Proposal")
             except Exception as e:
                 logger.error(f"Pipeline sync: failed to import contact {contact_id}: {e}")
                 errors += 1

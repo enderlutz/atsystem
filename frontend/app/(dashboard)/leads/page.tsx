@@ -65,7 +65,8 @@ type KanbanStatus =
   | "declined"
   | "planning"
   | "job_complete"
-  | "cold_nurture";
+  | "cold_nurture"
+  | "woodlands";
 
 // Tags that route a lead into "Address Correct but Not Measurable"
 const NEEDS_INFO_TAGS = new Set(["Needs height", "Age of the Fence", "Needs Info", "needs_info"]);
@@ -108,6 +109,7 @@ const COLUMN_QUEUE_ORDER: Record<KanbanStatus, number> = {
   planning: 13,
   job_complete: 14,
   cold_nurture: 15,
+  woodlands: 16,
 };
 
 const PRIORITY_ORDER: Record<string, number> = { HOT: 0, HIGH: 1, MEDIUM: 2, LOW: 3 };
@@ -271,6 +273,14 @@ const COLUMNS: {
     bgCls: "bg-slate-50",
     dotCls: "bg-slate-400",
   },
+  {
+    key: "woodlands",
+    label: "Woodlands (TWTX)",
+    description: "Leads from The Woodlands location — manually work and re-quote",
+    headerCls: "bg-emerald-100 border-emerald-200",
+    bgCls: "bg-emerald-50",
+    dotCls: "bg-emerald-500",
+  },
 ];
 
 const COLUMN_BADGE: Record<KanbanStatus, string> = {
@@ -290,6 +300,7 @@ const COLUMN_BADGE: Record<KanbanStatus, string> = {
   planning: "bg-blue-100 text-blue-700",
   job_complete: "bg-violet-100 text-violet-700",
   cold_nurture: "bg-slate-100 text-slate-600",
+  woodlands: "bg-emerald-100 text-emerald-700",
 };
 
 const COLUMN_LABEL: Record<KanbanStatus, string> = {
@@ -309,6 +320,7 @@ const COLUMN_LABEL: Record<KanbanStatus, string> = {
   planning: "Planning",
   job_complete: "Job Complete",
   cold_nurture: "Cold Nurture",
+  woodlands: "Woodlands (TWTX)",
 };
 
 const priorityColors: Record<string, string> = {

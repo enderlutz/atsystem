@@ -44,10 +44,14 @@ async def poll_ghl_contacts():
             # Sync secondary location (Woodlands) if configured
             if settings.ghl_location_id_2:
                 try:
+                    from api.sync import WOODLANDS_TARGET_STAGES
                     result2 = await run_pipeline_sync(
                         location_id=settings.ghl_location_id_2,
                         pipeline_name=settings.ghl_location_2_pipeline,
                         location_label=settings.ghl_location_2_label,
+                        target_stages=WOODLANDS_TARGET_STAGES,
+                        skip_automations=True,
+                        default_kanban_column="woodlands",
                     )
                     if result2.get("status") == "done":
                         logger.info(
