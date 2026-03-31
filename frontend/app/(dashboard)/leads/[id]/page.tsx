@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { useParams } from "next/navigation";
+import { useParams, useSearchParams } from "next/navigation";
 import { api, leadDetailCache, getCurrentUser, type LeadDetail, type EstimateDetail, type GHLMessage, type Estimate, type WorkflowStatus } from "@/lib/api";
 import { formatDate, formatCurrency } from "@/lib/utils";
 import { toast } from "sonner";
@@ -132,6 +132,8 @@ function makeEstimateSectionState(est?: EstimateDetail): EstimateSectionState {
 
 export default function LeadDetailPage() {
   const { id } = useParams<{ id: string }>();
+  const searchParams = useSearchParams();
+  const approveToken = searchParams.get("approve_token");
   const [lead, setLead] = useState<LeadDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [vaNotes, setVaNotes] = useState("");
@@ -188,6 +190,7 @@ export default function LeadDetailPage() {
   // Inline approve state
   const [approvingEstimate, setApprovingEstimate] = useState(false);
   const [estimateSent, setEstimateSent] = useState(false);
+  const [pendingAlansApproval, setPendingAlansApproval] = useState(false);
   const [approveError, setApproveError] = useState<string | null>(null);
   const [forceSend, setForceSend] = useState(false);
   // Schedule send state
@@ -269,6 +272,11 @@ export default function LeadDetailPage() {
       }
       if (data.status === "sent" || data.estimate?.status === "approved") {
         setEstimateSent(true);
+      }
+      // Check if any estimate is pending Alan's approval
+      const hasPendingApproval = (data.estimates || []).some((e: EstimateDetail) => e.status === ("pending_approval" as string));
+      if (hasPendingApproval) {
+        setPendingAlansApproval(true);
       }
       // Initialize multi-estimate sections
       const allEstimates = data.estimates && data.estimates.length > 0
@@ -392,7 +400,12 @@ export default function LeadDetailPage() {
     setApproveError(null);
     const sendAt = scheduleSend ? getScheduledSendAt() : undefined;
     try {
-      await api.approveEstimate(lead.estimate.id, "signature", forceSend, false, undefined, sendAt);
+      const result = await api.approveEstimate(lead.estimate.id, "signature", forceSend, false, undefined, sendAt);
+      if ((result as unknown as { status: string }).status === "pending_approval") {
+        toast.success("Sent to Alan for approval");
+        window.location.reload();
+        return;
+      }
       setEstimateSent(true);
       setLead({ ...lead, status: "sent" });
       if (sendAt) {
@@ -1653,6 +1666,41 @@ export default function LeadDetailPage() {
                     Alan notified
                   </span>
                 )}
+              </div>
+            )}
+
+            {/* Quick-approve banner for Alan via SMS link */}
+            {approveToken && !estimateSent && (
+              <div className="rounded-lg border-2 border-blue-400 bg-blue-50 p-4 space-y-3">
+                <p className="text-sm font-semibold text-blue-900">Review this estimate and approve to send to the customer.</p>
+                <Button
+                  className="gap-2 bg-green-600 hover:bg-green-700 w-full"
+                  onClick={async () => {
+                    const targetEst = lead.estimates?.find((e) => (e.status as string) === "pending_approval") || est;
+                    if (!targetEst?.id) return;
+                    setApprovingEstimate(true);
+                    try {
+                      await api.quickApproveEstimate(targetEst.id, approveToken);
+                      toast.success("Estimate approved and sent to client!");
+                      window.location.reload();
+                    } catch (e: unknown) {
+                      setApproveError((e as Error).message || "Failed to approve");
+                      setApprovingEstimate(false);
+                    }
+                  }}
+                  disabled={approvingEstimate}
+                >
+                  <Send className="h-4 w-4" />
+                  {approvingEstimate ? "Approving..." : "Approve & Send to Customer"}
+                </Button>
+              </div>
+            )}
+
+            {/* Awaiting Alan's approval badge */}
+            {pendingAlansApproval && !estimateSent && !approveToken && (
+              <div className="flex items-center gap-2 px-3 py-2 rounded-lg bg-amber-50 border border-amber-200">
+                <Clock className="h-4 w-4 text-amber-600" />
+                <span className="text-sm font-medium text-amber-800">Awaiting Alan's approval</span>
               </div>
             )}
 

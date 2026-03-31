@@ -133,6 +133,8 @@ export const api = {
     request<{ status: string; proposal_url: string }>(`/api/estimates/${id}/resend`, { method: "POST" }),
   cancelQuote: (id: string) =>
     request<{ status: string }>(`/api/estimates/${id}/cancel-quote`, { method: "POST" }),
+  quickApproveEstimate: (id: string, token: string) =>
+    request<{ status: string; proposal_url: string }>(`/api/estimates/${id}/quick-approve?token=${encodeURIComponent(token)}`, { method: "POST" }),
   getPreviewToken: (estimateId: string) =>
     request<{ token: string }>(`/api/estimates/${estimateId}/preview`, { method: "POST" }),
   markAdditionalServicesSent: (estimateId: string, description?: string, price?: number) =>
