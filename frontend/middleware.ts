@@ -13,7 +13,10 @@ export function middleware(request: NextRequest) {
   // Check for auth cookie
   const token = request.cookies.get("at_auth")?.value;
   if (!token) {
-    return NextResponse.redirect(new URL("/login", request.url));
+    // Preserve the original URL so login can redirect back
+    const loginUrl = new URL("/login", request.url);
+    loginUrl.searchParams.set("redirect", pathname + request.nextUrl.search);
+    return NextResponse.redirect(loginUrl);
   }
 
   return NextResponse.next();
