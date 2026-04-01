@@ -43,6 +43,23 @@ async def poll_ghl_contacts():
             else:
                 logger.warning(f"Auto-sync issue: {result.get('message', result)}")
 
+            # Sync Cypress "FENCE STAINING NEW AUTOMATION FLOW" pipeline (old leads)
+            try:
+                from api.sync import WOODLANDS_TARGET_STAGES as FENCE_AUTO_STAGES
+                result_old = await run_pipeline_sync(
+                    pipeline_name="FENCE STAINING NEW AUTOMATION FLOW",
+                    location_label=settings.ghl_location_1_label,
+                    target_stages=FENCE_AUTO_STAGES,
+                    skip_automations=True,
+                )
+                if result_old.get("status") == "done" and result_old.get("imported", 0) > 0:
+                    logger.info(
+                        f"Auto-sync (Cypress old pipeline): {result_old['imported']} imported, "
+                        f"{result_old['updated']} updated, {result_old['errors']} errors"
+                    )
+            except Exception as e_old:
+                logger.error(f"GHL pipeline poll error (Cypress old pipeline): {e_old}")
+
             # Sync secondary location (Woodlands) if configured
             if settings.ghl_location_id_2:
                 try:
