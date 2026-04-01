@@ -178,15 +178,18 @@ async def import_contact(contact_id: str, location_id: str = Query("")):
         location_label = settings.ghl_location_1_label
 
     now = datetime.now(timezone.utc).isoformat()
+    form_data = lead_data.get("form_data", {})
+    # Zip code lives inside form_data, not as a standalone column
+    if lead_data.get("zip_code"):
+        form_data["zip_code"] = lead_data["zip_code"]
     lead_row = {
         "ghl_contact_id": contact_id,
         "service_type": lead_data.get("service_type", "fence_staining"),
         "address": lead_data.get("address", ""),
-        "zip_code": lead_data.get("zip_code", ""),
         "contact_name": lead_data.get("contact_name", ""),
         "contact_phone": lead_data.get("contact_phone", ""),
         "contact_email": lead_data.get("contact_email", ""),
-        "form_data": lead_data.get("form_data", {}),
+        "form_data": form_data,
         "status": "new",
         "priority": "MEDIUM",
         "kanban_column": "requote",
