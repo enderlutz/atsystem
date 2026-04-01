@@ -2,12 +2,12 @@
 
 import { useEffect, useState, useCallback, useRef, type ReactNode } from "react";
 import Link from "next/link";
-import { api, leadDetailCache, type Lead, type Estimate } from "@/lib/api";
+import { api, leadDetailCache, type Lead, type Estimate, type GhlContact } from "@/lib/api";
 import { toast } from "sonner";
 import { formatDate } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Search, CheckCircle2, Circle, Flame, LayoutGrid, List, Send, Sparkles, Zap, Archive, ArrowRightCircle } from "lucide-react";
+import { Search, CheckCircle2, Circle, Flame, LayoutGrid, List, Send, Sparkles, Zap, Archive, ArrowRightCircle, Users, Download } from "lucide-react";
 import {
   DndContext,
   type DragEndEvent,
@@ -386,7 +386,7 @@ export default function LeadsPage() {
   const [loading, setLoading] = useState(true);
   const [lastSyncAt, setLastSyncAt] = useState<string | null>(null);
   const [search, setSearch] = useState("");
-  const [activeTab, setActiveTab] = useState<"kanban" | "queue">("kanban");
+  const [activeTab, setActiveTab] = useState<"kanban" | "queue" | "contacts">("kanban");
   const [quickApprovingId, setQuickApprovingId] = useState<string | null>(null);
   const [newLeadIds, setNewLeadIds] = useState<Set<string>>(new Set());
   const [newLeadCount, setNewLeadCount] = useState(0);
@@ -406,11 +406,52 @@ export default function LeadsPage() {
   const hoverTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [moveMenuLeadId, setMoveMenuLeadId] = useState<string | null>(null);
   const [moveMenuPos, setMoveMenuPos] = useState<{ x: number; y: number } | null>(null);
+  // All Contacts tab
+  const [ghlContacts, setGhlContacts] = useState<GhlContact[]>([]);
+  const [contactsLoading, setContactsLoading] = useState(false);
+  const [contactsLoaded, setContactsLoaded] = useState(false);
+  const [contactsAlreadyImported, setContactsAlreadyImported] = useState(0);
+  const [importingId, setImportingId] = useState<string | null>(null);
+  const [contactSearch, setContactSearch] = useState("");
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
     useSensor(TouchSensor, { activationConstraint: { delay: 250, tolerance: 5 } })
   );
+
+  // Load GHL contacts when tab is first opened
+  const loadContacts = useCallback(async () => {
+    if (contactsLoaded) return;
+    setContactsLoading(true);
+    try {
+      const data = await api.getAllContacts();
+      setGhlContacts(data.contacts);
+      setContactsAlreadyImported(data.already_imported);
+      setContactsLoaded(true);
+    } catch {
+      toast.error("Failed to load contacts from GHL");
+    } finally {
+      setContactsLoading(false);
+    }
+  }, [contactsLoaded]);
+
+  useEffect(() => {
+    if (activeTab === "contacts") loadContacts();
+  }, [activeTab, loadContacts]);
+
+  const handleImportContact = async (contact: GhlContact) => {
+    setImportingId(contact.id);
+    try {
+      await api.importContact(contact.id, contact.location_id);
+      setGhlContacts((prev) => prev.filter((c) => c.id !== contact.id));
+      toast.success(`${contact.name} imported — moved to Re-quote column`);
+      loadData(); // Refresh leads so imported contact shows on Kanban
+    } catch (e: unknown) {
+      toast.error(e instanceof Error ? e.message : "Failed to import contact");
+    } finally {
+      setImportingId(null);
+    }
+  };
 
   // Close move-to menu on outside click
   useEffect(() => {
@@ -771,9 +812,19 @@ export default function LeadsPage() {
           >
             <List className="h-3.5 w-3.5" /> Queue
           </button>
+          <button
+            onClick={() => setActiveTab("contacts")}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
+              activeTab === "contacts"
+                ? "bg-primary text-primary-foreground"
+                : "text-muted-foreground hover:text-foreground"
+            }`}
+          >
+            <Users className="h-3.5 w-3.5" /> All Contacts
+          </button>
         </div>
         <span className="text-xs text-muted-foreground hidden sm:block">
-          {activeTab === "kanban" ? "↓ Newest submitted first" : "↓ Sorted by priority · HOT → HIGH → MEDIUM → LOW"}
+          {activeTab === "kanban" ? "↓ Newest submitted first" : activeTab === "queue" ? "↓ Sorted by priority · HOT → HIGH → MEDIUM → LOW" : `${ghlContacts.length} contacts not yet imported`}
         </span>
       </div>
 
@@ -1278,6 +1329,102 @@ export default function LeadsPage() {
                 </div>
               );
             })
+          )}
+        </div>
+      )}
+
+      {/* ── ALL CONTACTS VIEW ── */}
+      {activeTab === "contacts" && (
+        <div className="space-y-3">
+          {/* Contacts search */}
+          <div className="relative max-w-sm">
+            <Search className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
+            <Input
+              placeholder="Search contacts by name, phone, or address..."
+              className="pl-9"
+              value={contactSearch}
+              onChange={(e) => setContactSearch(e.target.value)}
+            />
+          </div>
+
+          {contactsLoading ? (
+            <div className="flex items-center justify-center py-16">
+              <div className="text-sm text-muted-foreground">Loading contacts from GHL...</div>
+            </div>
+          ) : ghlContacts.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-16 gap-2">
+              <Users className="h-8 w-8 text-muted-foreground/50" />
+              <p className="text-sm text-muted-foreground">All GHL contacts have been imported</p>
+              <p className="text-xs text-muted-foreground">{contactsAlreadyImported} contacts already in dashboard</p>
+            </div>
+          ) : (
+            <>
+              <p className="text-xs text-muted-foreground">
+                {contactsAlreadyImported > 0 && `${contactsAlreadyImported} contacts already in dashboard · `}
+                Showing {(() => {
+                  const q = contactSearch.toLowerCase();
+                  if (!q) return ghlContacts.length;
+                  return ghlContacts.filter(c =>
+                    c.name.toLowerCase().includes(q) ||
+                    c.phone.includes(q) ||
+                    c.address.toLowerCase().includes(q)
+                  ).length;
+                })()} of {ghlContacts.length} not-yet-imported contacts
+              </p>
+              <div className="border rounded-lg overflow-hidden">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="bg-muted/50 text-left">
+                      <th className="px-4 py-2.5 font-medium">Name</th>
+                      <th className="px-4 py-2.5 font-medium">Phone</th>
+                      <th className="px-4 py-2.5 font-medium hidden md:table-cell">Email</th>
+                      <th className="px-4 py-2.5 font-medium hidden lg:table-cell">Address</th>
+                      <th className="px-4 py-2.5 font-medium">Location</th>
+                      <th className="px-4 py-2.5 font-medium w-32"></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {ghlContacts
+                      .filter((c) => {
+                        if (!contactSearch) return true;
+                        const q = contactSearch.toLowerCase();
+                        return (
+                          c.name.toLowerCase().includes(q) ||
+                          c.phone.includes(q) ||
+                          c.address.toLowerCase().includes(q)
+                        );
+                      })
+                      .map((contact) => (
+                        <tr key={contact.id} className="border-t hover:bg-muted/30 transition-colors">
+                          <td className="px-4 py-2.5 font-medium">{contact.name}</td>
+                          <td className="px-4 py-2.5 text-muted-foreground">{contact.phone || "—"}</td>
+                          <td className="px-4 py-2.5 text-muted-foreground hidden md:table-cell truncate max-w-[200px]">{contact.email || "—"}</td>
+                          <td className="px-4 py-2.5 text-muted-foreground hidden lg:table-cell truncate max-w-[250px]">{contact.address || "—"}</td>
+                          <td className="px-4 py-2.5">
+                            <span className={`inline-flex px-1.5 py-0.5 rounded text-xs font-medium ${
+                              contact.location_label === "Woodlands" ? "bg-emerald-100 text-emerald-700" : "bg-blue-100 text-blue-700"
+                            }`}>
+                              {contact.location_label}
+                            </span>
+                          </td>
+                          <td className="px-4 py-2.5">
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="h-7 text-xs gap-1"
+                              disabled={importingId === contact.id}
+                              onClick={() => handleImportContact(contact)}
+                            >
+                              <Download className="h-3 w-3" />
+                              {importingId === contact.id ? "Importing..." : "Import"}
+                            </Button>
+                          </td>
+                        </tr>
+                      ))}
+                  </tbody>
+                </table>
+              </div>
+            </>
           )}
         </div>
       )}

@@ -363,6 +363,12 @@ export const api = {
     request<{ counts: Record<string, number> }>(
       `/api/workflow/sms-counts?lead_ids=${leadIds.join(",")}`
     ),
+
+  // All Contacts (GHL)
+  getAllContacts: () =>
+    request<{ contacts: GhlContact[]; total: number; already_imported: number }>("/api/contacts/all"),
+  importContact: (contactId: string, locationId: string) =>
+    request<{ status: string; lead_id: string }>(`/api/contacts/${contactId}/import?location_id=${locationId}`, { method: "POST" }),
 };
 
 // --- Beacon helper (for sendBeacon on page unload) ---
@@ -692,6 +698,16 @@ export interface GhlPipeline {
   id: string;
   name: string;
   stages: GhlPipelineStage[];
+}
+
+export interface GhlContact {
+  id: string;
+  name: string;
+  phone: string;
+  email: string;
+  address: string;
+  location_id: string;
+  location_label: string;
 }
 
 export interface StageTemplateMessage {

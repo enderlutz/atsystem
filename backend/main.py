@@ -16,6 +16,7 @@ from api.schedule import router as schedule_router
 from api.workflow import router as workflow_router
 from api.analytics import router as analytics_router
 from api.notifications import router as notifications_router
+from api.contacts import router as contacts_router
 from services.poller import poll_ghl_contacts, sync_recent_messages
 from services.sms_worker import poll_sms_queue, poll_stage_timeouts
 from services.owner_digest import poll_owner_digest
@@ -66,6 +67,7 @@ app.include_router(schedule_router)
 app.include_router(workflow_router)
 app.include_router(analytics_router)
 app.include_router(notifications_router)
+app.include_router(contacts_router)
 
 
 @app.get("/health")
