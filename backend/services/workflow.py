@@ -333,9 +333,10 @@ def enqueue_stage_messages(
         send_at = now + timedelta(seconds=delay_seconds)
         msg_id = str(uuid.uuid4())
 
-        # TEMPORARY: Only send the first message in each sequence.
-        # Follow-up messages (i > 0) are disabled until re-enabled.
-        if i > 0:
+        # Only send the first message in each sequence, except for proposal_sent
+        # which has follow-up texts to get the customer to open the proposal.
+        FOLLOW_UP_ENABLED_STAGES = {"proposal_sent"}
+        if i > 0 and stage not in FOLLOW_UP_ENABLED_STAGES:
             logger.info(f"Workflow: skipping follow-up message {i} for lead {lead_id} stage {stage} (follow-ups disabled)")
             continue
 
