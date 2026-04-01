@@ -419,25 +419,21 @@ export default function LeadsPage() {
     useSensor(TouchSensor, { activationConstraint: { delay: 250, tolerance: 5 } })
   );
 
-  // Load GHL contacts when tab is first opened
-  const loadContacts = useCallback(async () => {
-    if (contactsLoaded) return;
+  // Load GHL contacts on demand (Sync button)
+  const loadContacts = async () => {
     setContactsLoading(true);
     try {
       const data = await api.getAllContacts();
       setGhlContacts(data.contacts);
       setContactsAlreadyImported(data.already_imported);
       setContactsLoaded(true);
+      toast.success(`Synced ${data.contacts.length} contacts from GHL`);
     } catch {
       toast.error("Failed to load contacts from GHL");
     } finally {
       setContactsLoading(false);
     }
-  }, [contactsLoaded]);
-
-  useEffect(() => {
-    if (activeTab === "contacts") loadContacts();
-  }, [activeTab, loadContacts]);
+  };
 
   const handleImportContact = async (contact: GhlContact) => {
     setImportingId(contact.id);
@@ -1336,29 +1332,47 @@ export default function LeadsPage() {
       {/* ── ALL CONTACTS VIEW ── */}
       {activeTab === "contacts" && (
         <div className="space-y-3">
-          {/* Contacts search */}
-          <div className="relative max-w-sm">
-            <Search className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
-            <Input
-              placeholder="Search contacts by name, phone, or address..."
-              className="pl-9"
-              value={contactSearch}
-              onChange={(e) => setContactSearch(e.target.value)}
-            />
-          </div>
-
-          {contactsLoading ? (
+          {!contactsLoaded && !contactsLoading ? (
+            <div className="flex flex-col items-center justify-center py-16 gap-4">
+              <Users className="h-10 w-10 text-muted-foreground/40" />
+              <div className="text-center">
+                <p className="text-sm font-medium">All GHL Contacts</p>
+                <p className="text-xs text-muted-foreground mt-1">Pull all contacts from both Cypress and Woodlands GHL locations.</p>
+                <p className="text-xs text-muted-foreground">Contacts already in the dashboard are excluded.</p>
+              </div>
+              <Button onClick={loadContacts} className="gap-2">
+                <Download className="h-4 w-4" /> Sync Contacts from GHL
+              </Button>
+            </div>
+          ) : contactsLoading ? (
             <div className="flex items-center justify-center py-16">
               <div className="text-sm text-muted-foreground">Loading contacts from GHL...</div>
             </div>
           ) : ghlContacts.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-16 gap-2">
+            <div className="flex flex-col items-center justify-center py-16 gap-3">
               <Users className="h-8 w-8 text-muted-foreground/50" />
               <p className="text-sm text-muted-foreground">All GHL contacts have been imported</p>
               <p className="text-xs text-muted-foreground">{contactsAlreadyImported} contacts already in dashboard</p>
+              <Button variant="outline" size="sm" onClick={loadContacts} className="gap-1.5 mt-2">
+                <Download className="h-3.5 w-3.5" /> Re-sync
+              </Button>
             </div>
           ) : (
             <>
+              <div className="flex items-center gap-3">
+                <div className="relative max-w-sm flex-1">
+                  <Search className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
+                  <Input
+                    placeholder="Search contacts by name, phone, or address..."
+                    className="pl-9"
+                    value={contactSearch}
+                    onChange={(e) => setContactSearch(e.target.value)}
+                  />
+                </div>
+                <Button variant="outline" size="sm" onClick={loadContacts} disabled={contactsLoading} className="gap-1.5">
+                  <Download className="h-3.5 w-3.5" /> {contactsLoading ? "Syncing..." : "Re-sync"}
+                </Button>
+              </div>
               <p className="text-xs text-muted-foreground">
                 {contactsAlreadyImported > 0 && `${contactsAlreadyImported} contacts already in dashboard · `}
                 Showing {(() => {
