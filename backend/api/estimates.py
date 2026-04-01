@@ -1,10 +1,11 @@
 from __future__ import annotations
 
+import random
 import secrets
 from fastapi import APIRouter, Body, Depends, HTTPException, Query
 from pydantic import BaseModel
 from typing import Optional
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import bcrypt
 
@@ -15,6 +16,42 @@ from services.ghl import send_message_to_contact, add_contact_note
 from api.auth import require_admin, get_current_user
 
 router = APIRouter(prefix="/api/estimates", tags=["estimates"])
+logger = __import__("logging").getLogger(__name__)
+
+# ── A/B Test: optimal send time buckets (Central Time) ──────────────
+# Each bucket is a (start_hour, end_hour) range in CT.
+# On approval the system picks a random bucket and schedules the SMS
+# for a random minute within the next occurrence of that window.
+AB_TEST_BUCKETS: dict[str, tuple[int, int]] = {
+    "morning":   (8, 10),    # 8:00-10:00 AM CT
+    "midday":    (11, 13),   # 11:00 AM-1:00 PM CT
+    "afternoon": (15, 17),   # 3:00-5:00 PM CT
+    "evening":   (18, 20),   # 6:00-8:00 PM CT
+}
+
+CT = timezone(timedelta(hours=-5))  # CDT (summer); close enough for scheduling
+
+
+def _pick_ab_send_time() -> tuple[str, str]:
+    """Pick a random A/B test bucket and compute the next send time within it.
+    Returns (bucket_name, scheduled_send_at_iso)."""
+    bucket_name = random.choice(list(AB_TEST_BUCKETS.keys()))
+    start_h, end_h = AB_TEST_BUCKETS[bucket_name]
+
+    now_ct = datetime.now(CT)
+    # Random minute within the window
+    random_minute = random.randint(0, (end_h - start_h) * 60 - 1)
+    target_h = start_h + random_minute // 60
+    target_m = random_minute % 60
+
+    # Build target datetime in CT for today
+    target = now_ct.replace(hour=target_h, minute=target_m, second=0, microsecond=0)
+
+    # If the window has passed today, schedule for tomorrow
+    if target <= now_ct:
+        target += timedelta(days=1)
+
+    return bucket_name, target.astimezone(timezone.utc).isoformat()
 
 
 @router.get("")
@@ -205,19 +242,33 @@ async def approve_estimate(estimate_id: str, body: EstimateApprove = EstimateApp
     # Reset workflow stage so transition doesn't skip if lead is already in hot_lead
     db.table("leads").update({"workflow_stage": None}).eq("id", estimate["lead_id"]).execute()
 
-    # Reset workflow stage so transition doesn't skip if lead is already in hot_lead
-    db.table("leads").update({"workflow_stage": None}).eq("id", estimate["lead_id"]).execute()
+    # A/B test: assign a random send-time bucket if VA didn't manually schedule
+    ab_bucket = None
+    scheduled_send_at = body.scheduled_send_at
+    if not scheduled_send_at:
+        ab_bucket, scheduled_send_at = _pick_ab_send_time()
+        logger.info(f"A/B test: lead {estimate['lead_id']} assigned bucket '{ab_bucket}', send at {scheduled_send_at}")
 
-    # Transition workflow to HOT_LEAD — fires proposal SMS immediately via workflow engine
+    # Transition workflow to HOT_LEAD — fires proposal SMS via workflow engine
     try:
         from services.workflow import on_estimate_sent
-        on_estimate_sent(estimate["lead_id"], proposal_url=proposal_url, scheduled_send_at=body.scheduled_send_at)
+        on_estimate_sent(
+            estimate["lead_id"],
+            proposal_url=proposal_url,
+            scheduled_send_at=scheduled_send_at,
+            ab_test_bucket=ab_bucket or "manual_schedule",
+        )
     except Exception as e:
         logger.error(f"Workflow on_estimate_sent failed for lead {estimate['lead_id']}: {e}")
 
-    result = {"status": "approved", "estimate_id": estimate_id, "proposal_token": token, "proposal_url": proposal_url}
-    if body.scheduled_send_at:
-        result["scheduled_send_at"] = body.scheduled_send_at
+    result = {
+        "status": "approved",
+        "estimate_id": estimate_id,
+        "proposal_token": token,
+        "proposal_url": proposal_url,
+        "scheduled_send_at": scheduled_send_at,
+        "ab_test_bucket": ab_bucket or "manual_schedule",
+    }
     return result
 
 
@@ -328,17 +379,33 @@ async def admin_approve_estimate(estimate_id: str, body: AdminApproveRequest, _:
     # Reset workflow stage so transition doesn't skip if lead is already in hot_lead
     db.table("leads").update({"workflow_stage": None}).eq("id", estimate["lead_id"]).execute()
 
-    # Transition workflow to HOT_LEAD — fires proposal SMS immediately via workflow engine
+    # A/B test: assign a random send-time bucket if not manually scheduled
+    ab_bucket = None
+    scheduled_send_at = body.scheduled_send_at
+    if not scheduled_send_at:
+        ab_bucket, scheduled_send_at = _pick_ab_send_time()
+        logger.info(f"A/B test: lead {estimate['lead_id']} assigned bucket '{ab_bucket}', send at {scheduled_send_at}")
+
+    # Transition workflow to HOT_LEAD — fires proposal SMS via workflow engine
     try:
         from services.workflow import on_estimate_sent
-        on_estimate_sent(estimate["lead_id"], proposal_url=proposal_url, scheduled_send_at=body.scheduled_send_at)
+        on_estimate_sent(
+            estimate["lead_id"],
+            proposal_url=proposal_url,
+            scheduled_send_at=scheduled_send_at,
+            ab_test_bucket=ab_bucket or "manual_schedule",
+        )
     except Exception as e:
         logger.error(f"Workflow on_estimate_sent failed for lead {estimate['lead_id']}: {e}")
 
-    result = {"status": "approved", "estimate_id": estimate_id, "proposal_token": token, "proposal_url": proposal_url}
-    if body.scheduled_send_at:
-        result["scheduled_send_at"] = body.scheduled_send_at
-    return result
+    return {
+        "status": "approved",
+        "estimate_id": estimate_id,
+        "proposal_token": token,
+        "proposal_url": proposal_url,
+        "scheduled_send_at": scheduled_send_at,
+        "ab_test_bucket": ab_bucket or "manual_schedule",
+    }
 
 
 @router.put("/{estimate_id}")
@@ -635,15 +702,25 @@ async def quick_approve_estimate(estimate_id: str, token: str = Query(...)):
     # Reset workflow stage so transition_stage doesn't skip (lead may already be in hot_lead)
     db.table("leads").update({"workflow_stage": None}).eq("id", lead_id).execute()
 
-    # Fire workflow → sends proposal SMS immediately
+    # A/B test: assign a random send-time bucket
+    ab_bucket, scheduled_send_at = _pick_ab_send_time()
+    logger.info(f"A/B test (quick-approve): lead {lead_id} assigned bucket '{ab_bucket}', send at {scheduled_send_at}")
+
+    # Fire workflow → sends proposal SMS via workflow engine
     try:
         from services.workflow import on_estimate_sent
-        on_estimate_sent(lead_id, proposal_url=proposal_url)
+        on_estimate_sent(lead_id, proposal_url=proposal_url, scheduled_send_at=scheduled_send_at, ab_test_bucket=ab_bucket)
     except Exception as e:
-        import logging
-        logging.getLogger(__name__).error(f"Workflow on_estimate_sent failed for lead {lead_id}: {e}")
+        logger.error(f"Workflow on_estimate_sent failed for lead {lead_id}: {e}")
 
-    return {"status": "approved", "estimate_id": estimate_id, "proposal_token": proposal_token, "proposal_url": proposal_url}
+    return {
+        "status": "approved",
+        "estimate_id": estimate_id,
+        "proposal_token": proposal_token,
+        "proposal_url": proposal_url,
+        "scheduled_send_at": scheduled_send_at,
+        "ab_test_bucket": ab_bucket,
+    }
 
 
 @router.post("/{estimate_id}/notify-owner")

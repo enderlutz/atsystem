@@ -65,6 +65,8 @@ export const api = {
       method: "PUT",
       body: JSON.stringify({ kanban_column: column }),
     }),
+  sendNow: (leadId: string) =>
+    request<{ status: string }>(`/api/leads/${leadId}/send-now`, { method: "POST" }),
   updateLeadTags: (leadId: string, tags: string[]) =>
     request<{ status: string }>(`/api/leads/${leadId}/tags`, {
       method: "PUT",

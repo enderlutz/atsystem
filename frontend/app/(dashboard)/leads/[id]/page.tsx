@@ -204,6 +204,8 @@ export default function LeadDetailPage() {
   const [bypassApproval, setBypassApproval] = useState(false);
   const [bypassPassword, setBypassPassword] = useState("");
   const [bypassError, setBypassError] = useState<string | null>(null);
+  const [scheduledSendInfo, setScheduledSendInfo] = useState<{ time: string; bucket: string | null } | null>(null);
+  const [sendingNow, setSendingNow] = useState(false);
 
   // GHL Messages state
   const [messages, setMessages] = useState<GHLMessage[]>([]);
@@ -400,17 +402,22 @@ export default function LeadDetailPage() {
     setApproveError(null);
     const sendAt = scheduleSend ? getScheduledSendAt() : undefined;
     try {
-      const result = await api.approveEstimate(lead.estimate.id, "signature", forceSend, false, undefined, sendAt);
-      if ((result as unknown as { status: string }).status === "pending_approval") {
+      const result = await api.approveEstimate(lead.estimate.id, "signature", forceSend, false, undefined, sendAt) as unknown as Record<string, unknown>;
+      if (result.status === "pending_approval") {
         toast.success("Sent to Alan for approval");
         window.location.reload();
         return;
       }
       setEstimateSent(true);
       setLead({ ...lead, status: "sent" });
-      if (sendAt) {
-        const d = new Date(sendAt);
-        toast.success(`Proposal scheduled for ${d.toLocaleDateString("en-US", { month: "short", day: "numeric" })} at ${d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" })}`);
+      const scheduledAt = (result.scheduled_send_at as string) || sendAt;
+      const bucket = result.ab_test_bucket as string | undefined;
+      if (scheduledAt) {
+        const d = new Date(scheduledAt);
+        const timeStr = d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", timeZone: "America/Chicago" });
+        const dateStr = d.toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "America/Chicago" });
+        setScheduledSendInfo({ time: `${dateStr} at ${timeStr} CT`, bucket: bucket || null });
+        toast.success(`Proposal SMS scheduled for ${dateStr} at ${timeStr} CT` + (bucket ? ` (${bucket} window)` : ""));
       } else {
         toast.success("All packages sent to client!");
       }
@@ -1731,6 +1738,36 @@ export default function LeadDetailPage() {
                     Cancel Quote
                   </Button>
                 </div>
+                {/* A/B test scheduled send info */}
+                {scheduledSendInfo && (
+                  <div className="flex items-center justify-between gap-2 px-3 py-2 rounded-md bg-blue-50 border border-blue-200">
+                    <div className="text-sm text-blue-700">
+                      <span className="font-medium">SMS scheduled:</span> {scheduledSendInfo.time}
+                      {scheduledSendInfo.bucket && <span className="text-blue-500 ml-1">({scheduledSendInfo.bucket})</span>}
+                    </div>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="text-xs border-blue-300 text-blue-700 hover:bg-blue-100"
+                      disabled={sendingNow}
+                      onClick={async () => {
+                        if (!lead?.ghl_contact_id) return;
+                        setSendingNow(true);
+                        try {
+                          await api.sendNow(lead.id);
+                          setScheduledSendInfo(null);
+                          toast.success("Proposal SMS sent immediately!");
+                        } catch {
+                          toast.error("Failed to send now");
+                        } finally {
+                          setSendingNow(false);
+                        }
+                      }}
+                    >
+                      {sendingNow ? "Sending..." : "Send Now"}
+                    </Button>
+                  </div>
+                )}
                 {/* Funnel stage indicator */}
                 {(() => {
                   const STAGES = ["sent", "opened", "hoa_selected", "package_selected", "color_selected", "date_selected", "checkout_started", "booked"];

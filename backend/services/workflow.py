@@ -325,6 +325,7 @@ def enqueue_stage_messages(
         return 0
 
     now = datetime.now(timezone.utc)
+    ab_bucket = metadata.get("ab_test_bucket")
     count = 0
 
     for i, (delay_seconds, template) in enumerate(messages):
@@ -345,7 +346,7 @@ def enqueue_stage_messages(
                 scheduled_dt = datetime.fromisoformat(scheduled_at.replace("Z", "+00:00"))
             except ValueError:
                 scheduled_dt = now  # Fallback to immediate if invalid
-            db.table("sms_queue").insert({
+            row = {
                 "id": msg_id,
                 "lead_id": lead_id,
                 "stage": stage,
@@ -354,8 +355,11 @@ def enqueue_stage_messages(
                 "send_at": scheduled_dt.isoformat(),
                 "ghl_contact_id": ghl_contact_id,
                 "status": "pending",
-            }).execute()
-            log_event(lead_id, "sms_queued", f"Scheduled for {scheduled_at}: {rendered[:60]}...", {"stage": stage, "sequence_index": i, "scheduled_send_at": scheduled_at})
+            }
+            if ab_bucket:
+                row["ab_test_bucket"] = ab_bucket
+            db.table("sms_queue").insert(row).execute()
+            log_event(lead_id, "sms_queued", f"Scheduled for {scheduled_at}: {rendered[:60]}...", {"stage": stage, "sequence_index": i, "scheduled_send_at": scheduled_at, "ab_test_bucket": ab_bucket})
             count += 1
             continue
 
@@ -378,7 +382,7 @@ def enqueue_stage_messages(
                     attach_urls = [f"{base_url}{p}" for p in stage_attach[None]]
 
             success = send_message_to_contact(ghl_contact_id, rendered, attachments=attach_urls, location_id=location_id)
-            db.table("sms_queue").insert({
+            row2 = {
                 "id": msg_id,
                 "lead_id": lead_id,
                 "stage": stage,
@@ -388,7 +392,10 @@ def enqueue_stage_messages(
                 "ghl_contact_id": ghl_contact_id,
                 "status": "sent" if success else "failed",
                 "sent_at": now.isoformat() if success else None,
-            }).execute()
+            }
+            if ab_bucket:
+                row2["ab_test_bucket"] = ab_bucket
+            db.table("sms_queue").insert(row2).execute()
             if success:
                 log_event(lead_id, "sms_sent", f"Sent immediately: {rendered[:60]}...", {"stage": stage, "sequence_index": i})
             else:
@@ -396,7 +403,7 @@ def enqueue_stage_messages(
             count += 1
             continue
 
-        db.table("sms_queue").insert({
+        row3 = {
             "id": msg_id,
             "lead_id": lead_id,
             "stage": stage,
@@ -405,7 +412,10 @@ def enqueue_stage_messages(
             "send_at": send_at.isoformat(),
             "ghl_contact_id": ghl_contact_id,
             "status": "pending",
-        }).execute()
+        }
+        if ab_bucket:
+            row3["ab_test_bucket"] = ab_bucket
+        db.table("sms_queue").insert(row3).execute()
         count += 1
 
     logger.info(f"Workflow: enqueued {count} messages for lead {lead_id} stage {stage}")
@@ -666,14 +676,16 @@ def on_job_complete(lead_id: str) -> None:
     transition_stage(lead_id, Stage.JOB_COMPLETE, reason="job_marked_complete")
 
 
-def on_estimate_sent(lead_id: str, proposal_url: str = "", scheduled_send_at: str | None = None) -> None:
+def on_estimate_sent(lead_id: str, proposal_url: str = "", scheduled_send_at: str | None = None, ab_test_bucket: str | None = None) -> None:
     """Called when an estimate is approved and the proposal link is sent.
     Transitions the lead to HOT_LEAD stage and sends (or schedules) the proposal SMS."""
     if scheduled_send_at:
-        log_event(lead_id, "estimate_approved", f"Estimate approved, proposal SMS scheduled for {scheduled_send_at}")
+        log_event(lead_id, "estimate_approved", f"Estimate approved, proposal SMS scheduled for {scheduled_send_at} (bucket: {ab_test_bucket or 'none'})")
     else:
         log_event(lead_id, "estimate_approved", "Estimate approved, proposal link sent")
     metadata = {"proposal_url": proposal_url}
     if scheduled_send_at:
         metadata["scheduled_send_at"] = scheduled_send_at
+    if ab_test_bucket:
+        metadata["ab_test_bucket"] = ab_test_bucket
     transition_stage(lead_id, Stage.HOT_LEAD, reason="estimate_sent", metadata=metadata)

@@ -149,7 +149,8 @@ async def get_proposal(token: str):
 
     # Mark as viewed if still in 'sent' state (not for preview)
     if proposal["status"] == "sent":
-        db.table("proposals").update({"status": "viewed"}).eq("token", token).execute()
+        now = datetime.now(timezone.utc).isoformat()
+        db.table("proposals").update({"status": "viewed", "first_viewed_at": now}).eq("token", token).execute()
 
     selected_tier = proposal.get("selected_tier")
     selected_tier_price = float(tiers.get(selected_tier) or 0) if selected_tier else 0
@@ -574,7 +575,7 @@ async def _finalize_booking(
                 "\n\nOur team will also be in touch to discuss your additional service "
                 "request — we'll reach out shortly to get more details."
             )
-        sent_cust = send_message_to_contact(customer_ghl_id, customer_sms)
+        sent_cust = send_message_to_contact(customer_ghl_id, customer_sms, location_id=lead.get("ghl_location_id"))
         if not sent_cust:
             logger.warning(f"Failed to send booking confirmation SMS to customer {customer_ghl_id}")
 
@@ -600,12 +601,14 @@ async def _finalize_booking(
     else:
         logger.warning(f"No ghl_contact_id on lead {proposal['lead_id']} — skipping customer confirmation SMS")
 
+    booking_now = datetime.now(timezone.utc).isoformat()
     proposal_update: dict = {
         "status": "booked",
         "funnel_stage": "booked",
         "selected_tier": selected_tier,
         "booked_tier_price": float(booked_sections[0]["tier_price"] if booked_sections else 0),
         "booked_at": booked_dt.isoformat(),
+        "booking_completed_at": booking_now,
         "calendar_event_id": calendar_event_id,
         "backup_dates": parsed_backup_dates,
         "selected_color": selected_color,
@@ -614,6 +617,7 @@ async def _finalize_booking(
         "custom_color": custom_color,
         "stripe_session_id": stripe_session_id,
         "deposit_paid": bool(stripe_session_id),
+        "deposit_paid_at": booking_now if stripe_session_id else None,
     }
     # Always store total price; store selections for multi-estimate
     proposal_update["booked_total_price"] = booked_total_price

@@ -221,6 +221,46 @@ async def update_lead_column(lead_id: str, body: dict):
     return {"status": "updated"}
 
 
+@router.post("/{lead_id}/send-now")
+async def send_estimate_now(lead_id: str):
+    """A/B test override: find the pending hot_lead SMS for this lead and send it immediately.
+    Updates the ab_test_bucket to 'override' for analytics tracking."""
+    from services.ghl import send_message_to_contact as _send_msg
+    db = get_db()
+    now = datetime.now(timezone.utc).isoformat()
+
+    # Find the pending proposal SMS
+    pending = (
+        db.table("sms_queue")
+        .select("*")
+        .eq("lead_id", lead_id)
+        .eq("stage", "hot_lead")
+        .eq("status", "pending")
+        .order("created_at")
+        .limit(1)
+        .execute()
+    )
+    if not pending.data:
+        raise HTTPException(status_code=404, detail="No pending estimate SMS found for this lead")
+
+    msg = pending.data[0]
+    # Atomic claim
+    claim = db.table("sms_queue").update({"sent_at": now}).eq("id", msg["id"]).eq("status", "pending").execute()
+    if not claim.data:
+        raise HTTPException(status_code=409, detail="Message already sent or cancelled")
+
+    lead_res = db.table("leads").select("ghl_location_id").eq("id", lead_id).single().execute()
+    location_id = (lead_res.data or {}).get("ghl_location_id")
+
+    sent = _send_msg(msg["ghl_contact_id"], msg["message_body"], location_id=location_id)
+    if sent:
+        db.table("sms_queue").update({"status": "sent", "ab_test_bucket": "override"}).eq("id", msg["id"]).execute()
+        return {"status": "sent"}
+    else:
+        db.table("sms_queue").update({"status": "failed", "sent_at": None, "error_message": "GHL send failed"}).eq("id", msg["id"]).execute()
+        raise HTTPException(status_code=502, detail="Failed to send via GHL")
+
+
 @router.put("/{lead_id}/tags")
 async def update_lead_tags(lead_id: str, body: dict):
     """Update tags on a lead."""
