@@ -336,15 +336,16 @@ async def run_pipeline_sync(
                     else:
                         asyncio.create_task(recalculate_estimate_for_lead(lead_id, merged_lead_data))
 
-                # Move GHL opportunity to Interactive Proposal
-                opp_id = opp.get("id")
-                if opp_id:
-                    target_stage_id = _resolve_ip_stage(
-                        stage_name, lead_data.get("address", ""), lead_data.get("zip_code", ""), ip_stage_map,
-                    )
-                    if target_stage_id:
-                        if not update_opportunity_stage(opp_id, target_stage_id):
-                            logger.warning(f"Failed to move opp {opp_id} to Interactive Proposal")
+                # Move GHL opportunity to Interactive Proposal (skip for non-primary locations)
+                if not skip_automations:
+                    opp_id = opp.get("id")
+                    if opp_id:
+                        target_stage_id = _resolve_ip_stage(
+                            stage_name, lead_data.get("address", ""), lead_data.get("zip_code", ""), ip_stage_map,
+                        )
+                        if target_stage_id:
+                            if not update_opportunity_stage(opp_id, target_stage_id):
+                                logger.warning(f"Failed to move opp {opp_id} to Interactive Proposal")
 
                 updated += 1
                 continue
