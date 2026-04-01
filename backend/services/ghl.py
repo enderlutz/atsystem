@@ -71,9 +71,9 @@ def get_contacts(location_id: str, max_contacts: int = 500) -> list[dict]:
     return all_contacts
 
 
-def get_contact(contact_id: str) -> dict | None:
+def get_contact(contact_id: str, location_id: str | None = None) -> dict | None:
     try:
-        r = _client.get(f"{GHL_BASE}/contacts/{contact_id}", headers=_headers(), timeout=10)
+        r = _client.get(f"{GHL_BASE}/contacts/{contact_id}", headers=_headers(location_id), timeout=10)
         r.raise_for_status()
         return r.json().get("contact")
     except Exception as e:

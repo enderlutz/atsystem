@@ -164,9 +164,7 @@ _ASKING_ADDRESS = [
 
 _HOT_LEAD = [
     (0,  # Immediately when proposal is sent
-     "Hey {first_name}! Your personalized fence staining estimate is all "
-     "ready for you! Check it out here: {proposal_link}. You can pick your "
-     "package, color, and date all in one spot. Only takes a couple minutes!"),
+     "Here it is! A&T's Fence Staining Proposal: {proposal_link}"),
 ]
 
 # -- Stage 4: Proposal Sent - Follow-ups until opened -------------------------

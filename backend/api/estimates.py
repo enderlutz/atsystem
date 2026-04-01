@@ -242,21 +242,20 @@ async def approve_estimate(estimate_id: str, body: EstimateApprove = EstimateApp
     # Reset workflow stage so transition doesn't skip if lead is already in hot_lead
     db.table("leads").update({"workflow_stage": None}).eq("id", estimate["lead_id"]).execute()
 
-    # A/B test: assign a random send-time bucket if VA didn't manually schedule
-    ab_bucket = None
-    scheduled_send_at = body.scheduled_send_at
-    if not scheduled_send_at:
-        ab_bucket, scheduled_send_at = _pick_ab_send_time()
-        logger.info(f"A/B test: lead {estimate['lead_id']} assigned bucket '{ab_bucket}', send at {scheduled_send_at}")
+    # A/B test: DISABLED — send immediately for now. Uncomment to re-enable.
+    # ab_bucket = None
+    # scheduled_send_at = body.scheduled_send_at
+    # if not scheduled_send_at:
+    #     ab_bucket, scheduled_send_at = _pick_ab_send_time()
+    #     logger.info(f"A/B test: lead {estimate['lead_id']} assigned bucket '{ab_bucket}', send at {scheduled_send_at}")
 
-    # Transition workflow to HOT_LEAD — fires proposal SMS via workflow engine
+    # Transition workflow to HOT_LEAD — fires proposal SMS immediately
     try:
         from services.workflow import on_estimate_sent
         on_estimate_sent(
             estimate["lead_id"],
             proposal_url=proposal_url,
-            scheduled_send_at=scheduled_send_at,
-            ab_test_bucket=ab_bucket or "manual_schedule",
+            scheduled_send_at=body.scheduled_send_at,
         )
     except Exception as e:
         logger.error(f"Workflow on_estimate_sent failed for lead {estimate['lead_id']}: {e}")
@@ -266,9 +265,9 @@ async def approve_estimate(estimate_id: str, body: EstimateApprove = EstimateApp
         "estimate_id": estimate_id,
         "proposal_token": token,
         "proposal_url": proposal_url,
-        "scheduled_send_at": scheduled_send_at,
-        "ab_test_bucket": ab_bucket or "manual_schedule",
     }
+    if body.scheduled_send_at:
+        result["scheduled_send_at"] = body.scheduled_send_at
     return result
 
 
@@ -379,33 +378,33 @@ async def admin_approve_estimate(estimate_id: str, body: AdminApproveRequest, _:
     # Reset workflow stage so transition doesn't skip if lead is already in hot_lead
     db.table("leads").update({"workflow_stage": None}).eq("id", estimate["lead_id"]).execute()
 
-    # A/B test: assign a random send-time bucket if not manually scheduled
-    ab_bucket = None
-    scheduled_send_at = body.scheduled_send_at
-    if not scheduled_send_at:
-        ab_bucket, scheduled_send_at = _pick_ab_send_time()
-        logger.info(f"A/B test: lead {estimate['lead_id']} assigned bucket '{ab_bucket}', send at {scheduled_send_at}")
+    # A/B test: DISABLED — send immediately for now.
+    # ab_bucket = None
+    # scheduled_send_at = body.scheduled_send_at
+    # if not scheduled_send_at:
+    #     ab_bucket, scheduled_send_at = _pick_ab_send_time()
+    #     logger.info(f"A/B test: lead {estimate['lead_id']} assigned bucket '{ab_bucket}', send at {scheduled_send_at}")
 
-    # Transition workflow to HOT_LEAD — fires proposal SMS via workflow engine
+    # Transition workflow to HOT_LEAD — fires proposal SMS immediately
     try:
         from services.workflow import on_estimate_sent
         on_estimate_sent(
             estimate["lead_id"],
             proposal_url=proposal_url,
-            scheduled_send_at=scheduled_send_at,
-            ab_test_bucket=ab_bucket or "manual_schedule",
+            scheduled_send_at=body.scheduled_send_at,
         )
     except Exception as e:
         logger.error(f"Workflow on_estimate_sent failed for lead {estimate['lead_id']}: {e}")
 
-    return {
+    result = {
         "status": "approved",
         "estimate_id": estimate_id,
         "proposal_token": token,
         "proposal_url": proposal_url,
-        "scheduled_send_at": scheduled_send_at,
-        "ab_test_bucket": ab_bucket or "manual_schedule",
     }
+    if body.scheduled_send_at:
+        result["scheduled_send_at"] = body.scheduled_send_at
+    return result
 
 
 @router.put("/{estimate_id}")
@@ -702,14 +701,14 @@ async def quick_approve_estimate(estimate_id: str, token: str = Query(...)):
     # Reset workflow stage so transition_stage doesn't skip (lead may already be in hot_lead)
     db.table("leads").update({"workflow_stage": None}).eq("id", lead_id).execute()
 
-    # A/B test: assign a random send-time bucket
-    ab_bucket, scheduled_send_at = _pick_ab_send_time()
-    logger.info(f"A/B test (quick-approve): lead {lead_id} assigned bucket '{ab_bucket}', send at {scheduled_send_at}")
+    # A/B test: DISABLED — send immediately for now.
+    # ab_bucket, scheduled_send_at = _pick_ab_send_time()
+    # logger.info(f"A/B test (quick-approve): lead {lead_id} assigned bucket '{ab_bucket}', send at {scheduled_send_at}")
 
-    # Fire workflow → sends proposal SMS via workflow engine
+    # Fire workflow → sends proposal SMS immediately
     try:
         from services.workflow import on_estimate_sent
-        on_estimate_sent(lead_id, proposal_url=proposal_url, scheduled_send_at=scheduled_send_at, ab_test_bucket=ab_bucket)
+        on_estimate_sent(lead_id, proposal_url=proposal_url)
     except Exception as e:
         logger.error(f"Workflow on_estimate_sent failed for lead {lead_id}: {e}")
 
@@ -718,8 +717,6 @@ async def quick_approve_estimate(estimate_id: str, token: str = Query(...)):
         "estimate_id": estimate_id,
         "proposal_token": proposal_token,
         "proposal_url": proposal_url,
-        "scheduled_send_at": scheduled_send_at,
-        "ab_test_bucket": ab_bucket,
     }
 
 

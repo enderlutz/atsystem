@@ -268,7 +268,7 @@ async def run_pipeline_sync(
                 continue
 
             # Always fetch the full contact to get latest data
-            full_contact = get_contact(contact_id)
+            full_contact = get_contact(contact_id, location_id=loc_id)
             if full_contact:
                 lead_data = parse_webhook_payload(full_contact, field_map=field_map)
             else:
