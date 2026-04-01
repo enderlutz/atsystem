@@ -18,6 +18,8 @@ logger = logging.getLogger(__name__)
 POLL_INTERVAL_SECONDS = 300       # 5 minutes
 MESSAGE_SYNC_INTERVAL_SECONDS = 300  # 5 minutes
 MESSAGE_SYNC_LOOKBACK_MINUTES = 10   # check last 10 min for missed messages
+CONTACTS_CACHE_CHECK_INTERVAL = 3600     # Check every hour
+CONTACTS_CACHE_MAX_AGE_DAYS = 3          # Re-sync if older than 3 days
 
 
 async def poll_ghl_contacts():
@@ -210,6 +212,41 @@ def _run_message_sync(location_id: str | None = None) -> None:
 
     if new_messages_found:
         logger.info(f"Message sync: backfilled {new_messages_found} missed message(s)")
+
+
+async def sync_ghl_contacts_cache():
+    """Background loop: keep the ghl_contacts cache fresh (re-sync every 3 days)."""
+    await asyncio.sleep(20)  # Offset from other pollers
+    logger.info("GHL contacts cache poller started (checks every hour, syncs every 3 days)")
+
+    while True:
+        try:
+            from db import get_conn
+            needs_sync = False
+
+            with get_conn() as conn:
+                with conn.cursor() as cur:
+                    cur.execute("SELECT MAX(synced_at) FROM ghl_contacts")
+                    row = cur.fetchone()
+                    last_synced = row[0] if row else None
+
+            if not last_synced:
+                logger.info("Contacts cache: never synced — triggering initial sync")
+                needs_sync = True
+            else:
+                age = datetime.now(timezone.utc) - last_synced
+                if age > timedelta(days=CONTACTS_CACHE_MAX_AGE_DAYS):
+                    logger.info(f"Contacts cache: last synced {age.days}d ago — triggering refresh")
+                    needs_sync = True
+
+            if needs_sync:
+                from api.contacts import run_contacts_sync
+                result = run_contacts_sync()
+                logger.info(f"Contacts cache synced: {result['total_upserted']} upserted, {result['marked_imported']} marked imported")
+        except Exception as e:
+            logger.error(f"Contacts cache sync error: {e}")
+
+        await asyncio.sleep(CONTACTS_CACHE_CHECK_INTERVAL)
 
 
 # NOTE: poll_proposal_follow_ups has been removed.

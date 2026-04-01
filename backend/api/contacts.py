@@ -1,12 +1,13 @@
-"""All Contacts — fetch every GHL contact and let VA import for re-quoting."""
+"""All Contacts — sync GHL contacts to local DB and let VA import for re-quoting."""
 from __future__ import annotations
 
 import logging
 from datetime import datetime, timezone
 
+import psycopg2.extras
 from fastapi import APIRouter, HTTPException, Query
 
-from db import get_db
+from db import get_db, get_conn
 from config import get_settings
 from services.ghl import get_contacts, get_contact, parse_webhook_payload
 
@@ -14,65 +15,141 @@ router = APIRouter(prefix="/api/contacts", tags=["contacts"])
 logger = logging.getLogger(__name__)
 
 
-@router.get("/all")
-async def list_all_contacts():
-    """Fetch all GHL contacts from both locations, excluding those already imported."""
+# ── Helpers ──────────────────────────────────────────────────────────
+
+def _normalize_contact(raw: dict, location_id: str, location_label: str) -> dict:
+    first = raw.get("firstName", "") or ""
+    last = raw.get("lastName", "") or ""
+    name = f"{first} {last}".strip() or "(No name)"
+    addr_parts = [
+        raw.get("address1", ""),
+        raw.get("city", ""),
+        raw.get("state", ""),
+        raw.get("postalCode", ""),
+    ]
+    address = " ".join(p for p in addr_parts if p).strip()
+    return {
+        "ghl_contact_id": raw.get("id", ""),
+        "name": name,
+        "phone": raw.get("phone", "") or "",
+        "email": raw.get("email", "") or "",
+        "address": address,
+        "location_id": location_id,
+        "location_label": location_label,
+    }
+
+
+def run_contacts_sync() -> dict:
+    """Fetch all GHL contacts from both locations and upsert into ghl_contacts table.
+    Called by both the API endpoint and the background poller."""
     settings = get_settings()
-    db = get_db()
+    now = datetime.now(timezone.utc)
 
-    # Fetch contacts from GHL
-    contacts_raw: list[dict] = []
-
+    # Fetch from GHL
+    contacts: list[dict] = []
     cypress = get_contacts(settings.ghl_location_id, max_contacts=2000)
     for c in cypress:
-        c["_location_id"] = settings.ghl_location_id
-        c["_location_label"] = settings.ghl_location_1_label
-    contacts_raw.extend(cypress)
+        norm = _normalize_contact(c, settings.ghl_location_id, settings.ghl_location_1_label)
+        if norm["ghl_contact_id"]:
+            contacts.append(norm)
 
     if settings.ghl_location_id_2:
         woodlands = get_contacts(settings.ghl_location_id_2, max_contacts=2000)
         for c in woodlands:
-            c["_location_id"] = settings.ghl_location_id_2
-            c["_location_label"] = settings.ghl_location_2_label
-        contacts_raw.extend(woodlands)
+            norm = _normalize_contact(c, settings.ghl_location_id_2, settings.ghl_location_2_label)
+            if norm["ghl_contact_id"]:
+                contacts.append(norm)
 
-    # Get all ghl_contact_ids already in our leads table
-    existing_res = db.table("leads").select("ghl_contact_id").execute()
-    existing_ids = {r["ghl_contact_id"] for r in (existing_res.data or []) if r.get("ghl_contact_id")}
+    if not contacts:
+        logger.warning("Contacts sync: no contacts fetched from GHL")
+        return {"total_upserted": 0, "marked_imported": 0}
 
-    # Normalize and filter
-    contacts = []
-    for c in contacts_raw:
-        cid = c.get("id", "")
-        if not cid or cid in existing_ids:
-            continue
+    # Batch upsert into ghl_contacts
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            values = [
+                (c["ghl_contact_id"], c["name"], c["phone"], c["email"],
+                 c["address"], c["location_id"], c["location_label"], now)
+                for c in contacts
+            ]
+            psycopg2.extras.execute_values(
+                cur,
+                """
+                INSERT INTO ghl_contacts (ghl_contact_id, name, phone, email, address, location_id, location_label, synced_at)
+                VALUES %s
+                ON CONFLICT (ghl_contact_id) DO UPDATE SET
+                    name = EXCLUDED.name,
+                    phone = EXCLUDED.phone,
+                    email = EXCLUDED.email,
+                    address = EXCLUDED.address,
+                    location_id = EXCLUDED.location_id,
+                    location_label = EXCLUDED.location_label,
+                    synced_at = EXCLUDED.synced_at
+                """,
+                values,
+                page_size=500,
+            )
 
-        first = c.get("firstName", "") or ""
-        last = c.get("lastName", "") or ""
-        name = f"{first} {last}".strip()
+            # Mark contacts that are already in the leads table as imported
+            cur.execute("""
+                UPDATE ghl_contacts SET imported = TRUE
+                WHERE ghl_contact_id IN (SELECT ghl_contact_id FROM leads WHERE ghl_contact_id IS NOT NULL)
+                  AND imported = FALSE
+            """)
+            marked = cur.rowcount
 
-        addr_parts = [
-            c.get("address1", ""),
-            c.get("city", ""),
-            c.get("state", ""),
-            c.get("postalCode", ""),
-        ]
-        address = " ".join(p for p in addr_parts if p).strip()
+    logger.info(f"Contacts sync: upserted {len(contacts)}, marked {marked} as already imported")
+    return {"total_upserted": len(contacts), "marked_imported": marked}
 
-        contacts.append({
-            "id": cid,
-            "name": name or "(No name)",
-            "phone": c.get("phone", "") or "",
-            "email": c.get("email", "") or "",
-            "address": address,
-            "location_id": c["_location_id"],
-            "location_label": c["_location_label"],
-        })
+
+# ── Endpoints ────────────────────────────────────────────────────────
+
+@router.post("/sync")
+async def sync_contacts():
+    """Pull all contacts from GHL and save to local database."""
+    try:
+        result = run_contacts_sync()
+    except Exception as e:
+        logger.error(f"Contacts sync failed: {e}")
+        raise HTTPException(status_code=500, detail=f"Sync failed: {e}")
+    return {"status": "synced", **result}
+
+
+@router.get("/all")
+async def list_all_contacts():
+    """Read contacts from local DB (not GHL). Excludes already-imported contacts."""
+    db = get_db()
+
+    # Get non-imported contacts
+    res = db.table("ghl_contacts").select("*").eq("imported", False).order("name").execute()
+    contacts = [
+        {
+            "id": r["ghl_contact_id"],
+            "name": r["name"],
+            "phone": r["phone"],
+            "email": r["email"],
+            "address": r["address"],
+            "location_id": r["location_id"],
+            "location_label": r["location_label"],
+        }
+        for r in (res.data or [])
+    ]
+
+    # Last synced timestamp
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT MAX(synced_at) FROM ghl_contacts")
+            row = cur.fetchone()
+            last_synced = row[0].isoformat() if row and row[0] else None
+
+            cur.execute("SELECT COUNT(*) FROM ghl_contacts WHERE imported = TRUE")
+            imported_count = cur.fetchone()[0]
 
     return {
         "contacts": contacts,
         "total": len(contacts),
-        "already_imported": len(existing_ids),
+        "already_imported": imported_count,
+        "last_synced_at": last_synced,
     }
 
 
@@ -95,7 +172,6 @@ async def import_contact(contact_id: str, location_id: str = Query("")):
 
     lead_data = parse_webhook_payload(full_contact)
 
-    # Determine location label
     if loc_id == settings.ghl_location_id_2:
         location_label = settings.ghl_location_2_label
     else:
@@ -125,6 +201,9 @@ async def import_contact(contact_id: str, location_id: str = Query("")):
     except Exception as e:
         logger.error(f"Failed to import contact {contact_id}: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to import: {e}")
+
+    # Mark as imported in ghl_contacts cache
+    db.table("ghl_contacts").update({"imported": True}).eq("ghl_contact_id", contact_id).execute()
 
     logger.info(f"Imported GHL contact {contact_id} as lead {lead_id} for re-quoting")
     return {"status": "imported", "lead_id": lead_id}

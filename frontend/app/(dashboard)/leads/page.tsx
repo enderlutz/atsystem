@@ -413,27 +413,48 @@ export default function LeadsPage() {
   const [contactsAlreadyImported, setContactsAlreadyImported] = useState(0);
   const [importingId, setImportingId] = useState<string | null>(null);
   const [contactSearch, setContactSearch] = useState("");
+  const [lastContactsSyncedAt, setLastContactsSyncedAt] = useState<string | null>(null);
+  const [syncing, setSyncing] = useState(false);
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
     useSensor(TouchSensor, { activationConstraint: { delay: 250, tolerance: 5 } })
   );
 
-  // Load GHL contacts on demand (Sync button)
-  const loadContacts = async () => {
+  // Load contacts from local DB (fast)
+  const loadContactsFromDb = useCallback(async () => {
     setContactsLoading(true);
     try {
       const data = await api.getAllContacts();
       setGhlContacts(data.contacts);
       setContactsAlreadyImported(data.already_imported);
+      setLastContactsSyncedAt(data.last_synced_at);
       setContactsLoaded(true);
-      toast.success(`Synced ${data.contacts.length} contacts from GHL`);
     } catch {
-      toast.error("Failed to load contacts from GHL");
+      toast.error("Failed to load contacts");
     } finally {
       setContactsLoading(false);
     }
+  }, []);
+
+  // Sync from GHL → DB, then reload
+  const syncFromGhl = async () => {
+    setSyncing(true);
+    try {
+      const result = await api.syncContacts();
+      toast.success(`Synced ${result.total_upserted} contacts from GHL`);
+      await loadContactsFromDb();
+    } catch {
+      toast.error("Failed to sync from GHL");
+    } finally {
+      setSyncing(false);
+    }
   };
+
+  // Auto-load from DB when tab is first opened
+  useEffect(() => {
+    if (activeTab === "contacts" && !contactsLoaded) loadContactsFromDb();
+  }, [activeTab, contactsLoaded, loadContactsFromDb]);
 
   const handleImportContact = async (contact: GhlContact) => {
     setImportingId(contact.id);
@@ -1332,7 +1353,11 @@ export default function LeadsPage() {
       {/* ── ALL CONTACTS VIEW ── */}
       {activeTab === "contacts" && (
         <div className="space-y-3">
-          {!contactsLoaded && !contactsLoading ? (
+          {contactsLoading && !contactsLoaded ? (
+            <div className="flex items-center justify-center py-16">
+              <div className="text-sm text-muted-foreground">Loading contacts...</div>
+            </div>
+          ) : contactsLoaded && ghlContacts.length === 0 && !lastContactsSyncedAt ? (
             <div className="flex flex-col items-center justify-center py-16 gap-4">
               <Users className="h-10 w-10 text-muted-foreground/40" />
               <div className="text-center">
@@ -1340,21 +1365,17 @@ export default function LeadsPage() {
                 <p className="text-xs text-muted-foreground mt-1">Pull all contacts from both Cypress and Woodlands GHL locations.</p>
                 <p className="text-xs text-muted-foreground">Contacts already in the dashboard are excluded.</p>
               </div>
-              <Button onClick={loadContacts} className="gap-2">
-                <Download className="h-4 w-4" /> Sync Contacts from GHL
+              <Button onClick={syncFromGhl} disabled={syncing} className="gap-2">
+                <Download className="h-4 w-4" /> {syncing ? "Syncing..." : "Sync Contacts from GHL"}
               </Button>
             </div>
-          ) : contactsLoading ? (
-            <div className="flex items-center justify-center py-16">
-              <div className="text-sm text-muted-foreground">Loading contacts from GHL...</div>
-            </div>
-          ) : ghlContacts.length === 0 ? (
+          ) : contactsLoaded && ghlContacts.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-16 gap-3">
               <Users className="h-8 w-8 text-muted-foreground/50" />
               <p className="text-sm text-muted-foreground">All GHL contacts have been imported</p>
               <p className="text-xs text-muted-foreground">{contactsAlreadyImported} contacts already in dashboard</p>
-              <Button variant="outline" size="sm" onClick={loadContacts} className="gap-1.5 mt-2">
-                <Download className="h-3.5 w-3.5" /> Re-sync
+              <Button variant="outline" size="sm" onClick={syncFromGhl} disabled={syncing} className="gap-1.5 mt-2">
+                <Download className="h-3.5 w-3.5" /> {syncing ? "Syncing..." : "Re-sync from GHL"}
               </Button>
             </div>
           ) : (
@@ -1369,12 +1390,13 @@ export default function LeadsPage() {
                     onChange={(e) => setContactSearch(e.target.value)}
                   />
                 </div>
-                <Button variant="outline" size="sm" onClick={loadContacts} disabled={contactsLoading} className="gap-1.5">
-                  <Download className="h-3.5 w-3.5" /> {contactsLoading ? "Syncing..." : "Re-sync"}
+                <Button variant="outline" size="sm" onClick={syncFromGhl} disabled={syncing} className="gap-1.5">
+                  <Download className="h-3.5 w-3.5" /> {syncing ? "Syncing..." : "Re-sync from GHL"}
                 </Button>
               </div>
               <p className="text-xs text-muted-foreground">
-                {contactsAlreadyImported > 0 && `${contactsAlreadyImported} contacts already in dashboard · `}
+                {lastContactsSyncedAt && `Last synced: ${formatDate(lastContactsSyncedAt)} · `}
+                {contactsAlreadyImported > 0 && `${contactsAlreadyImported} already in dashboard · `}
                 Showing {(() => {
                   const q = contactSearch.toLowerCase();
                   if (!q) return ghlContacts.length;

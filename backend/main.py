@@ -17,7 +17,7 @@ from api.workflow import router as workflow_router
 from api.analytics import router as analytics_router
 from api.notifications import router as notifications_router
 from api.contacts import router as contacts_router
-from services.poller import poll_ghl_contacts, sync_recent_messages
+from services.poller import poll_ghl_contacts, sync_recent_messages, sync_ghl_contacts_cache
 from services.sms_worker import poll_sms_queue, poll_stage_timeouts
 from services.owner_digest import poll_owner_digest
 
@@ -31,6 +31,7 @@ async def lifespan(app: FastAPI):
     asyncio.create_task(poll_sms_queue())
     asyncio.create_task(poll_stage_timeouts())
     asyncio.create_task(poll_owner_digest())
+    asyncio.create_task(sync_ghl_contacts_cache())
     yield
 
 

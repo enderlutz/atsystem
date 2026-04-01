@@ -366,7 +366,9 @@ export const api = {
 
   // All Contacts (GHL)
   getAllContacts: () =>
-    request<{ contacts: GhlContact[]; total: number; already_imported: number }>("/api/contacts/all"),
+    request<{ contacts: GhlContact[]; total: number; already_imported: number; last_synced_at: string | null }>("/api/contacts/all"),
+  syncContacts: () =>
+    request<{ status: string; total_upserted: number; marked_imported: number }>("/api/contacts/sync", { method: "POST" }),
   importContact: (contactId: string, locationId: string) =>
     request<{ status: string; lead_id: string }>(`/api/contacts/${contactId}/import?location_id=${locationId}`, { method: "POST" }),
 };
