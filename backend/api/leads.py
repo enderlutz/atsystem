@@ -18,7 +18,7 @@ router = APIRouter(prefix="/api/leads", tags=["leads"])
 async def list_leads(
     service_type: Optional[str] = Query(None),
     status: Optional[str] = Query(None),
-    limit: int = Query(50, le=200),
+    limit: int = Query(50, le=500),
 ):
     db = get_db()
     # Exclude va_notes (long text not needed for kanban cards) to reduce payload size

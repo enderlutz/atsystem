@@ -482,8 +482,8 @@ export default function LeadsPage() {
     let leadsData: Lead[], estimatesData: Estimate[];
     try {
       [leadsData, estimatesData] = await Promise.all([
-        api.getLeads("limit=200"),
-        api.getEstimates("limit=200"),
+        api.getLeads("limit=500"),
+        api.getEstimates("limit=500"),
       ]);
     } catch {
       return; // silently skip on error — next poll will retry

@@ -58,7 +58,7 @@ def _pick_ab_send_time() -> tuple[str, str]:
 async def list_estimates(
     status: str | None = Query(None),
     service_type: str | None = Query(None),
-    limit: int = Query(50, le=200),
+    limit: int = Query(50, le=500),
 ):
     db = get_db()
     q = db.table("estimates").select("*, lead:leads(*)").order("created_at", desc=True).limit(limit)
