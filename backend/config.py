@@ -38,7 +38,7 @@ class Settings(BaseSettings):
     stripe_secret_key: str | None = None
     stripe_webhook_secret: str | None = None
 
-    auth_secret: str = "change-me-in-production"
+    auth_secret: str  # Required — set AUTH_SECRET env var
 
     # GHL pipeline stage ID to move opportunities to when a booking is made.
     # Find this in GHL: Settings → Pipelines → hover over stage → copy ID.

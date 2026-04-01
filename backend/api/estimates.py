@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-import random
+import logging
 import secrets
 from fastapi import APIRouter, Body, Depends, HTTPException, Query
 from pydantic import BaseModel
 from typing import Optional
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 
 import bcrypt
 
@@ -16,42 +16,99 @@ from services.ghl import send_message_to_contact, add_contact_note
 from api.auth import require_admin, get_current_user
 
 router = APIRouter(prefix="/api/estimates", tags=["estimates"])
-logger = __import__("logging").getLogger(__name__)
-
-# ── A/B Test: optimal send time buckets (Central Time) ──────────────
-# Each bucket is a (start_hour, end_hour) range in CT.
-# On approval the system picks a random bucket and schedules the SMS
-# for a random minute within the next occurrence of that window.
-AB_TEST_BUCKETS: dict[str, tuple[int, int]] = {
-    "morning":   (8, 10),    # 8:00-10:00 AM CT
-    "midday":    (11, 13),   # 11:00 AM-1:00 PM CT
-    "afternoon": (15, 17),   # 3:00-5:00 PM CT
-    "evening":   (18, 20),   # 6:00-8:00 PM CT
-}
-
-CT = timezone(timedelta(hours=-5))  # CDT (summer); close enough for scheduling
+logger = logging.getLogger(__name__)
 
 
-def _pick_ab_send_time() -> tuple[str, str]:
-    """Pick a random A/B test bucket and compute the next send time within it.
-    Returns (bucket_name, scheduled_send_at_iso)."""
-    bucket_name = random.choice(list(AB_TEST_BUCKETS.keys()))
-    start_h, end_h = AB_TEST_BUCKETS[bucket_name]
+# ── Shared approval logic ────────────────────────────────────────────
 
-    now_ct = datetime.now(CT)
-    # Random minute within the window
-    random_minute = random.randint(0, (end_h - start_h) * 60 - 1)
-    target_h = start_h + random_minute // 60
-    target_m = random_minute % 60
+def _approve_and_send(
+    estimate: dict,
+    lead: dict,
+    all_estimates: list[dict],
+    db,
+    owner_notes: str = "All 3 packages sent",
+    scheduled_send_at: str | None = None,
+) -> dict:
+    """Shared logic for all approval paths: approve estimates, create proposal, notify GHL, fire workflow.
+    Returns the API response dict."""
+    settings = get_settings()
+    now = datetime.now(timezone.utc).isoformat()
+    estimate_id = estimate["id"]
+    lead_id = estimate["lead_id"]
+    location_id = lead.get("ghl_location_id")
+    all_estimate_ids = [e["id"] for e in all_estimates]
+    is_multi = len(all_estimates) > 1
 
-    # Build target datetime in CT for today
-    target = now_ct.replace(hour=target_h, minute=target_m, second=0, microsecond=0)
+    # Approve all estimates
+    for est in all_estimates:
+        est_tiers = (est.get("inputs") or {}).get("_tiers") or {}
+        sig = float(est_tiers.get("signature") or 0)
+        db.table("estimates").update({
+            "status": "approved",
+            "approved_at": now,
+            "estimate_low": sig,
+            "estimate_high": sig,
+            "owner_notes": owner_notes,
+            "approval_token": None,
+        }).eq("id", est["id"]).execute()
 
-    # If the window has passed today, schedule for tomorrow
-    if target <= now_ct:
-        target += timedelta(days=1)
+    db.table("leads").update({"status": "approved"}).eq("id", lead_id).execute()
 
-    return bucket_name, target.astimezone(timezone.utc).isoformat()
+    # Generate proposal token
+    token = secrets.token_urlsafe(12)
+    proposal_url = f"{settings.proposal_base_url}/proposal/{token}"
+    try:
+        proposal_row = {
+            "token": token,
+            "estimate_id": estimate_id,
+            "lead_id": lead_id,
+            "status": "sent",
+        }
+        if is_multi:
+            proposal_row["estimate_ids"] = all_estimate_ids
+        db.table("proposals").insert(proposal_row).execute()
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to create proposal record: {e}")
+
+    # GHL note + send count
+    contact_id = lead.get("ghl_contact_id")
+    if contact_id:
+        note_lines = [f"[ATSystem] All packages sent"]
+        for est in all_estimates:
+            et = (est.get("inputs") or {}).get("_tiers") or {}
+            label = est.get("label") or ""
+            label_suffix = f" ({label})" if label else ""
+            note_lines.append(
+                f"Essential: ${float(et.get('essential') or 0):,.0f} | "
+                f"Signature: ${float(et.get('signature') or 0):,.0f} | "
+                f"Legacy: ${float(et.get('legacy') or 0):,.0f}{label_suffix}"
+            )
+        note_lines.append(f"Proposal link: {proposal_url}")
+        add_contact_note(contact_id, "\n".join(note_lines), location_id=location_id)
+
+        send_count = (estimate.get("send_count") or 0) + 1
+        db.table("estimates").update({"send_count": send_count}).eq("id", estimate_id).execute()
+        db.table("leads").update({"status": "sent"}).eq("id", lead_id).execute()
+
+    # Reset workflow stage so transition doesn't skip
+    db.table("leads").update({"workflow_stage": None}).eq("id", lead_id).execute()
+
+    # Fire workflow → sends proposal SMS
+    try:
+        from services.workflow import on_estimate_sent
+        on_estimate_sent(lead_id, proposal_url=proposal_url, scheduled_send_at=scheduled_send_at)
+    except Exception as e:
+        logger.error(f"Workflow on_estimate_sent failed for lead {lead_id}: {e}")
+
+    result = {
+        "status": "approved",
+        "estimate_id": estimate_id,
+        "proposal_token": token,
+        "proposal_url": proposal_url,
+    }
+    if scheduled_send_at:
+        result["scheduled_send_at"] = scheduled_send_at
+    return result
 
 
 @router.get("")
@@ -179,96 +236,17 @@ async def approve_estimate(estimate_id: str, body: EstimateApprove = EstimateApp
         .execute()
     )
     all_estimates = all_est_res.data or [estimate]
-    all_estimate_ids = [e["id"] for e in all_estimates]
-    is_multi = len(all_estimates) > 1
 
-    now = datetime.now(timezone.utc).isoformat()
     owner_notes_suffix = (
         (" (force-sent without customer reply)" if body.force_send and not lead.get("customer_responded") else "")
         + (f" (VA bypass by {user.get('name', user.get('sub'))})" if body.bypass_approval and not is_admin else "")
     )
 
-    # Approve all estimates
-    for est in all_estimates:
-        est_tiers = (est.get("inputs") or {}).get("_tiers") or {}
-        sig = float(est_tiers.get("signature") or 0)
-        db.table("estimates").update({
-            "status": "approved",
-            "approved_at": now,
-            "estimate_low": sig,
-            "estimate_high": sig,
-            "owner_notes": "All 3 packages sent" + owner_notes_suffix,
-        }).eq("id", est["id"]).execute()
-
-    db.table("leads").update({"status": "approved"}).eq("id", estimate["lead_id"]).execute()
-
-    # Generate proposal token and store — MUST succeed before sending SMS
-    settings = get_settings()
-    token = secrets.token_urlsafe(12)
-    proposal_url = f"{settings.proposal_base_url}/proposal/{token}"
-    try:
-        proposal_row = {
-            "token": token,
-            "estimate_id": estimate_id,  # backward compat: primary estimate
-            "lead_id": estimate["lead_id"],
-            "status": "sent",
-        }
-        if is_multi:
-            proposal_row["estimate_ids"] = all_estimate_ids
-        db.table("proposals").insert(proposal_row).execute()
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to create proposal record: {e}")
-
-    contact_id = lead.get("ghl_contact_id")
-    if contact_id:
-        # Build GHL note with all sections
-        note_lines = [f"[ATSystem] All packages sent"]
-        for est in all_estimates:
-            est_tiers = (est.get("inputs") or {}).get("_tiers") or {}
-            label = est.get("label") or ""
-            label_suffix = f" ({label})" if label else ""
-            note_lines.append(
-                f"Essential: ${float(est_tiers.get('essential') or 0):,.0f} | "
-                f"Signature: ${float(est_tiers.get('signature') or 0):,.0f} | "
-                f"Legacy: ${float(est_tiers.get('legacy') or 0):,.0f}{label_suffix}"
-            )
-        note_lines.append(f"Proposal link: {proposal_url}")
-        add_contact_note(contact_id, "\n".join(note_lines))
-
-        send_count = (estimate.get("send_count") or 0) + 1
-        db.table("estimates").update({"send_count": send_count}).eq("id", estimate_id).execute()
-        db.table("leads").update({"status": "sent"}).eq("id", estimate["lead_id"]).execute()
-
-    # Reset workflow stage so transition doesn't skip if lead is already in hot_lead
-    db.table("leads").update({"workflow_stage": None}).eq("id", estimate["lead_id"]).execute()
-
-    # A/B test: DISABLED — send immediately for now. Uncomment to re-enable.
-    # ab_bucket = None
-    # scheduled_send_at = body.scheduled_send_at
-    # if not scheduled_send_at:
-    #     ab_bucket, scheduled_send_at = _pick_ab_send_time()
-    #     logger.info(f"A/B test: lead {estimate['lead_id']} assigned bucket '{ab_bucket}', send at {scheduled_send_at}")
-
-    # Transition workflow to HOT_LEAD — fires proposal SMS immediately
-    try:
-        from services.workflow import on_estimate_sent
-        on_estimate_sent(
-            estimate["lead_id"],
-            proposal_url=proposal_url,
-            scheduled_send_at=body.scheduled_send_at,
-        )
-    except Exception as e:
-        logger.error(f"Workflow on_estimate_sent failed for lead {estimate['lead_id']}: {e}")
-
-    result = {
-        "status": "approved",
-        "estimate_id": estimate_id,
-        "proposal_token": token,
-        "proposal_url": proposal_url,
-    }
-    if body.scheduled_send_at:
-        result["scheduled_send_at"] = body.scheduled_send_at
-    return result
+    return _approve_and_send(
+        estimate, lead, all_estimates, db,
+        owner_notes="All 3 packages sent" + owner_notes_suffix,
+        scheduled_send_at=body.scheduled_send_at,
+    )
 
 
 @router.post("/{estimate_id}/admin-approve")
@@ -282,8 +260,7 @@ async def admin_approve_estimate(estimate_id: str, body: AdminApproveRequest, _:
     estimate = res.data
     lead = estimate.get("lead") or {}
 
-    # Prevent double-approval
-    if estimate["status"] in ("approved",):
+    if estimate["status"] == "approved":
         raise HTTPException(status_code=409, detail="Estimate already approved. Use 'Resend' or 'Cancel Quote' to reset.")
 
     # Apply optional admin overrides to tiers
@@ -296,26 +273,9 @@ async def admin_approve_estimate(estimate_id: str, body: AdminApproveRequest, _:
     if body.legacy is not None:
         tiers["legacy"] = body.legacy
     inputs["_tiers"] = tiers
+    db.table("estimates").update({"inputs": inputs}).eq("id", estimate_id).execute()
 
-    signature_price = float(tiers.get("signature") or estimate["estimate_low"])
-    essential_price = float(tiers.get("essential") or 0)
-    legacy_price = float(tiers.get("legacy") or 0)
-
-    now = datetime.now(timezone.utc).isoformat()
-    owner_notes = body.notes or "All 3 packages sent"
-    if body.force_send and not lead.get("customer_responded"):
-        owner_notes += " (force-sent without customer reply)"
-
-    db.table("estimates").update({
-        "status": "approved",
-        "approved_at": now,
-        "estimate_low": signature_price,
-        "estimate_high": signature_price,
-        "owner_notes": owner_notes,
-        "inputs": inputs,
-    }).eq("id", estimate_id).execute()
-
-    # Also approve any sibling pending estimates for multi-estimate proposals
+    # Gather all sibling estimates
     sibling_res = (
         db.table("estimates").select("*")
         .eq("lead_id", estimate["lead_id"])
@@ -324,87 +284,17 @@ async def admin_approve_estimate(estimate_id: str, body: AdminApproveRequest, _:
         .order("created_at")
         .execute()
     )
-    siblings = sibling_res.data or []
-    all_estimates_for_proposal = [estimate] + siblings
-    all_estimate_ids = [e["id"] for e in all_estimates_for_proposal]
-    is_multi = len(all_estimates_for_proposal) > 1
+    all_estimates = [estimate] + (sibling_res.data or [])
 
-    for sib in siblings:
-        sib_tiers = (sib.get("inputs") or {}).get("_tiers") or {}
-        sig = float(sib_tiers.get("signature") or 0)
-        db.table("estimates").update({
-            "status": "approved", "approved_at": now,
-            "estimate_low": sig, "estimate_high": sig,
-            "owner_notes": owner_notes,
-        }).eq("id", sib["id"]).execute()
+    owner_notes = body.notes or "All 3 packages sent (admin approved)"
+    if body.force_send and not lead.get("customer_responded"):
+        owner_notes += " (force-sent without customer reply)"
 
-    db.table("leads").update({"status": "approved"}).eq("id", estimate["lead_id"]).execute()
-
-    settings = get_settings()
-    token = secrets.token_urlsafe(12)
-    proposal_url = f"{settings.proposal_base_url}/proposal/{token}"
-    try:
-        proposal_row = {
-            "token": token,
-            "estimate_id": estimate_id,
-            "lead_id": estimate["lead_id"],
-            "status": "sent",
-        }
-        if is_multi:
-            proposal_row["estimate_ids"] = all_estimate_ids
-        db.table("proposals").insert(proposal_row).execute()
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to create proposal record: {e}")
-
-    contact_id = lead.get("ghl_contact_id")
-    if contact_id:
-        note_lines = [f"[ATSystem] All packages sent (admin approved)"]
-        for est in all_estimates_for_proposal:
-            et = (est.get("inputs") or {}).get("_tiers") or {}
-            label = est.get("label") or ""
-            label_suffix = f" ({label})" if label else ""
-            note_lines.append(
-                f"Essential: ${float(et.get('essential') or 0):,.0f} | "
-                f"Signature: ${float(et.get('signature') or 0):,.0f} | "
-                f"Legacy: ${float(et.get('legacy') or 0):,.0f}{label_suffix}"
-            )
-        note_lines.append(f"Proposal link: {proposal_url}")
-        add_contact_note(contact_id, "\n".join(note_lines))
-
-        send_count = (estimate.get("send_count") or 0) + 1
-        db.table("estimates").update({"send_count": send_count}).eq("id", estimate_id).execute()
-        db.table("leads").update({"status": "sent"}).eq("id", estimate["lead_id"]).execute()
-
-    # Reset workflow stage so transition doesn't skip if lead is already in hot_lead
-    db.table("leads").update({"workflow_stage": None}).eq("id", estimate["lead_id"]).execute()
-
-    # A/B test: DISABLED — send immediately for now.
-    # ab_bucket = None
-    # scheduled_send_at = body.scheduled_send_at
-    # if not scheduled_send_at:
-    #     ab_bucket, scheduled_send_at = _pick_ab_send_time()
-    #     logger.info(f"A/B test: lead {estimate['lead_id']} assigned bucket '{ab_bucket}', send at {scheduled_send_at}")
-
-    # Transition workflow to HOT_LEAD — fires proposal SMS immediately
-    try:
-        from services.workflow import on_estimate_sent
-        on_estimate_sent(
-            estimate["lead_id"],
-            proposal_url=proposal_url,
-            scheduled_send_at=body.scheduled_send_at,
-        )
-    except Exception as e:
-        logger.error(f"Workflow on_estimate_sent failed for lead {estimate['lead_id']}: {e}")
-
-    result = {
-        "status": "approved",
-        "estimate_id": estimate_id,
-        "proposal_token": token,
-        "proposal_url": proposal_url,
-    }
-    if body.scheduled_send_at:
-        result["scheduled_send_at"] = body.scheduled_send_at
-    return result
+    return _approve_and_send(
+        estimate, lead, all_estimates, db,
+        owner_notes=owner_notes,
+        scheduled_send_at=body.scheduled_send_at,
+    )
 
 
 @router.put("/{estimate_id}")
@@ -632,92 +522,20 @@ async def quick_approve_estimate(estimate_id: str, token: str = Query(...)):
         raise HTTPException(status_code=403, detail="Invalid approval token")
 
     lead = estimate.get("lead") or {}
-    lead_id = estimate["lead_id"]
 
-    # Approve ALL pending_approval estimates for this lead
     all_est_res = (
         db.table("estimates").select("*")
-        .eq("lead_id", lead_id)
+        .eq("lead_id", estimate["lead_id"])
         .in_("status", ["pending_approval", "pending", "adjusted"])
         .order("created_at")
         .execute()
     )
     all_estimates = all_est_res.data or [estimate]
-    all_estimate_ids = [e["id"] for e in all_estimates]
-    is_multi = len(all_estimates) > 1
 
-    now = datetime.now(timezone.utc).isoformat()
-    for est in all_estimates:
-        est_tiers = (est.get("inputs") or {}).get("_tiers") or {}
-        sig = float(est_tiers.get("signature") or 0)
-        db.table("estimates").update({
-            "status": "approved",
-            "approved_at": now,
-            "estimate_low": sig,
-            "estimate_high": sig,
-            "owner_notes": "Approved by Alan via quick-approve link",
-            "approval_token": None,
-        }).eq("id", est["id"]).execute()
-
-    db.table("leads").update({"status": "approved"}).eq("id", lead_id).execute()
-
-    # Create proposal
-    settings = get_settings()
-    proposal_token = secrets.token_urlsafe(12)
-    proposal_url = f"{settings.proposal_base_url}/proposal/{proposal_token}"
-    try:
-        proposal_row = {
-            "token": proposal_token,
-            "estimate_id": estimate_id,
-            "lead_id": lead_id,
-            "status": "sent",
-        }
-        if is_multi:
-            proposal_row["estimate_ids"] = all_estimate_ids
-        db.table("proposals").insert(proposal_row).execute()
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to create proposal record: {e}")
-
-    # GHL note + send count
-    contact_id = lead.get("ghl_contact_id")
-    if contact_id:
-        note_lines = ["[ATSystem] Quick-approved by Alan"]
-        for est in all_estimates:
-            et = (est.get("inputs") or {}).get("_tiers") or {}
-            label = est.get("label") or ""
-            label_suffix = f" ({label})" if label else ""
-            note_lines.append(
-                f"Essential: ${float(et.get('essential') or 0):,.0f} | "
-                f"Signature: ${float(et.get('signature') or 0):,.0f} | "
-                f"Legacy: ${float(et.get('legacy') or 0):,.0f}{label_suffix}"
-            )
-        note_lines.append(f"Proposal link: {proposal_url}")
-        add_contact_note(contact_id, "\n".join(note_lines))
-
-        send_count = (estimate.get("send_count") or 0) + 1
-        db.table("estimates").update({"send_count": send_count}).eq("id", estimate_id).execute()
-        db.table("leads").update({"status": "sent"}).eq("id", lead_id).execute()
-
-    # Reset workflow stage so transition_stage doesn't skip (lead may already be in hot_lead)
-    db.table("leads").update({"workflow_stage": None}).eq("id", lead_id).execute()
-
-    # A/B test: DISABLED — send immediately for now.
-    # ab_bucket, scheduled_send_at = _pick_ab_send_time()
-    # logger.info(f"A/B test (quick-approve): lead {lead_id} assigned bucket '{ab_bucket}', send at {scheduled_send_at}")
-
-    # Fire workflow → sends proposal SMS immediately
-    try:
-        from services.workflow import on_estimate_sent
-        on_estimate_sent(lead_id, proposal_url=proposal_url)
-    except Exception as e:
-        logger.error(f"Workflow on_estimate_sent failed for lead {lead_id}: {e}")
-
-    return {
-        "status": "approved",
-        "estimate_id": estimate_id,
-        "proposal_token": proposal_token,
-        "proposal_url": proposal_url,
-    }
+    return _approve_and_send(
+        estimate, lead, all_estimates, db,
+        owner_notes="Approved by Alan via quick-approve link",
+    )
 
 
 @router.post("/{estimate_id}/notify-owner")

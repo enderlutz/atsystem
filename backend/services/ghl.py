@@ -350,12 +350,12 @@ def get_all_messages(contact_id: str) -> list[dict]:
 
 # ── Write-back to GHL ────────────────────────────────────────────────
 
-def add_contact_note(contact_id: str, body: str) -> bool:
+def add_contact_note(contact_id: str, body: str, location_id: str | None = None) -> bool:
     """POST a note to a GHL contact."""
     try:
         r = _client.post(
             f"{GHL_BASE}/contacts/{contact_id}/notes",
-            headers=_headers(),
+            headers=_headers(location_id),
             json={"body": body},
             timeout=10,
         )

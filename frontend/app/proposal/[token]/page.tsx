@@ -524,7 +524,7 @@ export default function ProposalPage() {
 
   // Activity tracking — heartbeat every 30s, detect tab switch / close
   useEffect(() => {
-    if (!token || status === "booked" || isPreview) return;
+    if (!token || proposal?.status === "booked" || isPreview) return;
     const beaconUrl = getActivityBeaconUrl(token);
     const sendBeacon = (type: "heartbeat" | "left") => {
       try {
@@ -557,7 +557,7 @@ export default function ProposalPage() {
       document.removeEventListener("visibilitychange", onVisChange);
       window.removeEventListener("beforeunload", onUnload);
     };
-  }, [token, status]);
+  }, [token, proposal?.status]);
 
   const handleSelectPkg = (p: "essential" | "signature" | "legacy", sectionEstimateId?: string) => {
     if (isMulti && sectionEstimateId) {

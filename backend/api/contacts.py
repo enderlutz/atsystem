@@ -5,11 +5,12 @@ import logging
 from datetime import datetime, timezone
 
 import psycopg2.extras
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 
 from db import get_db, get_conn
 from config import get_settings
 from services.ghl import get_contacts, get_contact, parse_webhook_payload
+from api.auth import get_current_user
 
 router = APIRouter(prefix="/api/contacts", tags=["contacts"])
 logger = logging.getLogger(__name__)
@@ -105,7 +106,7 @@ def run_contacts_sync() -> dict:
 # ── Endpoints ────────────────────────────────────────────────────────
 
 @router.post("/sync")
-async def sync_contacts():
+async def sync_contacts(_: dict = Depends(get_current_user)):
     """Pull all contacts from GHL and save to local database."""
     try:
         result = run_contacts_sync()
@@ -116,7 +117,7 @@ async def sync_contacts():
 
 
 @router.get("/all")
-async def list_all_contacts():
+async def list_all_contacts(_: dict = Depends(get_current_user)):
     """Read contacts from local DB (not GHL). Excludes already-imported contacts."""
     db = get_db()
 
@@ -154,7 +155,7 @@ async def list_all_contacts():
 
 
 @router.post("/{contact_id}/import")
-async def import_contact(contact_id: str, location_id: str = Query("")):
+async def import_contact(contact_id: str, location_id: str = Query(""), _: dict = Depends(get_current_user)):
     """Import a GHL contact as a lead for re-quoting. No automations fire."""
     settings = get_settings()
     db = get_db()
