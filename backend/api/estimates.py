@@ -115,16 +115,18 @@ async def approve_estimate(estimate_id: str, body: EstimateApprove = EstimateApp
     if estimate["status"] == "approved":
         raise HTTPException(status_code=409, detail="Estimate already approved. Use 'Resend' to send again or 'Cancel Quote' to reset.")
 
-    # TEMPORARY: VA approval gate — all VA estimates require Alan's approval
-    if not is_admin and estimate["status"] not in ("pending_approval",):
+    approval_status = ((estimate.get("inputs") or {}).get("_approval_status") or "").lower()
+    approval_reason = ((estimate.get("inputs") or {}).get("_approval_reason") or "").lower()
+    needs_alan = approval_status == "red" or "outside" in approval_reason
+
+    # RED or outside-zone estimates require Alan's approval via SMS link
+    if needs_alan and not is_admin and estimate["status"] not in ("pending_approval",):
         token = secrets.token_urlsafe(32)
         db.table("estimates").update({"approval_token": token, "status": "pending_approval"}).eq("id", estimate_id).execute()
-        # Also mark siblings as pending_approval
         sibling_res = db.table("estimates").select("id").eq("lead_id", estimate["lead_id"]).eq("status", "pending").execute()
         for sib in (sibling_res.data or []):
             db.table("estimates").update({"approval_token": token, "status": "pending_approval"}).eq("id", sib["id"]).execute()
 
-        # Send Alan an SMS with the approval link
         settings = get_settings()
         tiers = (estimate.get("inputs") or {}).get("_tiers") or {}
         contact_name = lead.get("contact_name") or "Unknown"
@@ -137,18 +139,16 @@ async def approve_estimate(estimate_id: str, body: EstimateApprove = EstimateApp
             f"Essential: ${float(tiers.get('essential') or 0):,.0f}\n"
             f"Signature: ${float(tiers.get('signature') or 0):,.0f}\n"
             f"Legacy: ${float(tiers.get('legacy') or 0):,.0f}\n\n"
+            f"Reason: {(estimate.get('inputs') or {}).get('_approval_reason', 'Needs review')}\n\n"
             f"Review & approve: {link}"
         )
         if settings.owner_ghl_contact_id:
             send_message_to_contact(settings.owner_ghl_contact_id, alan_msg)
 
-        import logging
-        logging.getLogger(__name__).info(f"VA approval gate: estimate {estimate_id} sent to Alan for approval")
+        logger.info(f"VA approval gate: estimate {estimate_id} sent to Alan (reason: {approval_reason})")
         return {"status": "pending_approval", "estimate_id": estimate_id}
 
-    approval_status = ((estimate.get("inputs") or {}).get("_approval_status") or "").lower()
-
-    # RED estimates require admin OR VA bypass with password confirmation
+    # RED estimates that somehow got past the gate still need admin or VA bypass
     if approval_status == "red" and not is_admin:
         if not body.bypass_approval or not body.bypass_password:
             raise HTTPException(
