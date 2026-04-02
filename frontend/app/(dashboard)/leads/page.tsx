@@ -1010,8 +1010,8 @@ export default function LeadsPage() {
                               );
                             })()}
 
-                            {/* Customer page activity indicator */}
-                            {col.key === "sent" && est?.proposal_last_active_at && (() => {
+                            {/* Customer page activity indicator — only show if proposal has actually been viewed */}
+                            {col.key === "sent" && est?.proposal_last_active_at && est?.proposal_status !== "sent" && (() => {
                               const lastActive = est.proposal_last_active_at;
                               const leftAt = est.proposal_left_page_at;
                               const now = Date.now();
