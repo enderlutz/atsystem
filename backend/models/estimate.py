@@ -56,6 +56,7 @@ class EstimateApprove(BaseModel):
     bypass_approval: bool = False  # VA bypass for RED estimates
     bypass_password: str | None = None  # VA must enter password to confirm bypass
     scheduled_send_at: str | None = None  # ISO datetime — None = send immediately
+    proposal_version: str | None = None  # "v2" to use new proposal flow
 
 
 class AdminApproveRequest(BaseModel):

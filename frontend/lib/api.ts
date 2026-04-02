@@ -102,10 +102,10 @@ export const api = {
   getEstimates: (params?: string) =>
     request<Estimate[]>(`/api/estimates${params ? `?${params}` : ""}`),
   getEstimate: (id: string) => request<EstimateDetail>(`/api/estimates/${id}`),
-  approveEstimate: (id: string, selectedTier = "signature", forceSend = false, bypassApproval = false, bypassPassword?: string, scheduledSendAt?: string) =>
+  approveEstimate: (id: string, selectedTier = "signature", forceSend = false, bypassApproval = false, bypassPassword?: string, scheduledSendAt?: string, proposalVersion?: string) =>
     request<Estimate & { scheduled_send_at?: string }>(`/api/estimates/${id}/approve`, {
       method: "POST",
-      body: JSON.stringify({ selected_tier: selectedTier, force_send: forceSend, bypass_approval: bypassApproval, bypass_password: bypassPassword, ...(scheduledSendAt ? { scheduled_send_at: scheduledSendAt } : {}) }),
+      body: JSON.stringify({ selected_tier: selectedTier, force_send: forceSend, bypass_approval: bypassApproval, bypass_password: bypassPassword, ...(scheduledSendAt ? { scheduled_send_at: scheduledSendAt } : {}), ...(proposalVersion ? { proposal_version: proposalVersion } : {}) }),
     }),
   rejectEstimate: (id: string, notes: string) =>
     request<Estimate>(`/api/estimates/${id}/reject`, {

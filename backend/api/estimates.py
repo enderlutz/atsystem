@@ -28,6 +28,7 @@ def _approve_and_send(
     db,
     owner_notes: str = "All 3 packages sent",
     scheduled_send_at: str | None = None,
+    proposal_version: str | None = None,
 ) -> dict:
     """Shared logic for all approval paths: approve estimates, create proposal, notify GHL, fire workflow.
     Returns the API response dict."""
@@ -56,7 +57,8 @@ def _approve_and_send(
 
     # Generate proposal token
     token = secrets.token_urlsafe(12)
-    proposal_url = f"{settings.proposal_base_url}/proposal/{token}"
+    version_suffix = "/v2" if proposal_version == "v2" else ""
+    proposal_url = f"{settings.proposal_base_url}/proposal/{token}{version_suffix}"
     try:
         proposal_row = {
             "token": token,
@@ -246,6 +248,7 @@ async def approve_estimate(estimate_id: str, body: EstimateApprove = EstimateApp
         estimate, lead, all_estimates, db,
         owner_notes="All 3 packages sent" + owner_notes_suffix,
         scheduled_send_at=body.scheduled_send_at,
+        proposal_version=body.proposal_version,
     )
 
 

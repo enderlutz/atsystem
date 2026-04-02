@@ -206,6 +206,7 @@ export default function LeadDetailPage() {
   const [bypassError, setBypassError] = useState<string | null>(null);
   const [scheduledSendInfo, setScheduledSendInfo] = useState<{ time: string; bucket: string | null } | null>(null);
   const [sendingNow, setSendingNow] = useState(false);
+  const [useProposalV2, setUseProposalV2] = useState(false);
 
   // GHL Messages state
   const [messages, setMessages] = useState<GHLMessage[]>([]);
@@ -402,7 +403,7 @@ export default function LeadDetailPage() {
     setApproveError(null);
     const sendAt = scheduleSend ? getScheduledSendAt() : undefined;
     try {
-      const result = await api.approveEstimate(lead.estimate.id, "signature", forceSend, false, undefined, sendAt) as unknown as Record<string, unknown>;
+      const result = await api.approveEstimate(lead.estimate.id, "signature", forceSend, false, undefined, sendAt, useProposalV2 ? "v2" : undefined) as unknown as Record<string, unknown>;
       if (result.status === "pending_approval") {
         toast.success("Sent to Alan for approval");
         window.location.reload();
@@ -2134,13 +2135,23 @@ export default function LeadDetailPage() {
                   </div>
                 )}
 
+                <label className="flex items-center gap-2 text-sm cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    className="h-3.5 w-3.5 rounded accent-violet-600"
+                    checked={useProposalV2}
+                    onChange={(e) => setUseProposalV2(e.target.checked)}
+                  />
+                  <span className="text-violet-600 font-medium">Send as Proposal V2 (new interactive flow)</span>
+                </label>
+
                 <Button
-                  className={`gap-2 w-full ${scheduleSend ? "bg-blue-600 hover:bg-blue-700" : "bg-green-600 hover:bg-green-700"}`}
+                  className={`gap-2 w-full ${useProposalV2 ? "bg-violet-600 hover:bg-violet-700" : scheduleSend ? "bg-blue-600 hover:bg-blue-700" : "bg-green-600 hover:bg-green-700"}`}
                   onClick={handleApproveEstimate}
                   disabled={approvingEstimate || (!lead.customer_responded && !customerRespondedFromMessages && !forceSend)}
                 >
                   {scheduleSend ? <Clock className="h-4 w-4" /> : <Send className="h-4 w-4" />}
-                  {approvingEstimate ? (scheduleSend ? "Scheduling..." : "Sending...") : scheduleSend ? "Approve & Schedule Send" : "Approve & Send All Packages"}
+                  {approvingEstimate ? (scheduleSend ? "Scheduling..." : "Sending...") : scheduleSend ? "Approve & Schedule Send" : useProposalV2 ? "Approve & Send V2 Proposal" : "Approve & Send All Packages"}
                 </Button>
                 {lead.estimates?.some((e) => e.status === "approved" || e.status === "adjusted") && (
                   <Button
