@@ -55,7 +55,7 @@ async def poll_ghl_contacts():
                         pipeline_name=settings.ghl_location_2_pipeline,
                         location_label=settings.ghl_location_2_label,
                         target_stages=WOODLANDS_TARGET_STAGES,
-                        skip_automations=True,
+                        skip_automations=False,
                         default_kanban_column="woodlands",
                     )
                     if result2.get("status") == "done":
