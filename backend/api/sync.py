@@ -381,6 +381,12 @@ async def run_pipeline_sync(
                         background_tasks.add_task(process_lead, lead_id, lead_data)
                     else:
                         asyncio.create_task(process_lead(lead_id, lead_data))
+                    # Start workflow → sends new_lead SMS sequence
+                    try:
+                        from services.workflow import transition_stage, Stage
+                        transition_stage(lead_id, Stage.NEW_LEAD, reason="pipeline_sync_import")
+                    except Exception as wf_err:
+                        logger.error(f"Pipeline sync: workflow transition failed for {contact_id}: {wf_err}")
                 existing_ids.add(contact_id)
                 imported += 1
                 logger.info(f"Pipeline sync: imported contact {contact_id} from '{stage_name}'" + (f" ({location_label})" if location_label else ""))
