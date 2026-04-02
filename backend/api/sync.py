@@ -461,7 +461,7 @@ async def preview_ghl_contacts():
 @router.get("/api/sync/ghl/fields")
 async def discover_ghl_fields():
     """
-    Discover custom fields from GHL.
+    Discover custom fields from GHL for ALL locations.
     First tries the /customFields API. If that returns 401 (scope issue),
     falls back to scanning actual contacts to find field IDs and guess names
     from their values.
@@ -469,82 +469,86 @@ async def discover_ghl_fields():
     settings = get_settings()
     db = get_db()
 
-    # Try the custom fields API first
-    fields = get_custom_fields(settings.ghl_location_id)
+    # Scan both locations
+    location_ids = [settings.ghl_location_id]
+    if settings.ghl_location_id_2:
+        location_ids.append(settings.ghl_location_id_2)
 
-    if fields:
-        # API worked — use field names directly
-        results = []
-        for f in fields:
-            ghl_id = f.get("id", "")
-            ghl_key = f.get("fieldKey", f.get("key", ""))
-            ghl_name = f.get("name", "")
+    all_results = []
+    for loc_id in location_ids:
+        # Try the custom fields API first
+        fields = get_custom_fields(loc_id)
 
-            auto_map = None
-            name_lower = ghl_name.lower().replace(" ", "_").replace("-", "_")
-            key_lower = ghl_key.lower()
-            for expected_name in EXPECTED_FIELDS:
-                if expected_name in name_lower or expected_name in key_lower:
-                    auto_map = expected_name
-                    break
+        if fields:
+            for f in fields:
+                ghl_id = f.get("id", "")
+                ghl_key = f.get("fieldKey", f.get("key", ""))
+                ghl_name = f.get("name", "")
 
-            row = {
-                "ghl_field_id": ghl_id,
-                "ghl_field_key": ghl_key,
-                "ghl_field_name": ghl_name,
-                "our_field_name": auto_map,
-                "updated_at": datetime.now(timezone.utc).isoformat(),
+                auto_map = None
+                name_lower = ghl_name.lower().replace(" ", "_").replace("-", "_")
+                key_lower = ghl_key.lower()
+                for expected_name in EXPECTED_FIELDS:
+                    if expected_name in name_lower or expected_name in key_lower:
+                        auto_map = expected_name
+                        break
+
+                row = {
+                    "ghl_field_id": ghl_id,
+                    "ghl_field_key": ghl_key,
+                    "ghl_field_name": ghl_name,
+                    "our_field_name": auto_map,
+                    "updated_at": datetime.now(timezone.utc).isoformat(),
+                }
+                db.table("ghl_field_mapping").upsert(row, on_conflict="ghl_field_id").execute()
+                all_results.append(row)
+        else:
+            # Fallback: scan contacts to discover field IDs from their values
+            contacts = get_contacts(loc_id, max_contacts=50)
+            seen_ids: dict[str, list[str]] = {}
+
+            for contact in contacts:
+                for cf in (contact.get("customFields") or []):
+                    fid = cf.get("id", "")
+                    val = str(cf.get("value", ""))
+                    if fid and val:
+                        seen_ids.setdefault(fid, [])
+                        if val not in seen_ids[fid] and len(seen_ids[fid]) < 5:
+                            seen_ids[fid].append(val)
+
+            VALUE_HINTS = {
+                "fence_age": ["1-6 years", "brand new", "6-15 years", "older than"],
+                "service_timeline": ["this month", "planning ahead", "as soon", "within 2 weeks", "getting a quote"],
+                "fence_height": ["6ft", "6.5ft", "7ft", "8ft", "standard"],
+                "previously_stained": ["yes", "no"],
+                "additional_services": ["fence repair", "pressure wash", "gate"],
             }
-            db.table("ghl_field_mapping").upsert(row, on_conflict="ghl_field_id").execute()
-            results.append(row)
-    else:
-        # Fallback: scan contacts to discover field IDs from their values
-        contacts = get_contacts(settings.ghl_location_id, max_contacts=50)
-        seen_ids: dict[str, list[str]] = {}  # field_id -> sample values
 
-        for contact in contacts:
-            for cf in (contact.get("customFields") or []):
-                fid = cf.get("id", "")
-                val = str(cf.get("value", ""))
-                if fid and val:
-                    seen_ids.setdefault(fid, [])
-                    if val not in seen_ids[fid] and len(seen_ids[fid]) < 5:
-                        seen_ids[fid].append(val)
+            for fid, samples in seen_ids.items():
+                auto_map = None
+                samples_lower = " ".join(s.lower() for s in samples)
 
-        # Auto-map based on sample values
-        VALUE_HINTS = {
-            "fence_age": ["1-6 years", "brand new", "6-15 years", "older than"],
-            "service_timeline": ["this month", "planning ahead", "as soon", "within 2 weeks", "getting a quote"],
-            "fence_height": ["6ft", "6.5ft", "7ft", "8ft", "standard"],
-            "previously_stained": ["yes", "no"],
-            "additional_services": ["fence repair", "pressure wash", "gate"],
-        }
+                for our_name, hints in VALUE_HINTS.items():
+                    if any(hint in samples_lower for hint in hints):
+                        auto_map = our_name
+                        break
 
-        results = []
-        for fid, samples in seen_ids.items():
-            auto_map = None
-            samples_lower = " ".join(s.lower() for s in samples)
-
-            for our_name, hints in VALUE_HINTS.items():
-                if any(hint in samples_lower for hint in hints):
-                    auto_map = our_name
-                    break
-
-            row = {
-                "ghl_field_id": fid,
-                "ghl_field_key": fid,
-                "ghl_field_name": f"Samples: {', '.join(samples[:3])}",
-                "our_field_name": auto_map,
-                "updated_at": datetime.now(timezone.utc).isoformat(),
-            }
-            db.table("ghl_field_mapping").upsert(row, on_conflict="ghl_field_id").execute()
-            results.append(row)
+                row = {
+                    "ghl_field_id": fid,
+                    "ghl_field_key": fid,
+                    "ghl_field_name": f"Samples: {', '.join(samples[:3])}",
+                    "our_field_name": auto_map,
+                    "updated_at": datetime.now(timezone.utc).isoformat(),
+                }
+                db.table("ghl_field_mapping").upsert(row, on_conflict="ghl_field_id").execute()
+                all_results.append(row)
 
     return {
         "status": "ok",
-        "total_fields": len(results),
-        "fields": results,
-        "auto_mapped": sum(1 for r in results if r["our_field_name"]),
+        "total_fields": len(all_results),
+        "fields": all_results,
+        "auto_mapped": sum(1 for r in all_results if r["our_field_name"]),
+        "locations_scanned": len(location_ids),
     }
 
 
