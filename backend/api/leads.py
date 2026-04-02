@@ -59,24 +59,34 @@ async def get_lead(lead_id: str):
     lead = lead_res.data
     all_estimates = est_res.data or []
 
-    # Enrich each estimate with proposal info
-    for estimate in all_estimates:
-        prop_res = db.table("proposals").select(
-            "token, funnel_stage, status, last_active_at, left_page_at, selected_tier, color_mode, selected_color, hoa_colors, custom_color, booked_at"
-        ).eq("estimate_id", estimate["id"]).order("created_at", desc=True).limit(1).execute()
-        if prop_res.data:
-            p = prop_res.data[0]
-            estimate["proposal_token"] = p["token"]
-            estimate["proposal_funnel_stage"] = p.get("funnel_stage") or "opened"
-            estimate["proposal_status"] = p.get("status") or "sent"
-            estimate["proposal_last_active_at"] = p.get("last_active_at")
-            estimate["proposal_left_page_at"] = p.get("left_page_at")
-            estimate["proposal_selected_tier"] = p.get("selected_tier")
-            estimate["proposal_color_mode"] = p.get("color_mode")
-            estimate["proposal_selected_color"] = p.get("selected_color")
-            estimate["proposal_hoa_colors"] = p.get("hoa_colors")
-            estimate["proposal_custom_color"] = p.get("custom_color")
-            estimate["proposal_booked_at"] = p.get("booked_at")
+    # Batch-fetch proposals for all estimates in ONE query (not N+1)
+    if all_estimates:
+        est_ids = [e["id"] for e in all_estimates]
+        prop_res = await run_in_threadpool(
+            lambda: db.table("proposals").select(
+                "estimate_id, token, funnel_stage, status, last_active_at, left_page_at, selected_tier, color_mode, selected_color, hoa_colors, custom_color, booked_at"
+            ).in_("estimate_id", est_ids).order("created_at", desc=True).execute()
+        )
+        # Build map: estimate_id -> most recent proposal
+        prop_map: dict = {}
+        for p in (prop_res.data or []):
+            if p["estimate_id"] not in prop_map:
+                prop_map[p["estimate_id"]] = p
+
+        for estimate in all_estimates:
+            p = prop_map.get(estimate["id"])
+            if p:
+                estimate["proposal_token"] = p["token"]
+                estimate["proposal_funnel_stage"] = p.get("funnel_stage") or "opened"
+                estimate["proposal_status"] = p.get("status") or "sent"
+                estimate["proposal_last_active_at"] = p.get("last_active_at")
+                estimate["proposal_left_page_at"] = p.get("left_page_at")
+                estimate["proposal_selected_tier"] = p.get("selected_tier")
+                estimate["proposal_color_mode"] = p.get("color_mode")
+                estimate["proposal_selected_color"] = p.get("selected_color")
+                estimate["proposal_hoa_colors"] = p.get("hoa_colors")
+                estimate["proposal_custom_color"] = p.get("custom_color")
+                estimate["proposal_booked_at"] = p.get("booked_at")
 
     # Backward compat: lead.estimate = most recent estimate
     if all_estimates:
