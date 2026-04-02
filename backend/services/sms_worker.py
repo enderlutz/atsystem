@@ -75,12 +75,7 @@ def _process_pending_messages():
                 # Don't cancel — just skip. Will send when resumed.
                 continue
 
-            # Skip follow-up messages (sequence_index > 0) except for proposal_sent
-            FOLLOW_UP_ENABLED_STAGES = {"proposal_sent"}
-            if msg.get("sequence_index", 0) > 0 and msg.get("stage") not in FOLLOW_UP_ENABLED_STAGES:
-                _update_message_status(db, msg["id"], "cancelled", cancel_reason="followups_disabled")
-                logger.info(f"SMS worker: cancelled follow-up msg {msg['id']} (follow-ups disabled)")
-                continue
+            # All follow-up messages enabled for all stages.
 
             # Check stage still matches (don't send messages from old stages)
             if lead_res.data.get("workflow_stage") != msg["stage"]:
