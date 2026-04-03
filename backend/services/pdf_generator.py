@@ -53,6 +53,7 @@ def generate_filled_pdf(
             color=FIELD_COLORS.get(field_key, DEFAULT_COLOR),
         )
 
-    result = doc.tobytes()
+    # Compress: deflate streams, garbage-collect unused objects, deduplicate images
+    result = doc.tobytes(garbage=4, deflate=True, clean=True)
     doc.close()
     return result

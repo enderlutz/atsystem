@@ -55,13 +55,17 @@ async def upload_template(file: UploadFile = File(...), _user: dict = Depends(re
     if len(pdf_bytes) > MAX_FILE_SIZE:
         raise HTTPException(status_code=400, detail=f"File too large (max {MAX_FILE_SIZE // 1024 // 1024}MB)")
 
-    # Validate PDF and extract page info
+    # Validate PDF, extract page info, and compress
     try:
         doc = fitz.open(stream=pdf_bytes, filetype="pdf")
         page_count = len(doc)
         page_widths = [round(doc[i].rect.width, 2) for i in range(page_count)]
         page_heights = [round(doc[i].rect.height, 2) for i in range(page_count)]
+        # Compress: deflate streams, garbage-collect, deduplicate images
+        original_size = len(pdf_bytes)
+        pdf_bytes = doc.tobytes(garbage=4, deflate=True, clean=True)
         doc.close()
+        logger.info(f"PDF template compressed: {original_size // 1024}KB → {len(pdf_bytes) // 1024}KB")
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Invalid PDF file: {e}")
 
