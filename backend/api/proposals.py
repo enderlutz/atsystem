@@ -99,6 +99,9 @@ def _apply_discount(tiers_raw: dict, military_discount: bool) -> dict:
 @router.get("/{token}")
 async def get_proposal(token: str):
     """Public endpoint — returns proposal data for the customer booking page."""
+    import asyncio
+    from starlette.concurrency import run_in_threadpool
+
     db = get_db()
     result = db.table("proposals").select("*").eq("token", token).single().execute()
     if not result.data:
@@ -107,31 +110,42 @@ async def get_proposal(token: str):
     proposal = result.data
     is_preview = proposal["status"] == "preview"
 
-    # Fetch primary estimate + lead for pricing and customer info
-    est_result = db.table("estimates").select("*").eq("id", proposal["estimate_id"]).single().execute()
-    if not est_result.data:
+    # Fetch estimate(s) + lead in PARALLEL (not sequential)
+    estimate_ids = proposal.get("estimate_ids") or []
+    has_multi = estimate_ids and len(estimate_ids) > 1
+
+    def _fetch_estimates():
+        if has_multi:
+            res = get_db().table("estimates").select("*").in_("id", estimate_ids).execute()
+            return res.data or []
+        else:
+            res = get_db().table("estimates").select("*").eq("id", proposal["estimate_id"]).single().execute()
+            return [res.data] if res.data else []
+
+    def _fetch_lead():
+        res = get_db().table("leads").select("*").eq("id", proposal["lead_id"]).single().execute()
+        return res.data or {}
+
+    all_estimates_raw, lead = await asyncio.gather(
+        run_in_threadpool(_fetch_estimates),
+        run_in_threadpool(_fetch_lead),
+    )
+
+    if not all_estimates_raw:
         raise HTTPException(status_code=404, detail="Estimate not found")
-    estimate = est_result.data
 
-    lead_result = db.table("leads").select("*").eq("id", proposal["lead_id"]).single().execute()
-    lead = lead_result.data or {}
+    # For multi-estimate, maintain order from estimate_ids
+    if has_multi:
+        est_map = {e["id"]: e for e in all_estimates_raw}
+        all_estimates = [est_map[eid] for eid in estimate_ids if eid in est_map]
+    else:
+        all_estimates = all_estimates_raw
 
+    estimate = all_estimates[0]
     inputs = estimate.get("inputs") or {}
     tiers_raw = inputs.get("_tiers") or {}
     military_discount = bool(inputs.get("military_discount", False))
     tiers = _apply_discount(tiers_raw, military_discount)
-
-    # Build sections array (multi-estimate support)
-    estimate_ids = proposal.get("estimate_ids") or []
-    if estimate_ids and len(estimate_ids) > 1:
-        # Multi-estimate: fetch all estimates
-        all_est_res = db.table("estimates").select("*").in_("id", estimate_ids).execute()
-        all_estimates = all_est_res.data or [estimate]
-        # Maintain order from estimate_ids
-        est_map = {e["id"]: e for e in all_estimates}
-        all_estimates = [est_map[eid] for eid in estimate_ids if eid in est_map]
-    else:
-        all_estimates = [estimate]
 
     sections = []
     for est in all_estimates:
@@ -148,10 +162,13 @@ async def get_proposal(token: str):
             "custom_fence_sides": est_inputs.get("custom_fence_sides") or "",
         })
 
-    # Mark as viewed if still in 'sent' state (not for preview)
+    # Mark as viewed — fire-and-forget (don't block customer's page load)
     if proposal["status"] == "sent":
         now = datetime.now(timezone.utc).isoformat()
-        db.table("proposals").update({"status": "viewed", "first_viewed_at": now}).eq("token", token).execute()
+        asyncio.get_event_loop().run_in_executor(
+            None,
+            lambda: get_db().table("proposals").update({"status": "viewed", "first_viewed_at": now}).eq("token", token).execute()
+        )
 
     selected_tier = proposal.get("selected_tier")
     selected_tier_price = float(tiers.get(selected_tier) or 0) if selected_tier else 0

@@ -534,8 +534,10 @@ export default function ProposalPage() {
         fetch(beaconUrl, { method: "POST", body: JSON.stringify({ type }), headers: { "Content-Type": "application/json" }, keepalive: true });
       }
     };
-    // Initial heartbeat
-    api.reportProposalActivity(token, "heartbeat");
+    // Defer initial heartbeat — don't compete with proposal data fetch
+    const initialTimer = setTimeout(() => {
+      api.reportProposalActivity(token, "heartbeat");
+    }, 3000);
     // Periodic heartbeat
     const timer = setInterval(() => {
       api.reportProposalActivity(token, "heartbeat");
@@ -553,6 +555,7 @@ export default function ProposalPage() {
     document.addEventListener("visibilitychange", onVisChange);
     window.addEventListener("beforeunload", onUnload);
     return () => {
+      clearTimeout(initialTimer);
       clearInterval(timer);
       document.removeEventListener("visibilitychange", onVisChange);
       window.removeEventListener("beforeunload", onUnload);
