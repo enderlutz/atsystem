@@ -161,6 +161,35 @@ async def save_field_map(body: FieldMapUpdate, _user: dict = Depends(require_adm
     return {"status": "saved"}
 
 
+@router.post("/compress")
+async def compress_existing_template(_user: dict = Depends(require_admin)):
+    """Compress the current template in-place."""
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute("SELECT id, pdf_data FROM pdf_templates LIMIT 1")
+            row = cur.fetchone()
+            if not row:
+                raise HTTPException(status_code=404, detail="No template uploaded")
+
+            template_id, raw = row
+            original = bytes(raw)
+            doc = fitz.open(stream=original, filetype="pdf")
+            compressed = doc.tobytes(garbage=4, deflate=True, clean=True)
+            doc.close()
+
+            cur.execute(
+                "UPDATE pdf_templates SET pdf_data = %s, updated_at = NOW() WHERE id = %s",
+                (psycopg2.Binary(compressed), template_id),
+            )
+
+    return {
+        "status": "compressed",
+        "original_kb": len(original) // 1024,
+        "compressed_kb": len(compressed) // 1024,
+        "saved_pct": round((1 - len(compressed) / len(original)) * 100, 1),
+    }
+
+
 @router.delete("")
 async def delete_template(_user: dict = Depends(require_admin)):
     """Delete the current global template."""
