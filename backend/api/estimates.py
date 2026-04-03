@@ -65,8 +65,8 @@ def _approve_and_send(
         version_suffix = ""
     proposal_url = f"{settings.proposal_base_url}/proposal/{token}{version_suffix}"
 
-    # Generate filled PDF if PDF proposal version selected
-    filled_pdf: bytes | None = None
+    # Generate filled PDF + pre-rasterize pages if PDF version selected
+    pdf_page_images: list[bytes] | None = None
     if proposal_version == "pdf":
         with get_conn() as conn:
             with conn.cursor() as cur:
@@ -95,21 +95,31 @@ def _approve_and_send(
             "legacy_monthly": f"${float(tiers.get('legacy', 0)) / 21:,.0f}/mo",
         }
 
-        from services.pdf_generator import generate_filled_pdf
+        from services.pdf_generator import generate_filled_pdf, rasterize_pdf_pages
         filled_pdf = generate_filled_pdf(template_bytes, field_map, values)
+        pdf_page_images = rasterize_pdf_pages(filled_pdf)
 
     try:
-        if proposal_version == "pdf" and filled_pdf:
-            # Use raw SQL for bytea insert
+        if proposal_version == "pdf" and pdf_page_images is not None:
             import psycopg2
+            # Store pre-rasterized JPEG pages (not the 4.7MB PDF blob)
+            pages_data = [psycopg2.Binary(img) for img in pdf_page_images]
             with get_conn() as conn:
                 with conn.cursor() as cur:
                     cur.execute(
-                        """INSERT INTO proposals (token, estimate_id, lead_id, status, proposal_version, pdf_data, estimate_ids)
-                           VALUES (%s, %s, %s, %s, %s, %s, %s)""",
-                        (token, estimate_id, lead_id, "sent", "pdf", psycopg2.Binary(filled_pdf),
+                        """INSERT INTO proposals (token, estimate_id, lead_id, status, proposal_version, pdf_page_count, estimate_ids)
+                           VALUES (%s, %s, %s, %s, %s, %s, %s) RETURNING id""",
+                        (token, estimate_id, lead_id, "sent", "pdf", len(pdf_page_images),
                          psycopg2.extras.Json(all_estimate_ids) if is_multi else None),
                     )
+                    proposal_id = cur.fetchone()[0]
+                    # Insert each page as a separate row for fast individual page serving
+                    for i, img_binary in enumerate(pages_data):
+                        cur.execute(
+                            """INSERT INTO proposal_pdf_pages (proposal_id, token, page_num, image_data)
+                               VALUES (%s, %s, %s, %s)""",
+                            (proposal_id, token, i, img_binary),
+                        )
         else:
             proposal_row = {
                 "token": token,

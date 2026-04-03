@@ -753,40 +753,20 @@ async def book_proposal(token: str, body: BookingRequest):
     )
 
 
-# ── PDF proposal serving ───────────────────────────────────────────────
+# ── PDF proposal serving (pre-rasterized pages) ───────────────────────
 
-# In-memory caches
-_pdf_cache: dict[str, tuple[bytes, float]] = {}        # token → (pdf_bytes, ts)
-_page_cache: dict[str, tuple[bytes, float]] = {}       # "token:page" → (jpeg_bytes, ts)
-_page_count_cache: dict[str, tuple[int, float]] = {}   # token → (page_count, ts)
-_PDF_CACHE_TTL = 3600  # 1 hour
+@router.get("/{token}/pdf-info")
+async def get_proposal_pdf_info(token: str):
+    """Public — returns page count from the proposals table (tiny query, no blob)."""
+    import asyncio
 
-
-def _load_pdf_bytes(token: str) -> bytes | None:
-    """Load PDF bytes from cache or Postgres. Returns None if not found."""
-    import time
-    cached = _pdf_cache.get(token)
-    if cached and (time.time() - cached[1]) < _PDF_CACHE_TTL:
-        return cached[0]
-
-    with get_conn() as conn:
-        with conn.cursor() as cur:
-            cur.execute(
-                "SELECT pdf_data, status FROM proposals WHERE token = %s AND pdf_data IS NOT NULL",
-                (token,),
-            )
-            row = cur.fetchone()
-
-    if not row:
-        return None
-
-    pdf_bytes = bytes(row[0])
-    status = row[1]
-    _pdf_cache[token] = (pdf_bytes, time.time())
+    db = get_db()
+    result = db.table("proposals").select("pdf_page_count, status").eq("token", token).single().execute()
+    if not result.data or not result.data.get("pdf_page_count"):
+        raise HTTPException(status_code=404, detail="PDF proposal not found")
 
     # Mark as viewed — fire-and-forget
-    if status == "sent":
-        import asyncio
+    if result.data["status"] == "sent":
         asyncio.get_event_loop().run_in_executor(
             None,
             lambda: get_db().table("proposals").update({
@@ -795,84 +775,114 @@ def _load_pdf_bytes(token: str) -> bytes | None:
             }).eq("token", token).execute()
         )
 
-    return pdf_bytes
+    return {"page_count": result.data["pdf_page_count"]}
 
 
-@router.get("/{token}/pdf-file")
-async def get_proposal_pdf(token: str):
-    """Public endpoint — serves the generated PDF as raw binary (for download/fallback)."""
-    pdf_bytes = _load_pdf_bytes(token)
-    if not pdf_bytes:
-        raise HTTPException(status_code=404, detail="PDF proposal not found")
+@router.get("/{token}/pdf-page/{page_num}")
+async def get_proposal_pdf_page(token: str, page_num: int):
+    """Public — serves a pre-rasterized JPEG page (~200-400KB). No PDF blob touched."""
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT image_data FROM proposal_pdf_pages WHERE token = %s AND page_num = %s",
+                (token, page_num),
+            )
+            row = cur.fetchone()
+
+    if not row:
+        raise HTTPException(status_code=404, detail=f"Page {page_num} not found")
 
     return Response(
-        content=pdf_bytes,
-        media_type="application/pdf",
+        content=bytes(row[0]),
+        media_type="image/jpeg",
         headers={
-            "Content-Disposition": "inline; filename=AT-Fence-Proposal.pdf",
-            "Cache-Control": "public, max-age=3600, stale-while-revalidate=86400",
+            "Cache-Control": "public, max-age=86400",
             "Content-Encoding": "identity",
         },
     )
 
 
-@router.get("/{token}/pdf-info")
-async def get_proposal_pdf_info(token: str):
-    """Public — returns page count for the PDF so the viewer knows how many pages to load."""
-    import time
-    import fitz
+@router.get("/{token}/pdf-view")
+async def get_proposal_pdf_view(token: str):
+    """Public — self-contained HTML page that displays PDF pages as images.
+    Served directly from Railway. No Vercel, no Next.js, no cold starts."""
+    from fastapi.responses import HTMLResponse
 
-    cached_count = _page_count_cache.get(token)
-    if cached_count and (time.time() - cached_count[1]) < _PDF_CACHE_TTL:
-        return {"page_count": cached_count[0]}
+    html = f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1">
+<title>A&T Fence Restoration - Your Proposal</title>
+<style>
+*{{margin:0;padding:0;box-sizing:border-box}}
+body{{background:#12151f;font-family:'DM Sans',system-ui,-apple-system,sans-serif;color:#fff;-webkit-font-smoothing:antialiased}}
+.header{{text-align:center;padding:20px 16px 12px;border-bottom:1px solid rgba(255,255,255,.08)}}
+.header h1{{font-size:18px;font-weight:700}}
+.header p{{font-size:12px;color:rgba(255,255,255,.5);margin-top:2px}}
+.pages{{padding:16px 12px}}
+.page-wrap{{max-width:800px;margin:0 auto 12px;position:relative}}
+.page-wrap img{{width:100%;border-radius:8px;display:block;box-shadow:0 4px 24px rgba(0,0,0,.3)}}
+.loading{{text-align:center;padding:120px 20px}}
+.spinner{{width:48px;height:48px;border:3px solid rgba(255,255,255,.15);border-top-color:#cf9d52;border-radius:50%;margin:0 auto 24px;animation:spin .8s linear infinite}}
+.spinner-sm{{width:24px;height:24px;border:2px solid rgba(255,255,255,.15);border-top-color:#cf9d52;border-radius:50%;animation:spin .8s linear infinite}}
+.placeholder{{background:#1a1f30;border-radius:8px;display:flex;align-items:center;justify-content:center;min-height:200px}}
+.footer{{text-align:center;padding:20px 16px 40px;border-top:1px solid rgba(255,255,255,.08)}}
+.footer a{{color:#cf9d52;text-decoration:none}}
+.msg{{font-size:16px;font-weight:500;max-width:320px;margin:0 auto;line-height:1.6}}
+.sub{{color:rgba(255,255,255,.45);font-size:13px;margin-top:12px}}
+.sub a{{color:#cf9d52;text-decoration:none}}
+@keyframes spin{{to{{transform:rotate(360deg)}}}}
+@keyframes fadeIn{{from{{opacity:0}}to{{opacity:1}}}}
+.fade-in{{animation:fadeIn .3s ease}}
+</style>
+</head>
+<body>
+<div class="header">
+  <h1>A&amp;T Fence Restoration</h1>
+  <p>Your Proposal</p>
+</div>
+<div class="pages" id="pages">
+  <div class="loading">
+    <div class="spinner"></div>
+    <div class="msg">We can&rsquo;t wait to work with you! Loading your proposal now...</div>
+    <div class="sub">Questions? Call <a href="tel:+18323346528">(832) 334-6528</a></div>
+  </div>
+</div>
+<div class="footer" id="footer" style="display:none">
+  <p style="color:rgba(255,255,255,.5);font-size:13px">Questions? Call us at <a href="tel:+18323346528">(832) 334-6528</a></p>
+</div>
+<script>
+(function(){{
+  var base='/api/proposal/{token}';
+  fetch(base+'/pdf-info').then(function(r){{return r.json()}}).then(function(d){{
+    var pages=document.getElementById('pages');
+    pages.innerHTML='';
+    for(var i=0;i<d.page_count;i++){{
+      var wrap=document.createElement('div');
+      wrap.className='page-wrap';
+      var ph=document.createElement('div');
+      ph.className='placeholder';
+      ph.style.minHeight=i===0?'500px':'200px';
+      ph.innerHTML='<div class="spinner-sm"></div>';
+      wrap.appendChild(ph);
+      var img=document.createElement('img');
+      img.alt='Page '+(i+1);
+      img.loading=i===0?'eager':'lazy';
+      img.style.display='none';
+      img.onload=(function(im,p){{return function(){{p.style.display='none';im.style.display='block';im.className='fade-in';}}}})( img,ph);
+      img.src=base+'/pdf-page/'+i;
+      wrap.appendChild(img);
+      pages.appendChild(wrap);
+    }}
+    document.getElementById('footer').style.display='block';
+  }}).catch(function(){{
+    var pages=document.getElementById('pages');
+    pages.innerHTML='<div class="loading"><h2 style="font-size:24px;font-weight:700">Proposal not found</h2><div class="sub" style="margin-top:12px">This link may have expired. <a href="tel:+18323346528">(832) 334-6528</a></div></div>';
+  }});
+}})();
+</script>
+</body>
+</html>"""
 
-    pdf_bytes = _load_pdf_bytes(token)
-    if not pdf_bytes:
-        raise HTTPException(status_code=404, detail="PDF proposal not found")
-
-    doc = fitz.open(stream=pdf_bytes, filetype="pdf")
-    count = len(doc)
-    doc.close()
-    _page_count_cache[token] = (count, time.time())
-    return {"page_count": count}
-
-
-@router.get("/{token}/pdf-page/{page_num}")
-async def get_proposal_pdf_page(token: str, page_num: int):
-    """Public — rasterize a single PDF page to JPEG. Cached in memory."""
-    import time
-    import fitz
-
-    cache_key = f"{token}:{page_num}"
-    cached_page = _page_cache.get(cache_key)
-    if cached_page and (time.time() - cached_page[1]) < _PDF_CACHE_TTL:
-        return Response(
-            content=cached_page[0],
-            media_type="image/jpeg",
-            headers={"Cache-Control": "public, max-age=86400"},
-        )
-
-    pdf_bytes = _load_pdf_bytes(token)
-    if not pdf_bytes:
-        raise HTTPException(status_code=404, detail="PDF proposal not found")
-
-    doc = fitz.open(stream=pdf_bytes, filetype="pdf")
-    if page_num < 0 or page_num >= len(doc):
-        doc.close()
-        raise HTTPException(status_code=404, detail=f"Page {page_num} not found")
-
-    # Rasterize at 2x for sharp mobile display
-    page = doc[page_num]
-    mat = fitz.Matrix(2, 2)
-    pix = page.get_pixmap(matrix=mat)
-    # JPEG at quality 80 — good balance of quality vs size (~150-400KB per page)
-    jpeg_bytes = pix.tobytes("jpeg", jpg_quality=80)
-    doc.close()
-
-    _page_cache[cache_key] = (jpeg_bytes, time.time())
-
-    return Response(
-        content=jpeg_bytes,
-        media_type="image/jpeg",
-        headers={"Cache-Control": "public, max-age=86400"},
-    )
+    return HTMLResponse(content=html, headers={"Cache-Control": "public, max-age=300"})

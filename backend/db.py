@@ -35,8 +35,8 @@ def _get_pool() -> psycopg2.pool.ThreadedConnectionPool:
     global _pool
     if _pool is None:
         _pool = psycopg2.pool.ThreadedConnectionPool(
-            minconn=3,
-            maxconn=20,
+            minconn=1,
+            maxconn=8,  # Keep low for Supabase free tier (~15 connections total)
             dsn=_dsn(),
             # TCP keepalives — detect dead connections in ~30s instead of waiting
             # for the OS default (which can be minutes). Prevents stale pool entries

@@ -57,3 +57,24 @@ def generate_filled_pdf(
     result = doc.tobytes(garbage=4, deflate=True, clean=True)
     doc.close()
     return result
+
+
+def rasterize_pdf_pages(pdf_bytes: bytes, dpi_scale: float = 2.0, jpeg_quality: int = 80) -> list[bytes]:
+    """Convert each page of a PDF to a JPEG image.
+
+    Args:
+        pdf_bytes: The PDF as bytes.
+        dpi_scale: Zoom factor (2.0 = 144 DPI for sharp mobile display).
+        jpeg_quality: JPEG compression quality (80 = good balance of size vs clarity).
+
+    Returns:
+        List of JPEG bytes, one per page. Typically ~200-400KB each.
+    """
+    doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+    mat = fitz.Matrix(dpi_scale, dpi_scale)
+    pages = []
+    for i in range(len(doc)):
+        pix = doc[i].get_pixmap(matrix=mat)
+        pages.append(pix.tobytes("jpeg", jpg_quality=jpeg_quality))
+    doc.close()
+    return pages
