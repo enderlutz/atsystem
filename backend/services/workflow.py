@@ -77,13 +77,15 @@ KNOWN_COLORS: list[str] = [
 ]
 
 
+# Pre-sort once at module load — longest first to avoid partial matches
+_KNOWN_COLORS_SORTED = sorted(KNOWN_COLORS, key=len, reverse=True)
+
+
 def _detect_color_in_message(text: str) -> str | None:
     """Try to detect a known stain color name in a customer's text reply."""
     text_lower = text.lower()
-    # Prefer longer matches first to avoid partial matches (e.g. "cedar naturaltone" before "cedar")
-    for color in sorted(KNOWN_COLORS, key=len, reverse=True):
+    for color in _KNOWN_COLORS_SORTED:
         if color in text_lower:
-            # Return title-cased version as the canonical color name
             return color.title()
     return None
 
@@ -134,14 +136,26 @@ def _detect_address_in_message(text: str) -> str | None:
     return None
 
 
+_workflow_config_cache: dict[str, str] | None = None
+_workflow_config_cache_time: float = 0
+_WORKFLOW_CONFIG_TTL = 300  # 5 minutes
+
+
 def _get_workflow_config() -> dict[str, str]:
-    """Load all workflow_config values from DB."""
+    """Load all workflow_config values from DB, cached for 5 minutes."""
+    import time
+    global _workflow_config_cache, _workflow_config_cache_time
+    now = time.time()
+    if _workflow_config_cache is not None and (now - _workflow_config_cache_time) < _WORKFLOW_CONFIG_TTL:
+        return _workflow_config_cache
     try:
         db = get_db()
         res = db.table("workflow_config").select("key, value").execute()
-        return {r["key"]: r["value"] for r in (res.data or [])}
+        _workflow_config_cache = {r["key"]: r["value"] for r in (res.data or [])}
+        _workflow_config_cache_time = now
+        return _workflow_config_cache
     except Exception:
-        return {}
+        return _workflow_config_cache or {}
 
 
 def _get_ghl_stage_map() -> dict[str, str]:

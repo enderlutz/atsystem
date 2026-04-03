@@ -35,8 +35,8 @@ def _get_pool() -> psycopg2.pool.ThreadedConnectionPool:
     global _pool
     if _pool is None:
         _pool = psycopg2.pool.ThreadedConnectionPool(
-            minconn=1,
-            maxconn=8,
+            minconn=3,
+            maxconn=20,
             dsn=_dsn(),
             # TCP keepalives — detect dead connections in ~30s instead of waiting
             # for the OS default (which can be minutes). Prevents stale pool entries
@@ -278,14 +278,16 @@ class QueryBuilder:
                     cur.execute(count_sql, params)
                     count = cur.fetchone()["count"]
 
-                # Handle joins
+                # Handle joins — batch fetch to avoid N+1
                 if join_table and join_alias:
-                    for row in rows:
-                        lead_id = row.get("lead_id")
-                        if lead_id:
-                            cur.execute(f"SELECT * FROM {join_table} WHERE id = %s", [lead_id])
-                            joined = cur.fetchone()
-                            row[join_alias] = dict(joined) if joined else None
+                    join_ids = list({r.get("lead_id") for r in rows if r.get("lead_id")})
+                    if join_ids:
+                        placeholders = ",".join(["%s"] * len(join_ids))
+                        cur.execute(f"SELECT * FROM {join_table} WHERE id IN ({placeholders})", join_ids)
+                        join_map = {str(r["id"]): dict(r) for r in cur.fetchall()}
+                        for row in rows:
+                            lid = row.get("lead_id")
+                            row[join_alias] = join_map.get(str(lid)) if lid else None
 
                 # Serialize for JSON compatibility
                 rows = [_serialize_row(r) for r in rows]

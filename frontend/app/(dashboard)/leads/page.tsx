@@ -1,6 +1,6 @@
 "use client"; // v2 — Woodlands first + move dropdown
 
-import { useEffect, useState, useCallback, useRef, type ReactNode } from "react";
+import { useEffect, useState, useCallback, useMemo, useRef, type ReactNode } from "react";
 import Link from "next/link";
 import { api, leadDetailCache, type Lead, type Estimate, type GhlContact } from "@/lib/api";
 import { toast } from "sonner";
@@ -404,6 +404,8 @@ export default function LeadsPage() {
   const [hoverDataLoading, setHoverDataLoading] = useState(false);
   const hoverCardRef = useRef<HTMLDivElement>(null);
   const hoverTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const hoverFetchRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const hoverCacheRef = useRef<Map<string, { log: import("@/lib/api").AutomationLogEvent[]; queue: import("@/lib/api").QueuedMessage[]; ts: number }>>(new Map());
   const [moveMenuLeadId, setMoveMenuLeadId] = useState<string | null>(null);
   const [moveMenuPos, setMoveMenuPos] = useState<{ x: number; y: number } | null>(null);
   // All Contacts tab
@@ -585,8 +587,9 @@ export default function LeadsPage() {
       }).catch(() => {});
     };
 
-    // Auto-refresh every 60 seconds — picks up new leads synced from GHL by the backend poller
+    // Auto-refresh every 60 seconds — only when tab is visible (saves server load)
     const interval = setInterval(() => {
+      if (document.visibilityState !== "visible") return;
       loadData();
       checkUpcomingSms();
       api.getSyncStatus().then((s) => setLastSyncAt(s.last_sync_at)).catch(() => {});
@@ -705,14 +708,29 @@ export default function LeadsPage() {
     }
   };
 
-  const filtered = leads.filter((l) => {
+  const filtered = useMemo(() => leads.filter((l) => {
     if (!search) return true;
     const q = search.toLowerCase();
     return (
       (l.contact_name || "").toLowerCase().includes(q) ||
       l.address.toLowerCase().includes(q)
     );
-  });
+  }), [leads, search]);
+
+  // Pre-compute Kanban column grouping once (avoids O(n×columns) per render)
+  const columnLeadsMap = useMemo(() => {
+    const map = new Map<string, Lead[]>();
+    for (const lead of filtered) {
+      const col = getKanbanStatus(lead, estimateMap);
+      if (!map.has(col)) map.set(col, []);
+      map.get(col)!.push(lead);
+    }
+    // Sort each column: newest first
+    map.forEach((arr) => {
+      arr.sort((a: Lead, b: Lead) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+    });
+    return map;
+  }, [filtered, estimateMap]);
 
   // HOT leads that haven't been sent/approved yet
   const hotCount = leads.filter(
@@ -851,9 +869,7 @@ export default function LeadsPage() {
         <div className="overflow-x-auto pb-3">
           <div className="flex gap-3" style={{ minWidth: "max-content" }}>
             {COLUMNS.map((col) => {
-              const colLeads = filtered
-                .filter((l) => getKanbanStatus(l, estimateMap) === col.key)
-                .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+              const colLeads = columnLeadsMap.get(col.key) || [];
 
               return (
                 <div
@@ -899,24 +915,37 @@ export default function LeadsPage() {
                             } ${newLeadIds.has(lead.id) ? "ring-2 ring-blue-300 ring-offset-1" : ""} ${addonsPending ? "ring-2 ring-yellow-400 ring-offset-1" : ""}`}
                             onMouseEnter={(e) => {
                               if (hoverTimeoutRef.current) clearTimeout(hoverTimeoutRef.current);
+                              if (hoverFetchRef.current) clearTimeout(hoverFetchRef.current);
                               const rect = e.currentTarget.getBoundingClientRect();
                               setHoveredLeadId(lead.id);
                               setHoverPos({ x: rect.right + 8, y: rect.top });
-                              // Fetch activity log + scheduled messages
+                              // Check cache first (2-minute TTL)
+                              const cached = hoverCacheRef.current.get(lead.id);
+                              if (cached && Date.now() - cached.ts < 120_000) {
+                                setHoverData({ log: cached.log, queue: cached.queue });
+                                setHoverDataLoading(false);
+                                return;
+                              }
                               setHoverData(null);
                               setHoverDataLoading(true);
-                              Promise.allSettled([
-                                api.getAutomationLog({ lead_id: lead.id, limit: 5 }),
-                                api.getMessageQueue(`lead_id=${lead.id}&status=pending`),
-                              ]).then(([logRes, queueRes]) => {
-                                setHoverData({
-                                  log: logRes.status === "fulfilled" ? logRes.value.events : [],
-                                  queue: queueRes.status === "fulfilled" ? queueRes.value : [],
+                              // Debounce 400ms — only fetch if user hovers long enough
+                              hoverFetchRef.current = setTimeout(() => {
+                                Promise.allSettled([
+                                  api.getAutomationLog({ lead_id: lead.id, limit: 5 }),
+                                  api.getMessageQueue(`lead_id=${lead.id}&status=pending`),
+                                ]).then(([logRes, queueRes]) => {
+                                  const data = {
+                                    log: logRes.status === "fulfilled" ? logRes.value.events : [],
+                                    queue: queueRes.status === "fulfilled" ? queueRes.value : [],
+                                  };
+                                  hoverCacheRef.current.set(lead.id, { ...data, ts: Date.now() });
+                                  setHoverData(data);
+                                  setHoverDataLoading(false);
                                 });
-                                setHoverDataLoading(false);
-                              });
+                              }, 400);
                             }}
                             onMouseLeave={() => {
+                              if (hoverFetchRef.current) clearTimeout(hoverFetchRef.current);
                               hoverTimeoutRef.current = setTimeout(() => {
                                 setHoveredLeadId(null);
                                 setHoverPos(null);

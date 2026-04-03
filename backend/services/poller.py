@@ -15,8 +15,8 @@ from datetime import datetime, timedelta, timezone
 
 logger = logging.getLogger(__name__)
 
-POLL_INTERVAL_SECONDS = 300       # 5 minutes
-MESSAGE_SYNC_INTERVAL_SECONDS = 300  # 5 minutes
+POLL_INTERVAL_SECONDS = 60        # 1 minute — near-instant lead sync
+MESSAGE_SYNC_INTERVAL_SECONDS = 120  # 2 minutes
 MESSAGE_SYNC_LOOKBACK_MINUTES = 10   # check last 10 min for missed messages
 CONTACTS_CACHE_CHECK_INTERVAL = 3600     # Check every hour
 CONTACTS_CACHE_MAX_AGE_DAYS = 3          # Re-sync if older than 3 days
@@ -25,7 +25,7 @@ CONTACTS_CACHE_MAX_AGE_DAYS = 3          # Re-sync if older than 3 days
 async def poll_ghl_contacts():
     """Background loop: sync the GHL pipeline into the dashboard every 5 minutes."""
     await asyncio.sleep(5)  # Let app finish startup
-    logger.info("GHL pipeline poller started (every 5 minutes)")
+    logger.info("GHL pipeline poller started (every 60 seconds)")
 
     while True:
         try:
