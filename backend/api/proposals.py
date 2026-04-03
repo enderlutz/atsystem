@@ -755,49 +755,55 @@ async def book_proposal(token: str, body: BookingRequest):
 
 # ── PDF proposal serving ───────────────────────────────────────────────
 
-# In-memory cache: token → (pdf_bytes, timestamp). Avoids re-reading 4.7MB from Postgres.
-_pdf_cache: dict[str, tuple[bytes, float]] = {}
+# In-memory caches
+_pdf_cache: dict[str, tuple[bytes, float]] = {}        # token → (pdf_bytes, ts)
+_page_cache: dict[str, tuple[bytes, float]] = {}       # "token:page" → (jpeg_bytes, ts)
+_page_count_cache: dict[str, tuple[int, float]] = {}   # token → (page_count, ts)
 _PDF_CACHE_TTL = 3600  # 1 hour
+
+
+def _load_pdf_bytes(token: str) -> bytes | None:
+    """Load PDF bytes from cache or Postgres. Returns None if not found."""
+    import time
+    cached = _pdf_cache.get(token)
+    if cached and (time.time() - cached[1]) < _PDF_CACHE_TTL:
+        return cached[0]
+
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT pdf_data, status FROM proposals WHERE token = %s AND pdf_data IS NOT NULL",
+                (token,),
+            )
+            row = cur.fetchone()
+
+    if not row:
+        return None
+
+    pdf_bytes = bytes(row[0])
+    status = row[1]
+    _pdf_cache[token] = (pdf_bytes, time.time())
+
+    # Mark as viewed — fire-and-forget
+    if status == "sent":
+        import asyncio
+        asyncio.get_event_loop().run_in_executor(
+            None,
+            lambda: get_db().table("proposals").update({
+                "status": "viewed",
+                "first_viewed_at": datetime.now(timezone.utc).isoformat(),
+            }).eq("token", token).execute()
+        )
+
+    return pdf_bytes
 
 
 @router.get("/{token}/pdf-file")
 async def get_proposal_pdf(token: str):
-    """Public endpoint — serves the generated PDF for a PDF-version proposal."""
-    import asyncio
-    import time
-
-    # Check memory cache first
-    cached = _pdf_cache.get(token)
-    if cached and (time.time() - cached[1]) < _PDF_CACHE_TTL:
-        pdf_bytes = cached[0]
-    else:
-        # Read from Postgres
-        with get_conn() as conn:
-            with conn.cursor() as cur:
-                cur.execute(
-                    "SELECT pdf_data, status FROM proposals WHERE token = %s AND pdf_data IS NOT NULL",
-                    (token,),
-                )
-                row = cur.fetchone()
-
-        if not row:
-            raise HTTPException(status_code=404, detail="PDF proposal not found")
-
-        pdf_bytes = bytes(row[0])
-        status = row[1]
-
-        # Cache in memory
-        _pdf_cache[token] = (pdf_bytes, time.time())
-
-        # Mark as viewed — fire-and-forget
-        if status == "sent":
-            asyncio.get_event_loop().run_in_executor(
-                None,
-                lambda: get_db().table("proposals").update({
-                    "status": "viewed",
-                    "first_viewed_at": datetime.now(timezone.utc).isoformat(),
-                }).eq("token", token).execute()
-            )
+    """Public endpoint — serves the generated PDF as raw binary (for download/fallback)."""
+    pdf_bytes = _load_pdf_bytes(token)
+    if not pdf_bytes:
+        raise HTTPException(status_code=404, detail="PDF proposal not found")
 
     return Response(
         content=pdf_bytes,
@@ -805,8 +811,68 @@ async def get_proposal_pdf(token: str):
         headers={
             "Content-Disposition": "inline; filename=AT-Fence-Proposal.pdf",
             "Cache-Control": "public, max-age=3600, stale-while-revalidate=86400",
-            # Skip GZip middleware — PDFs are already internally compressed,
-            # gzipping 4.7MB wastes CPU for ~5% gain
             "Content-Encoding": "identity",
         },
+    )
+
+
+@router.get("/{token}/pdf-info")
+async def get_proposal_pdf_info(token: str):
+    """Public — returns page count for the PDF so the viewer knows how many pages to load."""
+    import time
+    import fitz
+
+    cached_count = _page_count_cache.get(token)
+    if cached_count and (time.time() - cached_count[1]) < _PDF_CACHE_TTL:
+        return {"page_count": cached_count[0]}
+
+    pdf_bytes = _load_pdf_bytes(token)
+    if not pdf_bytes:
+        raise HTTPException(status_code=404, detail="PDF proposal not found")
+
+    doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+    count = len(doc)
+    doc.close()
+    _page_count_cache[token] = (count, time.time())
+    return {"page_count": count}
+
+
+@router.get("/{token}/pdf-page/{page_num}")
+async def get_proposal_pdf_page(token: str, page_num: int):
+    """Public — rasterize a single PDF page to JPEG. Cached in memory."""
+    import time
+    import fitz
+
+    cache_key = f"{token}:{page_num}"
+    cached_page = _page_cache.get(cache_key)
+    if cached_page and (time.time() - cached_page[1]) < _PDF_CACHE_TTL:
+        return Response(
+            content=cached_page[0],
+            media_type="image/jpeg",
+            headers={"Cache-Control": "public, max-age=86400"},
+        )
+
+    pdf_bytes = _load_pdf_bytes(token)
+    if not pdf_bytes:
+        raise HTTPException(status_code=404, detail="PDF proposal not found")
+
+    doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+    if page_num < 0 or page_num >= len(doc):
+        doc.close()
+        raise HTTPException(status_code=404, detail=f"Page {page_num} not found")
+
+    # Rasterize at 2x for sharp mobile display
+    page = doc[page_num]
+    mat = fitz.Matrix(2, 2)
+    pix = page.get_pixmap(matrix=mat)
+    # JPEG at quality 80 — good balance of quality vs size (~150-400KB per page)
+    jpeg_bytes = pix.tobytes("jpeg", jpg_quality=80)
+    doc.close()
+
+    _page_cache[cache_key] = (jpeg_bytes, time.time())
+
+    return Response(
+        content=jpeg_bytes,
+        media_type="image/jpeg",
+        headers={"Cache-Control": "public, max-age=86400"},
     )
