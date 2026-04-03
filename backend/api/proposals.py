@@ -186,7 +186,9 @@ async def get_proposal(token: str):
     else:
         color_display = "Not specified"
 
-    return {
+    from fastapi.responses import JSONResponse
+
+    data = {
         "status": proposal.get("status") if proposal.get("status") in ("booked", "cancelled") else ("preview" if is_preview else "viewed"),
         "token": token,
         "customer_name": lead.get("contact_name") or "",
@@ -215,6 +217,12 @@ async def get_proposal(token: str):
         "last_active_at": proposal.get("last_active_at"),
         "left_page_at": proposal.get("left_page_at"),
     }
+
+    # Cache for 30s on edge + browser — proposal data rarely changes mid-session
+    return JSONResponse(
+        content=data,
+        headers={"Cache-Control": "public, max-age=30, stale-while-revalidate=60"},
+    )
 
 
 @router.post("/{token}/stage")

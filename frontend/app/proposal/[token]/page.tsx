@@ -1291,7 +1291,7 @@ export default function ProposalPage() {
 
                       {pkg === "essential" ? (
                         <div className="rounded-2xl border-2 overflow-hidden" style={{ background: C.card, borderColor: C.gold }}>
-                          <img src={`${CDN}/clear.jpg`} alt="Clear Sealant" className="w-full object-cover" style={{ height: 160 }} />
+                          <img src={`${CDN}/clear.jpg`} alt="Clear Sealant" loading="lazy" className="w-full object-cover" style={{ height: 160 }} />
                           <div className="flex items-center gap-3 px-4 py-3">
                             <div className="flex-1">
                               <p style={{ color: C.cream }} className="font-semibold">Clear Sealant</p>
@@ -1324,7 +1324,7 @@ export default function ProposalPage() {
                                           background: C.card,
                                           boxShadow: isSelected ? `0 4px 16px rgba(28,34,53,0.10)` : "0 1px 3px rgba(0,0,0,0.05)",
                                         }}>
-                                        <img src={c.src} alt={c.name} className="w-full object-cover" style={{ height: 110 }} />
+                                        <img src={c.src} alt={c.name} loading="lazy" className="w-full object-cover" style={{ height: 110 }} />
                                         <div className="px-3 py-2 flex items-center justify-between gap-2">
                                           <div className="min-w-0">
                                             <p style={{ color: C.cream }} className="text-xs font-semibold truncate">{c.name}</p>
@@ -1407,7 +1407,7 @@ export default function ProposalPage() {
                                             <span className="text-xs font-bold" style={{ color: "#FFFFFF" }}>{rank}</span>
                                           </div>
                                         )}
-                                        <img src={c.src} alt={c.name} className="w-full object-cover" style={{ height: 72 }} />
+                                        <img src={c.src} alt={c.name} loading="lazy" className="w-full object-cover" style={{ height: 72 }} />
                                         <div className="px-2 py-1.5">
                                           <p style={{ color: C.cream }} className="text-xs font-semibold">{c.name}</p>
                                           <p style={{ color: C.textMuted }} className="text-[10px]">{c.brand}</p>
