@@ -371,11 +371,82 @@ export const api = {
     request<{ status: string; total_upserted: number; marked_imported: number }>("/api/contacts/sync", { method: "POST" }),
   importContact: (contactId: string, locationId: string) =>
     request<{ status: string; lead_id: string }>(`/api/contacts/${contactId}/import?location_id=${locationId}`, { method: "POST" }),
+
+  // PDF Templates
+  uploadPdfTemplate: async (file: File) => {
+    const formData = new FormData();
+    formData.append("file", file);
+    const token = getToken();
+    const headers: Record<string, string> = {};
+    if (token) headers["Authorization"] = `Bearer ${token}`;
+    const res = await fetch(`${API_URL}/api/pdf-templates/upload`, {
+      method: "POST",
+      headers,
+      body: formData,
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ detail: res.statusText }));
+      throw new Error(err.detail || "Upload failed");
+    }
+    return res.json() as Promise<PdfTemplateUploadResult>;
+  },
+  getPdfTemplate: () =>
+    request<PdfTemplateInfo>("/api/pdf-templates/current"),
+  getPdfTemplatePageUrl: (pageNum: number) =>
+    `${API_URL}/api/pdf-templates/page/${pageNum}`,
+  savePdfFieldMap: (fieldMap: Record<string, FieldPosition>) =>
+    request<{ status: string }>("/api/pdf-templates/field-map", {
+      method: "PUT",
+      body: JSON.stringify({ field_map: fieldMap }),
+    }),
+  deletePdfTemplate: () =>
+    request<{ status: string }>("/api/pdf-templates", { method: "DELETE" }),
+  previewPdf: async () => {
+    const token = getToken();
+    const headers: Record<string, string> = {};
+    if (token) headers["Authorization"] = `Bearer ${token}`;
+    const res = await fetch(`${API_URL}/api/pdf-templates/preview`, {
+      method: "POST",
+      headers,
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ detail: res.statusText }));
+      throw new Error(err.detail || "Preview failed");
+    }
+    return res.blob();
+  },
 };
 
 // --- Beacon helper (for sendBeacon on page unload) ---
 export function getActivityBeaconUrl(token: string) {
   return `${API_URL}/api/proposal/${token}/activity`;
+}
+
+// --- PDF Template Types ---
+export interface FieldPosition {
+  page: number;
+  x: number;
+  y: number;
+  font_size: number;
+}
+
+export interface PdfTemplateInfo {
+  id: string;
+  filename: string;
+  page_count: number;
+  page_widths: number[];
+  page_heights: number[];
+  field_map: Record<string, FieldPosition>;
+  updated_at: string;
+}
+
+export interface PdfTemplateUploadResult {
+  status: string;
+  id: string;
+  filename: string;
+  page_count: number;
+  page_widths: number[];
+  page_heights: number[];
 }
 
 // --- Types ---

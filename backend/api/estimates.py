@@ -9,7 +9,7 @@ from datetime import datetime, timezone
 
 import bcrypt
 
-from db import get_db
+from db import get_db, get_conn
 from config import get_settings
 from models.estimate import AdminApproveRequest, EstimateAdjust, EstimateApprove, EstimateReject
 from services.ghl import send_message_to_contact, add_contact_note
@@ -57,18 +57,70 @@ def _approve_and_send(
 
     # Generate proposal token
     token = secrets.token_urlsafe(12)
-    version_suffix = "/v2" if proposal_version == "v2" else ""
+    if proposal_version == "pdf":
+        version_suffix = "/pdf"
+    elif proposal_version == "v2":
+        version_suffix = "/v2"
+    else:
+        version_suffix = ""
     proposal_url = f"{settings.proposal_base_url}/proposal/{token}{version_suffix}"
-    try:
-        proposal_row = {
-            "token": token,
-            "estimate_id": estimate_id,
-            "lead_id": lead_id,
-            "status": "sent",
+
+    # Generate filled PDF if PDF proposal version selected
+    filled_pdf: bytes | None = None
+    if proposal_version == "pdf":
+        with get_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT pdf_data, field_map FROM pdf_templates LIMIT 1")
+                tpl_row = cur.fetchone()
+        if not tpl_row:
+            raise HTTPException(status_code=400, detail="No PDF template uploaded. Go to Settings → PDF Proposal Template to upload one.")
+        template_bytes, field_map = bytes(tpl_row[0]), tpl_row[1] or {}
+        if not field_map:
+            raise HTTPException(status_code=400, detail="PDF template has no fields mapped. Go to Settings to map fields first.")
+
+        # Build values from the primary estimate's tiers
+        tiers = {}
+        for est in all_estimates:
+            t = (est.get("inputs") or {}).get("_tiers") or {}
+            if t:
+                tiers = t
+                break
+        values = {
+            "customer_name": lead.get("contact_name") or "",
+            "essential_price": f"${float(tiers.get('essential', 0)):,.0f}",
+            "signature_price": f"${float(tiers.get('signature', 0)):,.0f}",
+            "legacy_price": f"${float(tiers.get('legacy', 0)):,.0f}",
+            "essential_monthly": f"${float(tiers.get('essential', 0)) / 21:,.0f}/mo",
+            "signature_monthly": f"${float(tiers.get('signature', 0)) / 21:,.0f}/mo",
+            "legacy_monthly": f"${float(tiers.get('legacy', 0)) / 21:,.0f}/mo",
         }
-        if is_multi:
-            proposal_row["estimate_ids"] = all_estimate_ids
-        db.table("proposals").insert(proposal_row).execute()
+
+        from services.pdf_generator import generate_filled_pdf
+        filled_pdf = generate_filled_pdf(template_bytes, field_map, values)
+
+    try:
+        if proposal_version == "pdf" and filled_pdf:
+            # Use raw SQL for bytea insert
+            import psycopg2
+            with get_conn() as conn:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        """INSERT INTO proposals (token, estimate_id, lead_id, status, proposal_version, pdf_data, estimate_ids)
+                           VALUES (%s, %s, %s, %s, %s, %s, %s)""",
+                        (token, estimate_id, lead_id, "sent", "pdf", psycopg2.Binary(filled_pdf),
+                         psycopg2.extras.Json(all_estimate_ids) if is_multi else None),
+                    )
+        else:
+            proposal_row = {
+                "token": token,
+                "estimate_id": estimate_id,
+                "lead_id": lead_id,
+                "status": "sent",
+                "proposal_version": proposal_version or "v1",
+            }
+            if is_multi:
+                proposal_row["estimate_ids"] = all_estimate_ids
+            db.table("proposals").insert(proposal_row).execute()
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to create proposal record: {e}")
 
@@ -297,6 +349,7 @@ async def admin_approve_estimate(estimate_id: str, body: AdminApproveRequest, _:
         estimate, lead, all_estimates, db,
         owner_notes=owner_notes,
         scheduled_send_at=body.scheduled_send_at,
+        proposal_version=body.proposal_version,
     )
 
 

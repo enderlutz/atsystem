@@ -1,12 +1,13 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
-import { api, getCurrentUser, type FieldMapping, type PipelineSyncResult } from "@/lib/api";
+import { api, getCurrentUser, type FieldMapping, type PipelineSyncResult, type PdfTemplateInfo } from "@/lib/api";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Copy, Check, RefreshCw, Zap } from "lucide-react";
+import { Copy, Check, RefreshCw, Zap, Upload, FileText, Trash2, MapPin } from "lucide-react";
+import PdfFieldMapper from "@/components/pdf-field-mapper";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 const WEBHOOK_URL = `${API_URL}/webhook/ghl`;
@@ -86,6 +87,58 @@ export default function SettingsPage() {
   const [pipelineResult, setPipelineResult] = useState<PipelineSyncResult | null>(null);
   const [fields, setFields] = useState<FieldMapping[]>([]);
   const [discoveringFields, setDiscoveringFields] = useState(false);
+
+  // PDF Template state
+  const [pdfTemplate, setPdfTemplate] = useState<PdfTemplateInfo | null>(null);
+  const [pdfTemplateLoading, setPdfTemplateLoading] = useState(false);
+  const [pdfUploading, setPdfUploading] = useState(false);
+  const [showFieldMapper, setShowFieldMapper] = useState(false);
+  const [pdfDeleting, setPdfDeleting] = useState(false);
+  const pdfInputRef = useRef<HTMLInputElement>(null);
+
+  const loadPdfTemplate = async () => {
+    setPdfTemplateLoading(true);
+    try {
+      const data = await api.getPdfTemplate();
+      setPdfTemplate(data);
+    } catch {
+      setPdfTemplate(null);
+    } finally {
+      setPdfTemplateLoading(false);
+    }
+  };
+
+  const handlePdfUpload = async (file: File) => {
+    if (!file.name.toLowerCase().endsWith(".pdf")) {
+      toast.error("Only PDF files are accepted");
+      return;
+    }
+    setPdfUploading(true);
+    try {
+      await api.uploadPdfTemplate(file);
+      toast.success("PDF template uploaded");
+      await loadPdfTemplate();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Upload failed");
+    } finally {
+      setPdfUploading(false);
+    }
+  };
+
+  const handlePdfDelete = async () => {
+    if (!confirm("Delete the PDF template? This will remove the template and all field mappings.")) return;
+    setPdfDeleting(true);
+    try {
+      await api.deletePdfTemplate();
+      setPdfTemplate(null);
+      setShowFieldMapper(false);
+      toast.success("Template deleted");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Delete failed");
+    } finally {
+      setPdfDeleting(false);
+    }
+  };
 
   const archiveAll = async () => {
     if (!confirm("Archive ALL leads? They will be hidden from the dashboard. This cannot be undone without direct database access.")) return;
@@ -184,6 +237,7 @@ export default function SettingsPage() {
         }
       }
     }).catch(() => {}).finally(() => setPricingLoaded(true));
+    if (isAdmin) loadPdfTemplate();
   }, []);
 
   const savePricing = async () => {
@@ -477,6 +531,118 @@ export default function SettingsPage() {
       <Button onClick={savePricing} disabled={saving || !pricingLoaded} size="lg">
         {saving ? "Saving..." : !pricingLoaded ? "Loading..." : "Save All Settings"}
       </Button>
+
+      {/* PDF Proposal Template — admin only */}
+      {isAdmin && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <FileText className="h-5 w-5" />
+              PDF Proposal Template
+            </CardTitle>
+            <CardDescription>
+              Upload a branded PDF template and map where customer data fields appear. Used when sending PDF proposals.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {pdfTemplateLoading ? (
+              <p className="text-sm text-muted-foreground">Loading...</p>
+            ) : pdfTemplate && !showFieldMapper ? (
+              /* Template exists — show info + actions */
+              <div className="space-y-3">
+                <div className="flex items-center gap-3 p-3 bg-gray-50 rounded-lg">
+                  <FileText className="h-8 w-8 text-blue-500 shrink-0" />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium truncate">{pdfTemplate.filename}</p>
+                    <p className="text-xs text-muted-foreground">
+                      {pdfTemplate.page_count} pages &middot; Updated {new Date(pdfTemplate.updated_at).toLocaleDateString()}
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      {Object.keys(pdfTemplate.field_map).length} of 7 fields mapped
+                    </p>
+                  </div>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <Button size="sm" onClick={() => setShowFieldMapper(true)} className="gap-1.5">
+                    <MapPin className="h-3.5 w-3.5" />
+                    Map Fields
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => pdfInputRef.current?.click()}
+                    disabled={pdfUploading}
+                  >
+                    <Upload className="h-3.5 w-3.5 mr-1" />
+                    {pdfUploading ? "Uploading..." : "Replace"}
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="text-red-600 hover:text-red-700"
+                    onClick={handlePdfDelete}
+                    disabled={pdfDeleting}
+                  >
+                    <Trash2 className="h-3.5 w-3.5 mr-1" />
+                    {pdfDeleting ? "Deleting..." : "Delete"}
+                  </Button>
+                </div>
+                <input
+                  ref={pdfInputRef}
+                  type="file"
+                  accept=".pdf"
+                  className="hidden"
+                  onChange={(e) => {
+                    const f = e.target.files?.[0];
+                    if (f) handlePdfUpload(f);
+                    e.target.value = "";
+                  }}
+                />
+              </div>
+            ) : showFieldMapper && pdfTemplate ? (
+              /* Field mapper open */
+              <PdfFieldMapper
+                template={pdfTemplate}
+                onSaved={() => {
+                  toast.success("Field mappings saved");
+                  loadPdfTemplate();
+                }}
+                onClose={() => setShowFieldMapper(false)}
+              />
+            ) : (
+              /* No template — upload zone */
+              <div
+                className="border-2 border-dashed rounded-lg p-8 text-center cursor-pointer hover:border-blue-400 hover:bg-blue-50/50 transition-colors"
+                onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); }}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  const f = e.dataTransfer.files[0];
+                  if (f) handlePdfUpload(f);
+                }}
+                onClick={() => pdfInputRef.current?.click()}
+              >
+                <Upload className="h-8 w-8 mx-auto text-muted-foreground mb-2" />
+                <p className="text-sm font-medium">
+                  {pdfUploading ? "Uploading..." : "Drag & drop your PDF template here"}
+                </p>
+                <p className="text-xs text-muted-foreground mt-1">or click to browse &middot; PDF only &middot; max 15MB</p>
+                <input
+                  ref={pdfInputRef}
+                  type="file"
+                  accept=".pdf"
+                  className="hidden"
+                  onChange={(e) => {
+                    const f = e.target.files?.[0];
+                    if (f) handlePdfUpload(f);
+                    e.target.value = "";
+                  }}
+                />
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
 
       {/* Danger Zone — admin only */}
       {isAdmin && (

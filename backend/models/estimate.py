@@ -66,3 +66,4 @@ class AdminApproveRequest(BaseModel):
     notes: str | None = None
     force_send: bool = False
     scheduled_send_at: str | None = None  # ISO datetime — None = send immediately
+    proposal_version: str | None = None  # "v2" or "pdf"

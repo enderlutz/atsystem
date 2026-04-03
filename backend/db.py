@@ -390,6 +390,8 @@ def _serialize_row(row: dict) -> dict:
             out[k] = v.isoformat()
         elif isinstance(v, Decimal):
             out[k] = float(v)
+        elif isinstance(v, (bytes, memoryview)):
+            out[k] = None  # Exclude binary blobs from JSON serialization
         else:
             out[k] = v
     return out

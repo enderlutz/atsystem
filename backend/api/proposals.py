@@ -3,8 +3,9 @@ import logging
 from datetime import datetime, timezone
 from pydantic import BaseModel
 from fastapi import APIRouter, HTTPException
+from fastapi.responses import Response
 
-from db import get_db
+from db import get_db, get_conn
 from config import get_settings
 from services.ghl import send_message_to_contact, update_opportunity_stage
 from services.google_calendar import create_calendar_event
@@ -724,4 +725,36 @@ async def book_proposal(token: str, body: BookingRequest):
         hoa_colors=body.hoa_colors, custom_color=body.custom_color,
         additional_request=body.additional_request,
         stripe_session_id=body.stripe_session_id, settings=settings, db=db,
+    )
+
+
+# ── PDF proposal serving ───────────────────────────────────────────────
+
+@router.get("/{token}/pdf-file")
+async def get_proposal_pdf(token: str):
+    """Public endpoint — serves the generated PDF for a PDF-version proposal."""
+    with get_conn() as conn:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT pdf_data FROM proposals WHERE token = %s AND pdf_data IS NOT NULL",
+                (token,),
+            )
+            row = cur.fetchone()
+
+    if not row:
+        raise HTTPException(status_code=404, detail="PDF proposal not found")
+
+    pdf_bytes = bytes(row[0])
+
+    # Mark as viewed (same as interactive proposals)
+    db = get_db()
+    proposal = db.table("proposals").select("status").eq("token", token).single().execute()
+    if proposal.data and proposal.data["status"] == "sent":
+        now = datetime.now(timezone.utc).isoformat()
+        db.table("proposals").update({"status": "viewed", "first_viewed_at": now}).eq("token", token).execute()
+
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": "inline; filename=AT-Fence-Proposal.pdf"},
     )
