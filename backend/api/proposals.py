@@ -758,10 +758,12 @@ async def book_proposal(token: str, body: BookingRequest):
 @router.get("/{token}/pdf-file")
 async def get_proposal_pdf(token: str):
     """Public endpoint — serves the generated PDF for a PDF-version proposal."""
+    import asyncio
+
     with get_conn() as conn:
         with conn.cursor() as cur:
             cur.execute(
-                "SELECT pdf_data FROM proposals WHERE token = %s AND pdf_data IS NOT NULL",
+                "SELECT pdf_data, status FROM proposals WHERE token = %s AND pdf_data IS NOT NULL",
                 (token,),
             )
             row = cur.fetchone()
@@ -770,16 +772,23 @@ async def get_proposal_pdf(token: str):
         raise HTTPException(status_code=404, detail="PDF proposal not found")
 
     pdf_bytes = bytes(row[0])
+    status = row[1]
 
-    # Mark as viewed (same as interactive proposals)
-    db = get_db()
-    proposal = db.table("proposals").select("status").eq("token", token).single().execute()
-    if proposal.data and proposal.data["status"] == "sent":
-        now = datetime.now(timezone.utc).isoformat()
-        db.table("proposals").update({"status": "viewed", "first_viewed_at": now}).eq("token", token).execute()
+    # Mark as viewed — fire-and-forget (don't block PDF delivery)
+    if status == "sent":
+        asyncio.get_event_loop().run_in_executor(
+            None,
+            lambda: get_db().table("proposals").update({
+                "status": "viewed",
+                "first_viewed_at": datetime.now(timezone.utc).isoformat(),
+            }).eq("token", token).execute()
+        )
 
     return Response(
         content=pdf_bytes,
         media_type="application/pdf",
-        headers={"Content-Disposition": "inline; filename=AT-Fence-Proposal.pdf"},
+        headers={
+            "Content-Disposition": "inline; filename=AT-Fence-Proposal.pdf",
+            "Cache-Control": "public, max-age=3600, stale-while-revalidate=86400",
+        },
     )
