@@ -1,6 +1,8 @@
 // Use relative URLs so all requests go through the Next.js proxy (next.config.mjs → Railway).
 // This eliminates CORS entirely. The proxy destination is set via NEXT_PUBLIC_API_URL at build time.
 const API_URL = "";
+// Direct backend URL — used for large binary uploads/downloads that exceed Vercel's 4.5MB proxy limit.
+const DIRECT_API_URL = process.env.NEXT_PUBLIC_API_URL || "";
 
 function getToken(): string | null {
   if (typeof document === "undefined") return null;
@@ -379,7 +381,7 @@ export const api = {
     const token = getToken();
     const headers: Record<string, string> = {};
     if (token) headers["Authorization"] = `Bearer ${token}`;
-    const res = await fetch(`${API_URL}/api/pdf-templates/upload`, {
+    const res = await fetch(`${DIRECT_API_URL}/api/pdf-templates/upload`, {
       method: "POST",
       headers,
       body: formData,
@@ -393,7 +395,7 @@ export const api = {
   getPdfTemplate: () =>
     request<PdfTemplateInfo>("/api/pdf-templates/current"),
   getPdfTemplatePageUrl: (pageNum: number) =>
-    `${API_URL}/api/pdf-templates/page/${pageNum}`,
+    `${DIRECT_API_URL}/api/pdf-templates/page/${pageNum}`,
   savePdfFieldMap: (fieldMap: Record<string, FieldPosition>) =>
     request<{ status: string }>("/api/pdf-templates/field-map", {
       method: "PUT",
@@ -405,7 +407,7 @@ export const api = {
     const token = getToken();
     const headers: Record<string, string> = {};
     if (token) headers["Authorization"] = `Bearer ${token}`;
-    const res = await fetch(`${API_URL}/api/pdf-templates/preview`, {
+    const res = await fetch(`${DIRECT_API_URL}/api/pdf-templates/preview`, {
       method: "POST",
       headers,
     });
