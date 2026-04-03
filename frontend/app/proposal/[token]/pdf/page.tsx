@@ -1,13 +1,88 @@
-import { redirect } from "next/navigation";
+"use client";
 
-// Server component — redirects directly to Railway backend, bypassing Vercel's proxy.
-// Vercel's rewrite proxy buffers large responses and has size limits (~4.5MB),
-// so a 4.7MB PDF must go direct to the backend.
+import { useEffect } from "react";
+import { useParams } from "next/navigation";
+
 const BACKEND_URL = process.env.NEXT_PUBLIC_API_URL || "";
 
-export default function PdfProposalPage({ params }: { params: { token: string } }) {
-  const target = BACKEND_URL
-    ? `${BACKEND_URL}/api/proposal/${params.token}/pdf-file`
-    : `/api/proposal/${params.token}/pdf-file`;
-  redirect(target);
+export default function PdfProposalPage() {
+  const { token } = useParams<{ token: string }>();
+
+  useEffect(() => {
+    // Redirect directly to Railway backend — bypasses Vercel proxy size limits.
+    // The loading screen stays visible until the browser's PDF viewer takes over.
+    const target = BACKEND_URL
+      ? `${BACKEND_URL}/api/proposal/${token}/pdf-file`
+      : `/api/proposal/${token}/pdf-file`;
+    window.location.href = target;
+  }, [token]);
+
+  return (
+    <div
+      style={{
+        minHeight: "100vh",
+        background: "linear-gradient(135deg, #1C2235 0%, #2D3548 100%)",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        fontFamily: "'DM Sans', system-ui, sans-serif",
+      }}
+    >
+      <div style={{ textAlign: "center" }}>
+        {/* Logo / Brand */}
+        <div
+          style={{
+            fontSize: 28,
+            fontWeight: 700,
+            color: "#FFFFFF",
+            letterSpacing: "-0.02em",
+            marginBottom: 8,
+          }}
+        >
+          A&T Fence Restoration
+        </div>
+        <div
+          style={{
+            fontSize: 14,
+            color: "rgba(255,255,255,0.5)",
+            marginBottom: 40,
+          }}
+        >
+          Pressure Washing & Fence Staining
+        </div>
+
+        {/* Spinner */}
+        <div
+          style={{
+            width: 48,
+            height: 48,
+            border: "3px solid rgba(255,255,255,0.15)",
+            borderTopColor: "#cf9d52",
+            borderRadius: "50%",
+            margin: "0 auto 24px",
+            animation: "spin 0.8s linear infinite",
+          }}
+        />
+
+        <div style={{ fontSize: 16, color: "#FFFFFF", fontWeight: 500 }}>
+          Loading your proposal...
+        </div>
+        <div
+          style={{
+            fontSize: 13,
+            color: "rgba(255,255,255,0.4)",
+            marginTop: 8,
+          }}
+        >
+          This will only take a moment
+        </div>
+      </div>
+
+      <style>{`
+        @keyframes spin {
+          to { transform: rotate(360deg); }
+        }
+      `}</style>
+    </div>
+  );
 }
