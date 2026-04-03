@@ -64,17 +64,20 @@ export default function PdfProposalPage() {
           }}
         />
 
-        <div style={{ fontSize: 16, color: "#FFFFFF", fontWeight: 500 }}>
-          Loading your proposal...
+        <div style={{ fontSize: 16, color: "#FFFFFF", fontWeight: 500, maxWidth: 320, margin: "0 auto", lineHeight: 1.6 }}>
+          We can&apos;t wait to work with you! We&apos;re loading up your proposal now.
         </div>
         <div
           style={{
             fontSize: 13,
-            color: "rgba(255,255,255,0.4)",
-            marginTop: 8,
+            color: "rgba(255,255,255,0.45)",
+            marginTop: 16,
           }}
         >
-          This will only take a moment
+          Questions? Call us at{" "}
+          <a href="tel:+18323346528" style={{ color: "#cf9d52", textDecoration: "none" }}>
+            (832) 334-6528
+          </a>
         </div>
       </div>
 
