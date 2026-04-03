@@ -22,6 +22,13 @@ def generate_filled_pdf(
     Returns:
         The filled PDF as bytes.
     """
+    # Per-field color overrides (RGB tuples, 0-1 range)
+    FIELD_COLORS: dict[str, tuple[float, float, float]] = {
+        "legacy_price": (0.81, 0.62, 0.32),     # #cf9d52
+        "legacy_monthly": (0.81, 0.62, 0.32),   # #cf9d52
+    }
+    DEFAULT_COLOR = (0.17, 0.17, 0.17)  # #2C2C2C dark gray
+
     doc = fitz.open(stream=template_bytes, filetype="pdf")
 
     for field_key, placement in field_map.items():
@@ -42,8 +49,8 @@ def generate_filled_pdf(
             fitz.Point(x, y),
             str(value),
             fontsize=font_size,
-            fontname="helv",  # Helvetica — built into every PDF viewer
-            color=(0.17, 0.17, 0.17),  # #2C2C2C dark gray
+            fontname="helv",
+            color=FIELD_COLORS.get(field_key, DEFAULT_COLOR),
         )
 
     result = doc.tobytes()
