@@ -755,34 +755,49 @@ async def book_proposal(token: str, body: BookingRequest):
 
 # ── PDF proposal serving ───────────────────────────────────────────────
 
+# In-memory cache: token → (pdf_bytes, timestamp). Avoids re-reading 4.7MB from Postgres.
+_pdf_cache: dict[str, tuple[bytes, float]] = {}
+_PDF_CACHE_TTL = 3600  # 1 hour
+
+
 @router.get("/{token}/pdf-file")
 async def get_proposal_pdf(token: str):
     """Public endpoint — serves the generated PDF for a PDF-version proposal."""
     import asyncio
+    import time
 
-    with get_conn() as conn:
-        with conn.cursor() as cur:
-            cur.execute(
-                "SELECT pdf_data, status FROM proposals WHERE token = %s AND pdf_data IS NOT NULL",
-                (token,),
+    # Check memory cache first
+    cached = _pdf_cache.get(token)
+    if cached and (time.time() - cached[1]) < _PDF_CACHE_TTL:
+        pdf_bytes = cached[0]
+    else:
+        # Read from Postgres
+        with get_conn() as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT pdf_data, status FROM proposals WHERE token = %s AND pdf_data IS NOT NULL",
+                    (token,),
+                )
+                row = cur.fetchone()
+
+        if not row:
+            raise HTTPException(status_code=404, detail="PDF proposal not found")
+
+        pdf_bytes = bytes(row[0])
+        status = row[1]
+
+        # Cache in memory
+        _pdf_cache[token] = (pdf_bytes, time.time())
+
+        # Mark as viewed — fire-and-forget
+        if status == "sent":
+            asyncio.get_event_loop().run_in_executor(
+                None,
+                lambda: get_db().table("proposals").update({
+                    "status": "viewed",
+                    "first_viewed_at": datetime.now(timezone.utc).isoformat(),
+                }).eq("token", token).execute()
             )
-            row = cur.fetchone()
-
-    if not row:
-        raise HTTPException(status_code=404, detail="PDF proposal not found")
-
-    pdf_bytes = bytes(row[0])
-    status = row[1]
-
-    # Mark as viewed — fire-and-forget (don't block PDF delivery)
-    if status == "sent":
-        asyncio.get_event_loop().run_in_executor(
-            None,
-            lambda: get_db().table("proposals").update({
-                "status": "viewed",
-                "first_viewed_at": datetime.now(timezone.utc).isoformat(),
-            }).eq("token", token).execute()
-        )
 
     return Response(
         content=pdf_bytes,
@@ -790,5 +805,8 @@ async def get_proposal_pdf(token: str):
         headers={
             "Content-Disposition": "inline; filename=AT-Fence-Proposal.pdf",
             "Cache-Control": "public, max-age=3600, stale-while-revalidate=86400",
+            # Skip GZip middleware — PDFs are already internally compressed,
+            # gzipping 4.7MB wastes CPU for ~5% gain
+            "Content-Encoding": "identity",
         },
     )
