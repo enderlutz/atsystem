@@ -495,20 +495,20 @@ def get_message_attachments(stage: str, sequence_index: int, context: dict | Non
 # -- Master template map ------------------------------------------------------
 
 STAGE_TEMPLATES: dict[str, list[tuple[int, str]]] = {
-    "new_lead": _NEW_LEAD,
-    "new_build": _NEW_BUILD,
-    "asking_address": _ASKING_ADDRESS,
-    "hot_lead": _HOT_LEAD,
-    "proposal_sent": _PROPOSAL_SENT,
-    "no_package_selection": _NO_PACKAGE,
-    # "package_selected" handled by get_stage_messages() with branching
-    "no_date_selected": _NO_DATE,
-    "date_selected": _DATE_SELECTED,
+    # "new_lead": _NEW_LEAD,              # DISABLED
+    "new_build": _NEW_BUILD,              # Address automation — kept active
+    "asking_address": _ASKING_ADDRESS,    # Address automation — kept active
+    # "hot_lead": _HOT_LEAD,              # DISABLED
+    # "proposal_sent": _PROPOSAL_SENT,    # DISABLED
+    # "no_package_selection": _NO_PACKAGE, # DISABLED
+    # "package_selected" handled by get_stage_messages() with branching — DISABLED
+    # "no_date_selected": _NO_DATE,       # DISABLED
+    # "date_selected": _DATE_SELECTED,    # DISABLED
     # "deposit_paid" handled dynamically
-    "additional_service": _ADDITIONAL_SERVICE,
-    "job_complete": _JOB_COMPLETE,
-    "cold_nurture": _COLD_NURTURE,
-    "past_customer": _PAST_CUSTOMER,
+    # "additional_service": _ADDITIONAL_SERVICE,  # DISABLED
+    # "job_complete": _JOB_COMPLETE,      # DISABLED
+    # "cold_nurture": _COLD_NURTURE,      # DISABLED
+    # "past_customer": _PAST_CUSTOMER,    # DISABLED
 }
 
 
