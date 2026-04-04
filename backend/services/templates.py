@@ -56,17 +56,14 @@ def get_stage_messages(stage: str, metadata: dict | None = None) -> list[tuple[i
     if stage == "package_selected":
         branch = metadata.get("selected_tier", "signature")
 
+    # ALL automations disabled except asking_address and new_build
+    if stage not in ("asking_address", "new_build"):
+        return []
+
     # Check DB overrides first
     overrides = _load_template_overrides(stage, branch)
     if overrides is not None:
         return overrides
-
-    # Fall back to hardcoded templates
-    if stage == "package_selected":
-        return _get_package_selected_messages(metadata.get("selected_tier", "signature"))
-
-    if stage == "deposit_paid":
-        return _get_deposit_paid_messages(metadata)
 
     return STAGE_TEMPLATES.get(stage, [])
 
