@@ -727,3 +727,18 @@ async def test_send_template(body: TemplateTestSendRequest, _: dict = Depends(ge
         raise HTTPException(500, "Failed to send test SMS via GHL")
 
     return {"status": "sent", "rendered": rendered, "attachments": attachments}
+
+
+@router.post("/cancel-all-pending")
+async def cancel_all_pending_messages(user: dict = Depends(get_current_user)):
+    """Cancel ALL pending SMS messages in the queue."""
+    db = get_db()
+    now = datetime.now(timezone.utc).isoformat()
+    result = db.table("sms_queue").update({
+        "status": "cancelled",
+        "cancelled_at": now,
+        "cancel_reason": "bulk_cancel_by_admin",
+    }).eq("status", "pending").execute()
+    count = len(result.data) if result.data else 0
+    logger.info(f"Bulk cancelled {count} pending SMS messages by {user.get('name', 'unknown')}")
+    return {"status": "cancelled", "count": count}
