@@ -27,8 +27,10 @@ logging.basicConfig(level=logging.INFO)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    asyncio.create_task(poll_ghl_contacts())
-    asyncio.create_task(sync_recent_messages())
+    # All pollers disabled — at-system-lite is now the active system.
+    # Re-enable if this project is reactivated.
+    # asyncio.create_task(poll_ghl_contacts())
+    # asyncio.create_task(sync_recent_messages())
     asyncio.create_task(poll_sms_queue())
     asyncio.create_task(poll_stage_timeouts())
     asyncio.create_task(poll_owner_digest())
